@@ -78,3 +78,7 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Test binaries
+test/test_*
+!test/test_*.c
