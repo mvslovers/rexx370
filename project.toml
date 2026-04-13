@@ -1,0 +1,86 @@
+[project]
+name = "rexx370"
+version = "0.1.0-dev"
+type = "application"
+
+[build]
+cflags = ["-std=gnu99", "-I./include"]
+
+[build.sources]
+c_dirs = ["src/"]
+
+[mvs.build.datasets.source]
+suffix = "SOURCE"
+dsorg = "PO"
+recfm = "FB"
+lrecl = 80
+blksize = 19040
+space = ["TRK", 50, 20, 30]
+
+[mvs.build.datasets.punch]
+suffix = "OBJECT"
+dsorg = "PO"
+recfm = "FB"
+lrecl = 80
+blksize = 19040
+space = ["TRK", 30, 10, 30]
+
+[mvs.build.datasets.ncalib]
+suffix = "NCALIB"
+dsorg = "PO"
+recfm = "U"
+lrecl = 0
+blksize = 19069
+space = ["TRK", 30, 10, 30]
+
+[mvs.build.datasets.syslmod]
+suffix = "LOAD"
+dsorg = "PO"
+recfm = "U"
+lrecl = 0
+blksize = 15040
+space = ["TRK", 20, 10, 10]
+
+[dependencies]
+"mvslovers/crent370" = ">=1.0.9"
+
+[mvs.install]
+naming = "fixed"
+
+# ---------------------------------------------------------------
+# IRXJCL - Batch entry point (PGM=IRXJCL)
+# The main REXX interpreter for batch execution.
+# Contains IRXINIT/IRXTERM and all Phase 1+ modules.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "IRXJCL"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "IRXJCL",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#RAB",
+  "IRX#UID",
+  "IRX#MSID",
+]
+
+# ---------------------------------------------------------------
+# IRXEXCOM - Variable access (separate load module per IBM spec)
+# Loaded on demand via IRXEXTE entry point.
+# ---------------------------------------------------------------
+# [[link.module]]
+# name = "IRXEXCOM"
+# entry = "@@CRT0"
+# options = ["LIST", "MAP", "XREF", "RENT"]
+# include = ["@@CRT1", "IRX#XCOM"]
+
+[release]
+version_files = ["VERSION"]
+
+[artifacts]
+headers = true
+header_files = ["irx.h", "irxrab.h", "irxwkblk.h", "irxfunc.h"]
+loads = true

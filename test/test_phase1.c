@@ -1,0 +1,236 @@
+/* ------------------------------------------------------------------ */
+/*  test_phase1.c - Phase 1 Smoke Test                                */
+/*                                                                    */
+/*  Verifies the REXX/370 Phase 1 foundation:                        */
+/*  - IRXINIT creates a valid environment                             */
+/*  - All control blocks are properly linked                          */
+/*  - IRXTERM cleans up everything                                    */
+/*  - Multiple environments can coexist                               */
+/*                                                                    */
+/*  Build: gcc -I inc -o test_phase1 test/test_phase1.c               */
+/*             src/irxinit.c src/irxterm.c src/irxstor.c              */
+/*             src/irxrab.c src/irxuid.c src/irxmsgid.c               */
+/*                                                                    */
+/*  (c) 2026 mvslovers - REXX/370 Project                            */
+/* ------------------------------------------------------------------ */
+
+#include <stdio.h>
+#include <string.h>
+#include "irx.h"
+#include "irxrab.h"
+#include "irxwkblk.h"
+#include "irxfunc.h"
+
+/* Cross-compile: expose simulated TCBUSER from irxrab.c */
+#ifndef __MVS__
+void *_simulated_tcbuser = NULL;
+#endif
+
+static int tests_run    = 0;
+static int tests_passed = 0;
+static int tests_failed = 0;
+
+#define CHECK(cond, msg) \
+    do { \
+        tests_run++; \
+        if (cond) { \
+            tests_passed++; \
+            printf("  PASS: %s\n", msg); \
+        } else { \
+            tests_failed++; \
+            printf("  FAIL: %s\n", msg); \
+        } \
+    } while (0)
+
+/* ------------------------------------------------------------------ */
+/*  Test 1: Single environment lifecycle                              */
+/* ------------------------------------------------------------------ */
+
+static void test_single_env(void)
+{
+    struct envblock      *envblk = NULL;
+    struct parmblock     *pb;
+    struct irxexte       *exte;
+    struct irx_wkblk_int *wkbi;
+    int rc;
+
+    printf("\n--- Test 1: Single environment lifecycle ---\n");
+
+    /* IRXINIT */
+    rc = irxinit(NULL, &envblk);
+    CHECK(rc == 0, "irxinit returns 0");
+    CHECK(envblk != NULL, "envblock is not NULL");
+
+    if (envblk == NULL) return;
+
+    /* Validate ENVBLOCK */
+    CHECK(memcmp(envblk->envblock_id, ENVBLOCK_ID, 8) == 0,
+          "envblock eye-catcher is ENVBLOCK");
+    CHECK(envblk->envblock_length == (int)sizeof(struct envblock),
+          "envblock length is correct");
+
+    /* Validate PARMBLOCK link */
+    pb = (struct parmblock *)envblk->envblock_parmblock;
+    CHECK(pb != NULL, "parmblock is linked");
+    if (pb != NULL) {
+        CHECK(memcmp(pb->parmblock_id, PARMBLOCK_ID, 8) == 0,
+              "parmblock eye-catcher is IRXPARMS");
+        CHECK(pb->parmblock_subcomtb != NULL,
+              "subcomtb is linked in parmblock");
+    }
+
+    /* Validate IRXEXTE link */
+    exte = (struct irxexte *)envblk->envblock_irxexte;
+    CHECK(exte != NULL, "irxexte is linked");
+    if (exte != NULL) {
+        CHECK(exte->irxexte_entry_count == IRXEXTE_ENTRY_COUNT,
+              "irxexte has correct entry count");
+        CHECK(exte->irxuid != NULL,
+              "irxuid is wired in irxexte");
+        CHECK(exte->irxmsgid != NULL,
+              "irxmsgid is wired in irxexte");
+    }
+
+    /* Validate internal Work Block */
+    wkbi = (struct irx_wkblk_int *)envblk->envblock_userfield;
+    CHECK(wkbi != NULL, "internal wkblk is linked via userfield");
+    if (wkbi != NULL) {
+        CHECK(memcmp(wkbi->wkbi_id, WKBLK_INT_ID, 4) == 0,
+              "wkblk eye-catcher is WKBI");
+        CHECK(wkbi->wkbi_digits == NUMERIC_DIGITS_DEFAULT,
+              "NUMERIC DIGITS default is 9");
+        CHECK(wkbi->wkbi_fuzz == NUMERIC_FUZZ_DEFAULT,
+              "NUMERIC FUZZ default is 0");
+        CHECK(wkbi->wkbi_form == NUMFORM_SCIENTIFIC,
+              "NUMERIC FORM default is SCIENTIFIC");
+        CHECK(wkbi->wkbi_envblock == envblk,
+              "wkblk back-pointer to envblock is correct");
+    }
+
+    /* Validate RAB chain */
+    {
+        struct envblock *found = irx_find_env();
+        CHECK(found == envblk, "irx_find_env returns our envblock");
+    }
+
+    /* IRXTERM */
+    rc = irxterm(envblk);
+    CHECK(rc == 0, "irxterm returns 0");
+
+    /* Verify cleanup */
+    {
+        struct envblock *found = irx_find_env();
+        CHECK(found == NULL, "irx_find_env returns NULL after term");
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Test 2: Multiple concurrent environments                          */
+/* ------------------------------------------------------------------ */
+
+static void test_multiple_envs(void)
+{
+    struct envblock *env1 = NULL;
+    struct envblock *env2 = NULL;
+    struct envblock *env3 = NULL;
+    int rc;
+
+    printf("\n--- Test 2: Multiple concurrent environments ---\n");
+
+    rc = irxinit(NULL, &env1);
+    CHECK(rc == 0 && env1 != NULL, "env1 created");
+
+    rc = irxinit(NULL, &env2);
+    CHECK(rc == 0 && env2 != NULL, "env2 created");
+
+    rc = irxinit(NULL, &env3);
+    CHECK(rc == 0 && env3 != NULL, "env3 created");
+
+    /* Most recent should be env3 */
+    CHECK(irx_find_env() == env3,
+          "irx_find_env returns most recent (env3)");
+
+    CHECK(env1 != env2 && env2 != env3,
+          "all envblocks are distinct");
+
+    /* Terminate in reverse order */
+    rc = irxterm(env3);
+    CHECK(rc == 0, "env3 terminated");
+    CHECK(irx_find_env() == env2,
+          "after env3 term, current is env2");
+
+    rc = irxterm(env2);
+    CHECK(rc == 0, "env2 terminated");
+    CHECK(irx_find_env() == env1,
+          "after env2 term, current is env1");
+
+    rc = irxterm(env1);
+    CHECK(rc == 0, "env1 terminated");
+    CHECK(irx_find_env() == NULL,
+          "after env1 term, no environments remain");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Test 3: User ID and Message ID routines                           */
+/* ------------------------------------------------------------------ */
+
+static void test_uid_msgid(void)
+{
+    struct envblock *envblk = NULL;
+    char userid[8];
+    char prefix[3];
+    int rc;
+
+    printf("\n--- Test 3: User ID and Message ID ---\n");
+
+    rc = irxinit(NULL, &envblk);
+    CHECK(rc == 0, "environment created for uid/msgid test");
+
+    /* User ID */
+    memset(userid, 0, 8);
+    rc = irxuid(userid, envblk);
+    CHECK(rc == 0, "irxuid returns 0");
+    CHECK(userid[0] != 0, "userid is not empty");
+    printf("         userid = '%.8s'\n", userid);
+
+    /* Message ID - GET */
+    memset(prefix, 0, 3);
+    rc = irxmsgid(0, prefix, envblk);
+    CHECK(rc == 0, "irxmsgid GET returns 0");
+    CHECK(memcmp(prefix, "IRX", 3) == 0,
+          "default prefix is IRX");
+
+    /* Message ID - SET */
+    rc = irxmsgid(1, "BRX", envblk);
+    CHECK(rc == 0, "irxmsgid SET returns 0");
+    rc = irxmsgid(0, prefix, envblk);
+    CHECK(memcmp(prefix, "BRX", 3) == 0,
+          "prefix changed to BRX");
+
+    /* Restore */
+    irxmsgid(1, "IRX", envblk);
+
+    irxterm(envblk);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main                                                              */
+/* ------------------------------------------------------------------ */
+
+int main(void)
+{
+    printf("=== REXX/370 Phase 1 Smoke Test ===\n");
+
+    test_single_env();
+    test_multiple_envs();
+    test_uid_msgid();
+
+    printf("\n=== Results: %d/%d passed",
+           tests_passed, tests_run);
+    if (tests_failed > 0) {
+        printf(", %d FAILED", tests_failed);
+    }
+    printf(" ===\n");
+
+    return tests_failed > 0 ? 1 : 0;
+}
