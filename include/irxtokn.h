@@ -26,11 +26,14 @@
 #define TOK_NUMBER      0x03  /* 42, 3.14, 1E5                       */
 #define TOK_HEXSTRING   0x04  /* 'FF'x                               */
 #define TOK_BINSTRING   0x05  /* '1010'b                             */
-#define TOK_OPERATOR    0x06  /* + - * / // % **                     */
-#define TOK_COMPARISON  0x07  /* = \= == \== > < >= <= >< <>         */
-#define TOK_LOGICAL     0x08  /* & | &&                              */
+/* Operator characters are emitted one per token; the parser forms   */
+/* composite operators (||, **, //, ==, >=, <=, &&, \=, etc.) from   */
+/* adjacent operator tokens. See docs/tokenizer-notes.md section 3.  */
+#define TOK_OPERATOR    0x06  /* + - * / %                           */
+#define TOK_COMPARISON  0x07  /* = > <                               */
+#define TOK_LOGICAL     0x08  /* & |                                 */
 #define TOK_NOT         0x09  /* \ or EBCDIC NOT sign                */
-#define TOK_CONCAT      0x0A  /* ||                                  */
+#define TOK_CONCAT      0x0A  /* reserved (parser may synthesize)    */
 #define TOK_LPAREN      0x0B  /* (                                   */
 #define TOK_RPAREN      0x0C  /* )                                   */
 #define TOK_COMMA       0x0D  /* ,                                   */

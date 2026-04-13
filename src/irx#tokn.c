@@ -468,9 +468,12 @@ static int scan_symbol_or_number(struct tok_ctx *ctx)
 /* ------------------------------------------------------------------ */
 /*  Scanner: operators, punctuation                                   */
 /*                                                                    */
-/*  REXX has a rich operator set including multi-character variants   */
-/*  (==, \==, >=, <=, ><, <>, >>, <<, >>=, <<=, \>>, \<<, **, ||,     */
-/*   &&, //). We match the longest sequence first.                    */
+/*  Per design notes section 3, the tokenizer emits one token per     */
+/*  operator character. Composite operators (||, **, //, ==, >=, <=,  */
+/*  &&, \=, \==, >>, <<, >>=, <<=, \>>, \<<) are formed by the parser */
+/*  from adjacent operator tokens. This handles the awkward edge      */
+/*  case of comments or whitespace appearing inside what looks like   */
+/*  a multi-character operator (a | comment | b is still concat).     */
 /* ------------------------------------------------------------------ */
 
 static int scan_operator(struct tok_ctx *ctx)
@@ -479,130 +482,56 @@ static int scan_operator(struct tok_ctx *ctx)
     int start_col  = ctx->col;
     int start_pos  = ctx->pos;
     int c0 = peek(ctx, 0);
-    int c1 = peek(ctx, 1);
-    int c2 = peek(ctx, 2);
-    unsigned char type = 0;
-    int len = 1;
+    unsigned char type;
 
-    /* Punctuation first. */
-    switch (c0) {
-    case '(':
-        advance(ctx, 1);
-        return emit(ctx, TOK_LPAREN, TOKF_NONE,
-                    ctx->src + start_pos, 1, start_line, start_col);
-    case ')':
-        advance(ctx, 1);
-        return emit(ctx, TOK_RPAREN, TOKF_NONE,
-                    ctx->src + start_pos, 1, start_line, start_col);
-    case ',':
-        advance(ctx, 1);
-        return emit(ctx, TOK_COMMA, TOKF_NONE,
-                    ctx->src + start_pos, 1, start_line, start_col);
-    case ';':
-        advance(ctx, 1);
-        /* Semicolon ends a clause. */
-        return emit_eoc(ctx, start_line, start_col);
-    case ':':
-        /* Colon after a symbol is a clause delimiter (label). The
-         * parser distinguishes labels from other uses by context.
-         * For the tokenizer, emit an EOC. */
-        advance(ctx, 1);
-        return emit_eoc(ctx, start_line, start_col);
-    }
-
-    /* NOT-prefixed comparison forms: \=, \==, \>, \<, \>>, \<< */
+    /* NOT character (backslash, plus EBCDIC logical-not on MVS). */
     if (is_not_sign(c0)) {
-        if (c1 == '=' && c2 == '=') {
-            type = TOK_COMPARISON; len = 3;
-        } else if (c1 == '=' || c1 == '>' || c1 == '<') {
-            if ((c1 == '>' && c2 == '>') || (c1 == '<' && c2 == '<')) {
-                type = TOK_COMPARISON; len = 3;
-            } else {
-                type = TOK_COMPARISON; len = 2;
-            }
-        } else {
-            type = TOK_NOT; len = 1;
+        type = TOK_NOT;
+    } else {
+        switch (c0) {
+        case '(':
+            advance(ctx, 1);
+            return emit(ctx, TOK_LPAREN, TOKF_NONE,
+                        ctx->src + start_pos, 1, start_line, start_col);
+        case ')':
+            advance(ctx, 1);
+            return emit(ctx, TOK_RPAREN, TOKF_NONE,
+                        ctx->src + start_pos, 1, start_line, start_col);
+        case ',':
+            advance(ctx, 1);
+            return emit(ctx, TOK_COMMA, TOKF_NONE,
+                        ctx->src + start_pos, 1, start_line, start_col);
+        case ';':
+        case ':':
+            /* Both terminate a clause. The colon after a label
+             * symbol is recognised by the parser from context. */
+            advance(ctx, 1);
+            return emit(ctx, TOK_SEMICOLON, TOKF_NONE,
+                        ctx->src + start_pos, 1, start_line, start_col);
+
+        case '+': case '-': case '*': case '/': case '%':
+            type = TOK_OPERATOR;
+            break;
+
+        case '=': case '>': case '<':
+            type = TOK_COMPARISON;
+            break;
+
+        case '&': case '|':
+            type = TOK_LOGICAL;
+            break;
+
+        default:
+            ctx->err_code = TOKERR_BAD_CHAR;
+            ctx->err_line = start_line;
+            ctx->err_col  = start_col;
+            return 20;
         }
-        advance(ctx, len);
-        return emit(ctx, type, TOKF_NONE,
-                    ctx->src + start_pos, len, start_line, start_col);
     }
 
-    /* Logical / concat doubled forms. */
-    if (c0 == '|' && c1 == '|') {
-        advance(ctx, 2);
-        return emit(ctx, TOK_CONCAT, TOKF_NONE,
-                    ctx->src + start_pos, 2, start_line, start_col);
-    }
-    if (c0 == '&' && c1 == '&') {
-        advance(ctx, 2);
-        return emit(ctx, TOK_LOGICAL, TOKF_NONE,
-                    ctx->src + start_pos, 2, start_line, start_col);
-    }
-    if (c0 == '|' || c0 == '&') {
-        advance(ctx, 1);
-        return emit(ctx, TOK_LOGICAL, TOKF_NONE,
-                    ctx->src + start_pos, 1, start_line, start_col);
-    }
-
-    /* Arithmetic / comparison with possible two-char forms. */
-    if (c0 == '*' && c1 == '*') {
-        advance(ctx, 2);
-        return emit(ctx, TOK_OPERATOR, TOKF_NONE,
-                    ctx->src + start_pos, 2, start_line, start_col);
-    }
-    if (c0 == '/' && c1 == '/') {
-        advance(ctx, 2);
-        return emit(ctx, TOK_OPERATOR, TOKF_NONE,
-                    ctx->src + start_pos, 2, start_line, start_col);
-    }
-    if (c0 == '+' || c0 == '-' || c0 == '*' || c0 == '/' || c0 == '%') {
-        advance(ctx, 1);
-        return emit(ctx, TOK_OPERATOR, TOKF_NONE,
-                    ctx->src + start_pos, 1, start_line, start_col);
-    }
-
-    /* Comparison operators. */
-    if (c0 == '=' && c1 == '=') {
-        advance(ctx, 2);
-        return emit(ctx, TOK_COMPARISON, TOKF_NONE,
-                    ctx->src + start_pos, 2, start_line, start_col);
-    }
-    if (c0 == '=') {
-        advance(ctx, 1);
-        return emit(ctx, TOK_COMPARISON, TOKF_NONE,
-                    ctx->src + start_pos, 1, start_line, start_col);
-    }
-    if (c0 == '>' && c1 == '>' && c2 == '=') {
-        advance(ctx, 3);
-        return emit(ctx, TOK_COMPARISON, TOKF_NONE,
-                    ctx->src + start_pos, 3, start_line, start_col);
-    }
-    if (c0 == '<' && c1 == '<' && c2 == '=') {
-        advance(ctx, 3);
-        return emit(ctx, TOK_COMPARISON, TOKF_NONE,
-                    ctx->src + start_pos, 3, start_line, start_col);
-    }
-    if (c0 == '>' && (c1 == '>' || c1 == '=' || c1 == '<')) {
-        advance(ctx, 2);
-        return emit(ctx, TOK_COMPARISON, TOKF_NONE,
-                    ctx->src + start_pos, 2, start_line, start_col);
-    }
-    if (c0 == '<' && (c1 == '<' || c1 == '=' || c1 == '>')) {
-        advance(ctx, 2);
-        return emit(ctx, TOK_COMPARISON, TOKF_NONE,
-                    ctx->src + start_pos, 2, start_line, start_col);
-    }
-    if (c0 == '>' || c0 == '<') {
-        advance(ctx, 1);
-        return emit(ctx, TOK_COMPARISON, TOKF_NONE,
-                    ctx->src + start_pos, 1, start_line, start_col);
-    }
-
-    ctx->err_code = TOKERR_BAD_CHAR;
-    ctx->err_line = start_line;
-    ctx->err_col  = start_col;
-    return 20;
+    advance(ctx, 1);
+    return emit(ctx, type, TOKF_NONE,
+                ctx->src + start_pos, 1, start_line, start_col);
 }
 
 /* ------------------------------------------------------------------ */

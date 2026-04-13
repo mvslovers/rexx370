@@ -161,40 +161,107 @@ static void test_string_doubling(void)
     irx_tokn_free(NULL, toks, n);
 }
 
-static void test_operators(void)
+static void test_operators_single_char(void)
 {
     struct irx_token *toks = NULL;
     int n = 0;
     struct irx_tokn_error err;
-    const char *src = "a + b - c * d / e // f % g ** h || i && j \\= k == l >= m <= n";
     int rc;
 
-    printf("\n--- Test: operator zoo ---\n");
+    printf("\n--- Test: single-character operator emission ---\n");
 
-    rc = run(src, &toks, &n, &err);
-    CHECK(rc == 0, "tokenizer returns 0");
-    /* 14 operands + 13 operators + EOC + EOF = 29 tokens */
-    CHECK(n == 29, "29 tokens for the operator-zoo expression");
-    if (rc == 0 && n >= 28) {
-        /* Spot-check a few operator types */
-        CHECK(toks[1].tok_type == TOK_OPERATOR && tok_text_eq(&toks[1], "+"),
-              "+ is OPERATOR");
-        CHECK(toks[9].tok_type == TOK_OPERATOR && tok_text_eq(&toks[9], "//"),
-              "// is OPERATOR");
-        CHECK(toks[13].tok_type == TOK_OPERATOR && tok_text_eq(&toks[13], "**"),
-              "** is OPERATOR");
-        CHECK(toks[15].tok_type == TOK_CONCAT && tok_text_eq(&toks[15], "||"),
-              "|| is CONCAT");
-        CHECK(toks[17].tok_type == TOK_LOGICAL && tok_text_eq(&toks[17], "&&"),
-              "&& is LOGICAL");
-        CHECK(toks[19].tok_type == TOK_COMPARISON && tok_text_eq(&toks[19], "\\="),
-              "\\= is COMPARISON");
-        CHECK(toks[21].tok_type == TOK_COMPARISON && tok_text_eq(&toks[21], "=="),
-              "== is COMPARISON");
-        CHECK(toks[23].tok_type == TOK_COMPARISON && tok_text_eq(&toks[23], ">="),
-              ">= is COMPARISON");
-        CHECK(toks[25].tok_type == TOK_COMPARISON && tok_text_eq(&toks[25], "<="),
-              "<= is COMPARISON");
+    /* Each operator character is emitted as its own token; composite
+     * forms (||, **, etc.) are the parser's job. */
+    rc = run("a||b", &toks, &n, &err);
+    CHECK(rc == 0, "'a||b' tokenizes");
+    CHECK(n == 6, "6 tokens (SYM | | SYM EOC EOF)");
+    if (n >= 6) {
+        CHECK(toks[0].tok_type == TOK_SYMBOL && tok_text_eq(&toks[0], "a"),
+              "[0] SYMBOL a");
+        CHECK(toks[1].tok_type == TOK_LOGICAL && tok_text_eq(&toks[1], "|"),
+              "[1] LOGICAL '|' (first of ||)");
+        CHECK(toks[2].tok_type == TOK_LOGICAL && tok_text_eq(&toks[2], "|"),
+              "[2] LOGICAL '|' (second of ||)");
+        CHECK(toks[3].tok_type == TOK_SYMBOL && tok_text_eq(&toks[3], "b"),
+              "[3] SYMBOL b");
+    }
+    irx_tokn_free(NULL, toks, n);
+
+    /* ** as two TOK_OPERATOR */
+    toks = NULL; n = 0;
+    rc = run("2**3", &toks, &n, &err);
+    CHECK(rc == 0, "'2**3' tokenizes");
+    if (n >= 4) {
+        CHECK(toks[0].tok_type == TOK_NUMBER, "[0] NUMBER 2");
+        CHECK(toks[1].tok_type == TOK_OPERATOR && tok_text_eq(&toks[1], "*"),
+              "[1] OPERATOR '*'");
+        CHECK(toks[2].tok_type == TOK_OPERATOR && tok_text_eq(&toks[2], "*"),
+              "[2] OPERATOR '*'");
+        CHECK(toks[3].tok_type == TOK_NUMBER, "[3] NUMBER 3");
+    }
+    irx_tokn_free(NULL, toks, n);
+
+    /* \= as NOT followed by COMPARISON */
+    toks = NULL; n = 0;
+    rc = run("a\\=b", &toks, &n, &err);
+    CHECK(rc == 0, "'a\\=b' tokenizes");
+    if (n >= 4) {
+        CHECK(toks[1].tok_type == TOK_NOT && tok_text_eq(&toks[1], "\\"),
+              "[1] NOT '\\'");
+        CHECK(toks[2].tok_type == TOK_COMPARISON && tok_text_eq(&toks[2], "="),
+              "[2] COMPARISON '='");
+    }
+    irx_tokn_free(NULL, toks, n);
+
+    /* >= as two COMPARISONs */
+    toks = NULL; n = 0;
+    rc = run("a>=b", &toks, &n, &err);
+    CHECK(rc == 0, "'a>=b' tokenizes");
+    if (n >= 4) {
+        CHECK(toks[1].tok_type == TOK_COMPARISON && tok_text_eq(&toks[1], ">"),
+              "[1] COMPARISON '>'");
+        CHECK(toks[2].tok_type == TOK_COMPARISON && tok_text_eq(&toks[2], "="),
+              "[2] COMPARISON '='");
+    }
+    irx_tokn_free(NULL, toks, n);
+
+    /* Comment between || characters - parser will still see two | */
+    toks = NULL; n = 0;
+    rc = run("a| /* gap */ |b", &toks, &n, &err);
+    CHECK(rc == 0, "'a| /* gap */ |b' tokenizes (comment inside ||)");
+    if (n >= 4) {
+        CHECK(toks[1].tok_type == TOK_LOGICAL && tok_text_eq(&toks[1], "|"),
+              "first | preserved");
+        CHECK(toks[2].tok_type == TOK_LOGICAL && tok_text_eq(&toks[2], "|"),
+              "second | preserved across the comment");
+    }
+    irx_tokn_free(NULL, toks, n);
+}
+
+static void test_punctuation(void)
+{
+    struct irx_token *toks = NULL;
+    int n = 0;
+    struct irx_tokn_error err;
+    int rc;
+
+    printf("\n--- Test: ; and : are TOK_SEMICOLON ---\n");
+
+    rc = run("a;b", &toks, &n, &err);
+    CHECK(rc == 0, "'a;b' tokenizes");
+    if (n >= 4) {
+        CHECK(toks[1].tok_type == TOK_SEMICOLON, "[1] ';' is SEMICOLON");
+    }
+    irx_tokn_free(NULL, toks, n);
+
+    toks = NULL; n = 0;
+    rc = run("loop:\nsay 'x'", &toks, &n, &err);
+    CHECK(rc == 0, "'loop:' label tokenizes");
+    if (n >= 2) {
+        CHECK(toks[0].tok_type == TOK_SYMBOL && tok_text_eq(&toks[0], "loop"),
+              "[0] SYMBOL 'loop'");
+        CHECK(toks[1].tok_type == TOK_SEMICOLON,
+              "[1] ':' is SEMICOLON");
     }
     irx_tokn_free(NULL, toks, n);
 }
@@ -347,7 +414,8 @@ int main(void)
     test_hex_string();
     test_bin_string();
     test_string_doubling();
-    test_operators();
+    test_operators_single_char();
+    test_punctuation();
     test_comments_and_lines();
     test_continuation();
     test_numbers();
