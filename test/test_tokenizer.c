@@ -317,13 +317,15 @@ static void test_continuation(void)
 
     rc = run(src, &toks, &n, &err);
     CHECK(rc == 0, "tokenizer returns 0");
-    /* No COMMA token, no extra EOC: SYM STR STR EOC EOF = 5 */
-    CHECK(n == 5, "5 tokens (comma + newline collapsed)");
-    if (n >= 4) {
+    /* Comma stays (argument separator), only EOC suppressed:
+     * SYM STR COMMA STR EOC EOF = 6 */
+    CHECK(n == 6, "6 tokens (comma kept, EOC suppressed)");
+    if (n >= 5) {
         CHECK(toks[0].tok_type == TOK_SYMBOL, "[0] SYMBOL say");
         CHECK(toks[1].tok_type == TOK_STRING, "[1] STRING 'a'");
-        CHECK(toks[2].tok_type == TOK_STRING, "[2] STRING 'b'");
-        CHECK(toks[3].tok_type == TOK_EOC,    "[3] EOC");
+        CHECK(toks[2].tok_type == TOK_COMMA,  "[2] COMMA (kept for parser)");
+        CHECK(toks[3].tok_type == TOK_STRING, "[3] STRING 'b'");
+        CHECK(toks[4].tok_type == TOK_EOC,    "[4] EOC");
     }
     irx_tokn_free(NULL, toks, n);
 }

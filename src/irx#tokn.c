@@ -242,8 +242,11 @@ static int emit_eoc(struct tok_ctx *ctx, int at_line, int at_col)
         return 0;
     }
     if (ctx->tokens[ctx->tok_count - 1].tok_type == TOK_COMMA) {
-        /* Continuation: drop the trailing comma, swallow the EOC. */
-        ctx->tok_count--;
+        /* Continuation: keep the comma (it is also the argument
+         * separator in CALL / function-call contexts) and suppress
+         * the EOC only. Per SC28-1883-0 Chapter 2: "A clause is
+         * ended by the end of a line that is not immediately
+         * preceded by a comma." */
         return 0;
     }
     /* Collapse multiple consecutive EOCs. */
