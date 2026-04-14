@@ -67,6 +67,11 @@ int irxterm(struct envblock *envblk)
          * exec stack, token stream, label table, cache
          * that hang off wkbi before freeing wkbi itself */
 
+        /* Free the lstring370 allocator bridge if it was installed. */
+        if (wkbi->wkbi_lstr_alloc != NULL) {
+            stor_free(&wkbi->wkbi_lstr_alloc, envblk);
+        }
+
         envblk->envblock_userfield = NULL;
         stor_free((void **)&wkbi, envblk);
     }
