@@ -43,6 +43,7 @@ space = ["TRK", 20, 10, 10]
 
 [dependencies]
 "mvslovers/crent370" = ">=1.0.9"
+"mvslovers/lstring370" = "=0.1.0-dev"
 
 [mvs.install]
 naming = "fixed"

@@ -137,7 +137,13 @@ struct irx_wkblk_int {
     int            wkbi_depth;          /* Current call/procedure depth   */
     int            wkbi_flags;          /* Internal state flags           */
 
-    int            _reserved[4];        /* reserved for future use        */
+    /* --- lstring370 allocator bridge (WP-11b) ----------------------- */
+    /* Opaque pointer to a `struct lstr_alloc` allocated via irxstor.
+     * Set lazily by irx_lstr_init(); freed by irxterm(). Consumers
+     * that need the concrete type must include <lstring.h>.          */
+    void          *wkbi_lstr_alloc;
+
+    int            _reserved[3];        /* reserved for future use        */
 };
 
 #define WKBLK_INT_ID    "WKBI"
