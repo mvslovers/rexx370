@@ -27,6 +27,7 @@
 #include "irxtokn.h"
 #include "irxvpool.h"
 #include "irxpars.h"
+#include "irxctrl.h"
 
 /* ------------------------------------------------------------------ */
 /*  Lstr scratch helpers                                              */
@@ -358,6 +359,973 @@ static int kw_say(struct irx_parser *p)
 }
 
 /* ------------------------------------------------------------------ */
+/*  WP-15 forward declarations (parse_* defined later in file)        */
+/* ------------------------------------------------------------------ */
+
+static int parse_add(struct irx_parser *p, PLstr out);
+static int parse_or (struct irx_parser *p, PLstr out);
+
+/* ------------------------------------------------------------------ */
+/*  WP-15 helper: case-insensitive symbol comparison                  */
+/* ------------------------------------------------------------------ */
+
+static int sym_matches(const struct irx_token *t, const char *name)
+{
+    size_t n = strlen(name);
+    size_t i;
+    if (t == NULL || t->tok_type != TOK_SYMBOL) return 0;
+    if ((size_t)t->tok_length != n) return 0;
+    for (i = 0; i < n; i++) {
+        int c = (unsigned char)t->tok_text[i];
+        if (islower(c)) c = toupper(c);
+        if (c != (unsigned char)name[i]) return 0;
+    }
+    return 1;
+}
+
+/* Upper-case a symbol token's text into a fixed char buffer.
+ * Returns the number of bytes written (may truncate to dst_max-1). */
+static int sym_to_upper(const struct irx_token *t, char *dst, int dst_max)
+{
+    int n = (int)t->tok_length;
+    int i;
+    if (n >= dst_max) n = dst_max - 1;
+    for (i = 0; i < n; i++) {
+        int c = (unsigned char)t->tok_text[i];
+        dst[i] = (char)(islower(c) ? toupper(c) : c);
+    }
+    dst[n] = '\0';
+    return n;
+}
+
+/* ------------------------------------------------------------------ */
+/*  WP-15 helper: find position after the matching END                */
+/*                                                                    */
+/*  Scans forward from `from`, counting DO/SELECT vs END at clause    */
+/*  starts. Returns tok_pos of first token after the matching END,    */
+/*  or -1 if not found.                                               */
+/* ------------------------------------------------------------------ */
+
+/* Returns 1 if the token at `pos` is the keyword `kw` (not an
+ * assignment target), 0 otherwise. */
+static int tok_is_kw(struct irx_parser *p, int pos, const char *kw)
+{
+    const struct irx_token *t;
+    const struct irx_token *tnext;
+    const struct irx_token *tnext2;
+
+    if (pos < 0 || pos >= p->tok_count) return 0;
+    t = &p->tokens[pos];
+    if (!sym_matches(t, kw)) return 0;
+    /* Exclude assignment: SYMBOL = (but not SYMBOL ==) */
+    tnext  = (pos + 1 < p->tok_count) ? &p->tokens[pos + 1] : NULL;
+    tnext2 = (pos + 2 < p->tok_count) ? &p->tokens[pos + 2] : NULL;
+    if (tok_is_op_char(tnext, TOK_COMPARISON, '=') &&
+        !tok_is_op_char(tnext2, TOK_COMPARISON, '=')) {
+        return 0;  /* it's an assignment */
+    }
+    return 1;
+}
+
+static int find_end_after(struct irx_parser *p, int from)
+{
+    int depth = 1;
+    int pos   = from;
+
+    while (pos < p->tok_count) {
+        const struct irx_token *t = &p->tokens[pos];
+        if (t->tok_type == TOK_EOF) break;
+        if (tok_is_kw(p, pos, "DO") || tok_is_kw(p, pos, "SELECT")) {
+            depth++;
+        } else if (tok_is_kw(p, pos, "END")) {
+            depth--;
+            if (depth == 0) return pos + 1;
+        }
+        pos++;
+    }
+    return -1;
+}
+
+/* Skip forward to the end of the current clause (stops at EOC/EOF/;).
+ * Handles nested parentheses so that function arguments are not
+ * mistaken for clause boundaries. */
+static void skip_to_clause_end(struct irx_parser *p)
+{
+    int depth = 0;
+    while (p->tok_pos < p->tok_count) {
+        const struct irx_token *t = cur_tok(p);
+        if (t == NULL) break;
+        if (t->tok_type == TOK_LPAREN) { depth++; advance_tok(p); continue; }
+        if (t->tok_type == TOK_RPAREN) {
+            if (depth > 0) depth--;
+            advance_tok(p);
+            continue;
+        }
+        if (depth == 0 && tok_ends_clause(t)) break;
+        advance_tok(p);
+    }
+}
+
+/* Skip one complete instruction (simple clause or DO/SELECT block).
+ * On entry, tok_pos should point at the first token of the instruction
+ * (leading EOC tokens are consumed first).
+ * On return, tok_pos points to the first terminator after the
+ * instruction (i.e., the caller should then consume trailing EOC). */
+static int skip_instruction(struct irx_parser *p)
+{
+    const struct irx_token *t;
+
+    /* Eat leading EOC */
+    while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+        advance_tok(p);
+
+    t = cur_tok(p);
+    if (t == NULL || t->tok_type == TOK_EOF) return IRXPARS_OK;
+
+    /* DO or SELECT block: jump to token after matching END */
+    if (tok_is_kw(p, p->tok_pos, "DO") ||
+        tok_is_kw(p, p->tok_pos, "SELECT")) {
+        int end_pos = find_end_after(p, p->tok_pos + 1);
+        if (end_pos < 0) return fail(p, IRXPARS_SYNTAX);
+        p->tok_pos = end_pos;
+        return IRXPARS_OK;
+    }
+
+    skip_to_clause_end(p);
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  WP-15 helper: set a variable by name (char * + length)            */
+/* ------------------------------------------------------------------ */
+
+static int set_var_str(struct irx_parser *p,
+                       const char *name, int name_len,
+                       const char *val,  int val_len)
+{
+    Lstr k, v;
+    int  rc;
+
+    Lzeroinit(&k);
+    Lzeroinit(&v);
+
+    rc = lstr_set_bytes(p->alloc, &k, name, (size_t)name_len);
+    if (rc != LSTR_OK) { return fail(p, IRXPARS_NOMEM); }
+
+    rc = lstr_set_bytes(p->alloc, &v, val, (size_t)val_len);
+    if (rc != LSTR_OK) {
+        Lfree(p->alloc, &k);
+        return fail(p, IRXPARS_NOMEM);
+    }
+
+    rc = vpool_set(p->vpool, &k, &v);
+    Lfree(p->alloc, &k);
+    Lfree(p->alloc, &v);
+    return (rc == VPOOL_OK) ? IRXPARS_OK : fail(p, IRXPARS_NOMEM);
+}
+
+static int set_var_long(struct irx_parser *p,
+                        const char *name, int name_len, long val)
+{
+    char buf[32];
+    int  n = sprintf(buf, "%ld", val);
+    if (n < 0) return fail(p, IRXPARS_NOMEM);
+    return set_var_str(p, name, name_len, buf, n);
+}
+
+/* ------------------------------------------------------------------ */
+/*  WP-15 helper: evaluate a condition at a saved token position      */
+/*                                                                    */
+/*  Temporarily sets p->tok_pos to cond_pos, evaluates one           */
+/*  expression, then restores tok_pos to saved. Result is put in out. */
+/* ------------------------------------------------------------------ */
+
+static int eval_at(struct irx_parser *p, int cond_pos, PLstr out)
+{
+    int saved = p->tok_pos;
+    int rc;
+    p->tok_pos = cond_pos;
+    rc = irx_pars_eval_expr(p, out);
+    p->tok_pos = saved;
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  WP-15 helper: DO frame iteration check                            */
+/*                                                                    */
+/*  Called by kw_end to decide whether to iterate or exit the loop.  */
+/*  Returns 1 if the loop body should execute again, 0 to exit.      */
+/*  On iteration, updates the control variable and re-sets loop_start  */
+/*  as the target. On exit, leaves p->tok_pos past the END token.     */
+/* ------------------------------------------------------------------ */
+
+static int do_should_iterate(struct irx_parser *p,
+                             struct irx_exec_frame *f)
+{
+    Lstr cond;
+    long cond_val;
+    int  iterate;
+
+    switch (f->do_type) {
+
+    case DO_SIMPLE:
+        return 0;   /* body executes once */
+
+    case DO_FOREVER:
+        return 1;
+
+    case DO_COUNT:
+        if (f->ctrl_count <= 0) return 0;
+        f->ctrl_count--;
+        return (f->ctrl_count >= 0) ? 1 : 0;
+
+    case DO_CTRL: {
+        /* Increment control variable, then check bounds. */
+        f->ctrl_val += f->ctrl_by;
+        if (f->ctrl_by >= 0) {
+            iterate = (f->ctrl_val <= f->ctrl_to);
+        } else {
+            iterate = (f->ctrl_val >= f->ctrl_to);
+        }
+        if (iterate && f->ctrl_name_len > 0) {
+            set_var_long(p, f->ctrl_name, f->ctrl_name_len,
+                         f->ctrl_val);
+        }
+        return iterate;
+    }
+
+    case DO_WHILE:
+        Lzeroinit(&cond);
+        if (eval_at(p, f->cond_tok_pos, &cond) != IRXPARS_OK) {
+            Lfree(p->alloc, &cond);
+            return 0;
+        }
+        iterate = lstr_to_long(&cond, &cond_val) && (cond_val != 0);
+        Lfree(p->alloc, &cond);
+        return iterate;
+
+    case DO_UNTIL:
+        /* Body always ran at least once before END is reached. */
+        Lzeroinit(&cond);
+        if (eval_at(p, f->cond_tok_pos, &cond) != IRXPARS_OK) {
+            Lfree(p->alloc, &cond);
+            return 0;
+        }
+        /* UNTIL: stop when cond is true */
+        iterate = !(lstr_to_long(&cond, &cond_val) && (cond_val != 0));
+        Lfree(p->alloc, &cond);
+        return iterate;
+
+    default:
+        return 0;
+    }
+}
+
+/* ================================================================== */
+/*  WP-15 keyword handlers                                            */
+/* ================================================================== */
+
+/* Forward declaration for mutual recursion (kw_if uses exec_clause). */
+static int exec_clause(struct irx_parser *p);
+
+/* ------------------------------------------------------------------ */
+/*  NOP                                                               */
+/* ------------------------------------------------------------------ */
+
+static int kw_nop(struct irx_parser *p)
+{
+    (void)p;
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  THEN / ELSE — syntax barriers only, never standalone instructions  */
+/* ------------------------------------------------------------------ */
+
+static int kw_then(struct irx_parser *p) { return fail(p, IRXPARS_SYNTAX); }
+static int kw_else(struct irx_parser *p) { return fail(p, IRXPARS_SYNTAX); }
+
+/* ------------------------------------------------------------------ */
+/*  EXIT [expr]                                                       */
+/* ------------------------------------------------------------------ */
+
+static int kw_exit(struct irx_parser *p)
+{
+    struct irx_exec_stack *es = (struct irx_exec_stack *)p->exec_stack;
+    long rc_val = 0;
+
+    if (!tok_ends_clause(cur_tok(p))) {
+        Lstr result;
+        Lzeroinit(&result);
+        if (irx_pars_eval_expr(p, &result) == IRXPARS_OK) {
+            lstr_to_long(&result, &rc_val);
+        }
+        Lfree(p->alloc, &result);
+    }
+
+    p->exit_requested = 1;
+    p->exit_rc        = (int)rc_val;
+    if (es != NULL) {
+        es->exit_requested = 1;
+        es->exit_rc        = (int)rc_val;
+    }
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  DO [variant] ... END                                              */
+/* ------------------------------------------------------------------ */
+
+static int kw_do(struct irx_parser *p)
+{
+    struct irx_exec_stack  *es  = (struct irx_exec_stack *)p->exec_stack;
+    struct irx_exec_frame  *f;
+    const struct irx_token *t;
+    int rc = IRXPARS_OK;
+    Lstr tmp;
+
+    Lzeroinit(&tmp);
+
+    f = irx_ctrl_frame_push(p, FRAME_DO);
+    if (f == NULL) return fail(p, IRXPARS_NOMEM);
+
+    /* Inherit label from exec_stack->last_label if set. */
+    if (es != NULL && es->last_label_len > 0) {
+        int n = es->last_label_len;
+        if (n >= CTRL_NAME_MAX) n = CTRL_NAME_MAX - 1;
+        memcpy(f->do_label, es->last_label, (size_t)n);
+        f->do_label[n]   = '\0';
+        f->do_label_len  = n;
+        es->last_label_len = 0;
+        es->last_label[0]  = '\0';
+    }
+
+    t = cur_tok(p);
+
+    /* ---- DO FOREVER ---- */
+    if (sym_matches(t, "FOREVER")) {
+        advance_tok(p);
+        f->do_type = DO_FOREVER;
+        goto body;
+    }
+
+    /* ---- DO WHILE cond ---- */
+    if (sym_matches(t, "WHILE")) {
+        advance_tok(p);
+        f->do_type     = DO_WHILE;
+        f->cond_tok_pos = p->tok_pos;
+        /* Evaluate once to (a) validate syntax and (b) check first time */
+        rc = irx_pars_eval_expr(p, &tmp);
+        if (rc != IRXPARS_OK) goto done;
+        {
+            long cv = 0;
+            if (!lstr_to_long(&tmp, &cv) || cv == 0) {
+                /* Condition false on entry: find END and jump past */
+                int end_pos = find_end_after(p, p->tok_pos);
+                if (end_pos < 0) { rc = fail(p, IRXPARS_SYNTAX); goto done; }
+                irx_ctrl_frame_pop(p);
+                p->tok_pos = end_pos;
+                goto done;
+            }
+        }
+        goto body;
+    }
+
+    /* ---- DO UNTIL cond ---- */
+    if (sym_matches(t, "UNTIL")) {
+        advance_tok(p);
+        f->do_type      = DO_UNTIL;
+        f->cond_tok_pos = p->tok_pos;
+        /* Skip past the UNTIL expression so loop_start lands on body. */
+        rc = irx_pars_eval_expr(p, &tmp);
+        if (rc != IRXPARS_OK) goto done;
+        /* UNTIL always executes body at least once. */
+        goto body;
+    }
+
+    /* ---- DO SYMBOL = start TO end [BY step] ---- */
+    if (t != NULL && t->tok_type == TOK_SYMBOL &&
+        !(t->tok_flags & TOKF_CONSTANT)) {
+        const struct irx_token *tnext = peek_tok(p, 1);
+        if (tok_is_op_char(tnext, TOK_COMPARISON, '=')) {
+            /* Check it's not == */
+            const struct irx_token *tnext2 = peek_tok(p, 2);
+            if (!tok_is_op_char(tnext2, TOK_COMPARISON, '=')) {
+                /* DO ctrl_var = start TO end [BY step] */
+                f->do_type      = DO_CTRL;
+                f->ctrl_by      = 1;  /* default step */
+                f->ctrl_name_len = sym_to_upper(t, f->ctrl_name,
+                                                CTRL_NAME_MAX);
+                advance_tok(p);  /* SYMBOL */
+                advance_tok(p);  /* =      */
+
+                /* start expression: use parse_add to stop at TO/BY/WHILE */
+                rc = parse_add(p, &tmp);
+                if (rc != IRXPARS_OK) goto done;
+                if (!lstr_to_long(&tmp, &f->ctrl_val)) {
+                    rc = fail(p, IRXPARS_SYNTAX); goto done;
+                }
+                Lfree(p->alloc, &tmp);
+                Lzeroinit(&tmp);
+
+                /* TO */
+                if (!sym_matches(cur_tok(p), "TO")) {
+                    rc = fail(p, IRXPARS_SYNTAX); goto done;
+                }
+                advance_tok(p);
+
+                /* end expression */
+                rc = parse_add(p, &tmp);
+                if (rc != IRXPARS_OK) goto done;
+                if (!lstr_to_long(&tmp, &f->ctrl_to)) {
+                    rc = fail(p, IRXPARS_SYNTAX); goto done;
+                }
+                Lfree(p->alloc, &tmp);
+                Lzeroinit(&tmp);
+
+                /* Optional BY */
+                if (sym_matches(cur_tok(p), "BY")) {
+                    advance_tok(p);
+                    rc = parse_add(p, &tmp);
+                    if (rc != IRXPARS_OK) goto done;
+                    if (!lstr_to_long(&tmp, &f->ctrl_by)) {
+                        rc = fail(p, IRXPARS_SYNTAX); goto done;
+                    }
+                    Lfree(p->alloc, &tmp);
+                    Lzeroinit(&tmp);
+                }
+
+                /* Optional WHILE/UNTIL: skip expression (future WP). */
+                if (sym_matches(cur_tok(p), "WHILE") ||
+                    sym_matches(cur_tok(p), "UNTIL")) {
+                    advance_tok(p);
+                    rc = irx_pars_eval_expr(p, &tmp);
+                    if (rc != IRXPARS_OK) goto done;
+                    Lfree(p->alloc, &tmp);
+                    Lzeroinit(&tmp);
+                }
+
+                /* Set initial ctrl var value. */
+                rc = set_var_long(p, f->ctrl_name, f->ctrl_name_len,
+                                  f->ctrl_val);
+                if (rc != IRXPARS_OK) goto done;
+
+                /* Check initial condition: if start > end (BY>0) skip. */
+                {
+                    int skip = 0;
+                    if (f->ctrl_by >= 0 && f->ctrl_val > f->ctrl_to)
+                        skip = 1;
+                    if (f->ctrl_by < 0 && f->ctrl_val < f->ctrl_to)
+                        skip = 1;
+                    if (skip) {
+                        int end_pos = find_end_after(p, p->tok_pos);
+                        if (end_pos < 0) {
+                            rc = fail(p, IRXPARS_SYNTAX); goto done;
+                        }
+                        irx_ctrl_frame_pop(p);
+                        p->tok_pos = end_pos;
+                        goto done;
+                    }
+                }
+                goto body;
+            }
+        }
+    }
+
+    /* ---- DO n (repetitive count) ---- */
+    if (t != NULL && !tok_ends_clause(t)) {
+        /* Could be DO n where n is an expression. */
+        f->do_type = DO_COUNT;
+        rc = parse_add(p, &tmp);
+        if (rc != IRXPARS_OK) goto done;
+        if (!lstr_to_long(&tmp, &f->ctrl_count)) {
+            rc = fail(p, IRXPARS_SYNTAX); goto done;
+        }
+        Lfree(p->alloc, &tmp);
+        Lzeroinit(&tmp);
+        if (f->ctrl_count <= 0) {
+            /* Zero or negative: skip entire body. */
+            int end_pos = find_end_after(p, p->tok_pos);
+            if (end_pos < 0) { rc = fail(p, IRXPARS_SYNTAX); goto done; }
+            irx_ctrl_frame_pop(p);
+            p->tok_pos = end_pos;
+            goto done;
+        }
+        f->ctrl_count--;  /* already executing first iteration */
+        goto body;
+    }
+
+    /* ---- DO; ... END (simple group) ---- */
+    f->do_type = DO_SIMPLE;
+
+body:
+    /* Record loop_start = first token of body (after header). */
+    /* Eat any trailing EOC before the body so loop_start lands
+     * on the first actual token. */
+    {
+        int end_pos;
+        while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+            advance_tok(p);
+        f->loop_start = p->tok_pos;
+        end_pos = find_end_after(p, p->tok_pos);
+        if (end_pos < 0) { rc = fail(p, IRXPARS_SYNTAX); goto done; }
+        f->loop_end = end_pos;
+    }
+
+done:
+    Lfree(p->alloc, &tmp);
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  END [name]                                                        */
+/* ------------------------------------------------------------------ */
+
+static int kw_end(struct irx_parser *p)
+{
+    struct irx_exec_frame *f = irx_ctrl_frame_top(p);
+
+    /* Consume optional name after END (REXX allows END loopname). */
+    if (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_SYMBOL &&
+        !tok_ends_clause(cur_tok(p))) {
+        advance_tok(p);
+    }
+
+    if (f == NULL) return fail(p, IRXPARS_SYNTAX);
+
+    if (f->frame_type == FRAME_SELECT) {
+        /* End of SELECT block. */
+        if (!f->select_matched) {
+            /* No WHEN matched and no OTHERWISE was present. */
+            return fail(p, IRXPARS_SYNTAX);
+        }
+        irx_ctrl_frame_pop(p);
+        return IRXPARS_OK;
+    }
+
+    if (f->frame_type != FRAME_DO) return fail(p, IRXPARS_SYNTAX);
+
+    if (do_should_iterate(p, f)) {
+        /* Go back to loop body. */
+        p->tok_pos = f->loop_start;
+    } else {
+        /* Exit loop: tok_pos is already past END (set to loop_end). */
+        p->tok_pos = f->loop_end;
+        irx_ctrl_frame_pop(p);
+    }
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  ITERATE [name]                                                    */
+/* ------------------------------------------------------------------ */
+
+static int kw_iterate(struct irx_parser *p)
+{
+    char label[CTRL_NAME_MAX];
+    int  label_len = 0;
+    int  frame_idx;
+    struct irx_exec_stack *es = (struct irx_exec_stack *)p->exec_stack;
+    struct irx_exec_frame *f;
+
+    /* Optional label */
+    if (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_SYMBOL &&
+        !tok_ends_clause(cur_tok(p))) {
+        label_len = sym_to_upper(cur_tok(p), label, CTRL_NAME_MAX);
+        advance_tok(p);
+    }
+
+    frame_idx = irx_ctrl_find_do(p,
+                                 label_len > 0 ? label : NULL,
+                                 label_len);
+    if (frame_idx < 0) return fail(p, IRXPARS_SYNTAX);
+
+    f = &es->frames[frame_idx];
+
+    /* Pop all frames above the target DO frame. */
+    es->top = frame_idx + 1;
+
+    /* Advance the loop: for DO_CTRL increment ctrl var before jumping. */
+    if (f->do_type == DO_CTRL) {
+        f->ctrl_val += f->ctrl_by;
+        /* Check bounds */
+        {
+            int in_range;
+            if (f->ctrl_by >= 0) in_range = (f->ctrl_val <= f->ctrl_to);
+            else                 in_range = (f->ctrl_val >= f->ctrl_to);
+            if (!in_range) {
+                p->tok_pos = f->loop_end;
+                irx_ctrl_frame_pop(p);
+                return IRXPARS_OK;
+            }
+        }
+        set_var_long(p, f->ctrl_name, f->ctrl_name_len, f->ctrl_val);
+    } else if (f->do_type == DO_WHILE) {
+        /* Re-evaluate WHILE condition. */
+        Lstr cond;
+        long cv = 0;
+        Lzeroinit(&cond);
+        eval_at(p, f->cond_tok_pos, &cond);
+        lstr_to_long(&cond, &cv);
+        Lfree(p->alloc, &cond);
+        if (!cv) {
+            p->tok_pos = f->loop_end;
+            irx_ctrl_frame_pop(p);
+            return IRXPARS_OK;
+        }
+    }
+
+    p->tok_pos = f->loop_start;
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  LEAVE [name]                                                      */
+/* ------------------------------------------------------------------ */
+
+static int kw_leave(struct irx_parser *p)
+{
+    char label[CTRL_NAME_MAX];
+    int  label_len = 0;
+    int  frame_idx;
+    struct irx_exec_stack *es = (struct irx_exec_stack *)p->exec_stack;
+    struct irx_exec_frame *f;
+
+    /* Optional label */
+    if (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_SYMBOL &&
+        !tok_ends_clause(cur_tok(p))) {
+        label_len = sym_to_upper(cur_tok(p), label, CTRL_NAME_MAX);
+        advance_tok(p);
+    }
+
+    frame_idx = irx_ctrl_find_do(p,
+                                 label_len > 0 ? label : NULL,
+                                 label_len);
+    if (frame_idx < 0) return fail(p, IRXPARS_SYNTAX);
+
+    f = &es->frames[frame_idx];
+    p->tok_pos = f->loop_end;
+
+    /* Pop the target frame and all frames above it. */
+    es->top = frame_idx;
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  IF expr THEN clause_or_block [ELSE clause_or_block]               */
+/* ------------------------------------------------------------------ */
+
+static int kw_if(struct irx_parser *p)
+{
+    Lstr cond;
+    long cond_val = 0;
+    int  cond_true;
+    int  rc;
+
+    Lzeroinit(&cond);
+    rc = irx_pars_eval_expr(p, &cond);
+    if (rc != IRXPARS_OK) { Lfree(p->alloc, &cond); return rc; }
+    lstr_to_long(&cond, &cond_val);
+    cond_true = (cond_val != 0);
+    Lfree(p->alloc, &cond);
+
+    /* Consume THEN (required). */
+    /* Skip any EOC between condition and THEN. */
+    while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+        advance_tok(p);
+    if (!sym_matches(cur_tok(p), "THEN"))
+        return fail(p, IRXPARS_SYNTAX);
+    advance_tok(p);  /* consume THEN */
+
+    /* Skip any EOC/whitespace between THEN and its clause. */
+    while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+        advance_tok(p);
+
+    if (cond_true) {
+        struct irx_exec_stack *es =
+            (struct irx_exec_stack *)p->exec_stack;
+        int depth_before = es ? es->top : 0;
+
+        /* Execute THEN branch. */
+        rc = exec_clause(p);
+        if (rc != IRXPARS_OK) return rc;
+
+        /* If THEN was DO/SELECT, run the block until that frame exits. */
+        while (rc == IRXPARS_OK && !p->exit_requested &&
+               es != NULL && es->top > depth_before) {
+            const struct irx_token *ct = cur_tok(p);
+            if (ct == NULL || ct->tok_type == TOK_EOF) break;
+            rc = exec_clause(p);
+        }
+        if (rc != IRXPARS_OK) return rc;
+        if (p->exit_requested) return IRXPARS_OK;
+
+        /* Consume trailing terminators of the THEN clause. */
+        while (cur_tok(p) != NULL &&
+               (cur_tok(p)->tok_type == TOK_EOC ||
+                cur_tok(p)->tok_type == TOK_SEMICOLON))
+            advance_tok(p);
+
+        /* Check for ELSE and skip it. */
+        while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+            advance_tok(p);
+        if (sym_matches(cur_tok(p), "ELSE")) {
+            advance_tok(p);
+            while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+                advance_tok(p);
+            rc = skip_instruction(p);
+        }
+    } else {
+        /* Skip THEN branch. */
+        rc = skip_instruction(p);
+        if (rc != IRXPARS_OK) return rc;
+        while (cur_tok(p) != NULL &&
+               (cur_tok(p)->tok_type == TOK_EOC ||
+                cur_tok(p)->tok_type == TOK_SEMICOLON))
+            advance_tok(p);
+
+        /* Check for ELSE and execute it. */
+        while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+            advance_tok(p);
+        if (sym_matches(cur_tok(p), "ELSE")) {
+            advance_tok(p);
+            while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+                advance_tok(p);
+            rc = exec_clause(p);
+        }
+    }
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  SELECT; WHEN cond THEN clause; ... [OTHERWISE clause;] END        */
+/* ------------------------------------------------------------------ */
+
+static int kw_select(struct irx_parser *p)
+{
+    struct irx_exec_frame *f;
+
+    f = irx_ctrl_frame_push(p, FRAME_SELECT);
+    if (f == NULL) return fail(p, IRXPARS_NOMEM);
+
+    f->select_matched = 0;
+
+    /* Find the matching END so WHEN can jump past it. */
+    f->select_end = find_end_after(p, p->tok_pos);
+    if (f->select_end < 0) return fail(p, IRXPARS_SYNTAX);
+
+    return IRXPARS_OK;
+}
+
+static int kw_when(struct irx_parser *p)
+{
+    struct irx_exec_frame *f = irx_ctrl_frame_top(p);
+    Lstr cond;
+    long cond_val = 0;
+    int  cond_true;
+    int  rc;
+
+    if (f == NULL || f->frame_type != FRAME_SELECT)
+        return fail(p, IRXPARS_SYNTAX);
+
+    Lzeroinit(&cond);
+
+    if (f->select_matched) {
+        /* A prior WHEN already matched: skip this WHEN entirely
+         * (condition + THEN + clause) and jump to the next WHEN,
+         * OTHERWISE, or END. cond was never allocated — no Lfree. */
+        /* Skip condition */
+        rc = skip_instruction(p);
+        if (rc != IRXPARS_OK) return rc;
+        /* Consume THEN */
+        while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+            advance_tok(p);
+        if (sym_matches(cur_tok(p), "THEN")) advance_tok(p);
+        /* Skip THEN clause */
+        while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+            advance_tok(p);
+        rc = skip_instruction(p);
+        return rc;
+    }
+
+    rc = irx_pars_eval_expr(p, &cond);
+    if (rc != IRXPARS_OK) { Lfree(p->alloc, &cond); return rc; }
+    lstr_to_long(&cond, &cond_val);
+    cond_true = (cond_val != 0);
+    Lfree(p->alloc, &cond);
+
+    /* Consume THEN */
+    while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+        advance_tok(p);
+    if (!sym_matches(cur_tok(p), "THEN"))
+        return fail(p, IRXPARS_SYNTAX);
+    advance_tok(p);
+
+    while (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_EOC)
+        advance_tok(p);
+
+    if (cond_true) {
+        f->select_matched = 1;
+        rc = exec_clause(p);
+        if (rc != IRXPARS_OK) return rc;
+        /* Jump to after SELECT END — kw_end will pop the frame. */
+        /* Leave tok_pos at select_end so END/OTHERWISE are skipped. */
+        /* Don't jump yet; let the normal clause loop encounter END. */
+    } else {
+        rc = skip_instruction(p);
+    }
+    return rc;
+}
+
+static int kw_otherwise(struct irx_parser *p)
+{
+    struct irx_exec_frame *f = irx_ctrl_frame_top(p);
+
+    if (f == NULL || f->frame_type != FRAME_SELECT)
+        return fail(p, IRXPARS_SYNTAX);
+
+    if (f->select_matched) {
+        /* Already matched: skip the OTHERWISE body. */
+        return skip_instruction(p);
+    }
+
+    /* No WHEN matched: mark as matched (prevents "no match" error
+     * in kw_end) and execute body. */
+    f->select_matched = 1;
+    return exec_clause(p);
+}
+
+/* ------------------------------------------------------------------ */
+/*  CALL label [args]                                                 */
+/* ------------------------------------------------------------------ */
+
+static int kw_call(struct irx_parser *p)
+{
+    char  label[CTRL_NAME_MAX];
+    int   label_len;
+    int   label_pos;
+    int   return_pos;
+    int   call_line;
+    struct irx_exec_frame *f;
+    char  linebuf[32];
+    int   n;
+
+    /* CALL must be followed by a label name (symbol). */
+    if (cur_tok(p) == NULL || cur_tok(p)->tok_type != TOK_SYMBOL)
+        return fail(p, IRXPARS_SYNTAX);
+
+    label_len = sym_to_upper(cur_tok(p), label, CTRL_NAME_MAX);
+    call_line = cur_tok(p)->tok_line;
+    advance_tok(p);
+
+    /* Arguments skipped — CALL argument passing is implemented in WP-17. */
+    skip_to_clause_end(p);
+
+    /* Where to return to (first token of next clause). */
+    return_pos = p->tok_pos;
+
+    /* Look up the label. */
+    label_pos = irx_ctrl_label_find(p, label, label_len);
+    if (label_pos < 0) return fail(p, IRXPARS_BADFUNC);
+
+    /* Push CALL frame. */
+    f = irx_ctrl_frame_push(p, FRAME_CALL);
+    if (f == NULL) return fail(p, IRXPARS_NOMEM);
+    f->call_return_pos = return_pos;
+    f->call_line       = call_line;
+
+    /* Set SIGL special variable. */
+    n = sprintf(linebuf, "%d", call_line);
+    set_var_str(p, "SIGL", 4, linebuf, n);
+
+    /* Jump to label (past SYMBOL ':' tokens). */
+    p->tok_pos = label_pos + 2;  /* skip SYMBOL + COLON */
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  RETURN [expr]                                                     */
+/* ------------------------------------------------------------------ */
+
+static int kw_return(struct irx_parser *p)
+{
+    struct irx_exec_stack *es = (struct irx_exec_stack *)p->exec_stack;
+    Lstr result;
+    int  have_result = 0;
+    int  i;
+
+    Lzeroinit(&result);
+
+    if (!tok_ends_clause(cur_tok(p))) {
+        int rc = irx_pars_eval_expr(p, &result);
+        if (rc != IRXPARS_OK) { Lfree(p->alloc, &result); return rc; }
+        have_result = 1;
+    }
+
+    if (have_result) {
+        /* Store in RESULT special variable. */
+        Lstr key;
+        Lzeroinit(&key);
+        if (lstr_set_bytes(p->alloc, &key, "RESULT", 6) == LSTR_OK) {
+            vpool_set(p->vpool, &key, &result);
+            Lfree(p->alloc, &key);
+        }
+    }
+    Lfree(p->alloc, &result);
+
+    /* Unwind stack to find the CALL frame. */
+    if (es == NULL) {
+        /* No CALL frame: treat as EXIT 0. */
+        p->exit_requested = 1;
+        p->exit_rc = 0;
+        return IRXPARS_OK;
+    }
+
+    for (i = es->top - 1; i >= 0; i--) {
+        if (es->frames[i].frame_type == FRAME_CALL) break;
+    }
+
+    if (i < 0) {
+        /* No CALL frame on stack: treat as EXIT. */
+        p->exit_requested = 1;
+        p->exit_rc = 0;
+        return IRXPARS_OK;
+    }
+
+    p->tok_pos = es->frames[i].call_return_pos;
+    es->top    = i;  /* pop everything up to and including CALL frame */
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  SIGNAL label                                                      */
+/* ------------------------------------------------------------------ */
+
+static int kw_signal(struct irx_parser *p)
+{
+    struct irx_exec_stack *es = (struct irx_exec_stack *)p->exec_stack;
+    char label[CTRL_NAME_MAX];
+    int  label_len;
+    int  label_pos;
+
+    if (cur_tok(p) == NULL || cur_tok(p)->tok_type != TOK_SYMBOL)
+        return fail(p, IRXPARS_SYNTAX);
+
+    label_len = sym_to_upper(cur_tok(p), label, CTRL_NAME_MAX);
+    advance_tok(p);
+
+    label_pos = irx_ctrl_label_find(p, label, label_len);
+    if (label_pos < 0) return fail(p, IRXPARS_SYNTAX);
+
+    /* Clear the entire execution stack (SIGNAL discards all frames). */
+    if (es != NULL) es->top = 0;
+
+    /* Jump to label (past SYMBOL ':' tokens). */
+    p->tok_pos = label_pos + 2;
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Keyword table (WP-13 registers no handlers)                       */
 /*                                                                    */
 /*  WP-14 adds SAY. WP-15 adds DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL. */
@@ -366,8 +1334,23 @@ static int kw_say(struct irx_parser *p)
 /* ------------------------------------------------------------------ */
 
 static const struct irx_keyword g_keyword_table[] = {
-    { "SAY", kw_say },
-    { NULL,  NULL   }
+    { "SAY",       kw_say       },
+    { "NOP",       kw_nop       },
+    { "EXIT",      kw_exit      },
+    { "DO",        kw_do        },
+    { "END",       kw_end       },
+    { "ITERATE",   kw_iterate   },
+    { "LEAVE",     kw_leave     },
+    { "IF",        kw_if        },
+    { "THEN",      kw_then      }, /* barrier only — IF consumes THEN   */
+    { "ELSE",      kw_else      }, /* barrier only — IF consumes ELSE   */
+    { "SELECT",    kw_select    },
+    { "WHEN",      kw_when      },
+    { "OTHERWISE", kw_otherwise },
+    { "CALL",      kw_call      },
+    { "RETURN",    kw_return    },
+    { "SIGNAL",    kw_signal    },
+    { NULL,        NULL         }
 };
 
 static const struct irx_keyword *find_keyword(const unsigned char *name,
@@ -931,7 +1914,24 @@ static int parse_concat(struct irx_parser *p, PLstr out)
             /* Implicit concat. The left operand's last token lives
              * at tok_pos - 1. If there's a column gap (same line,
              * whitespace between) it's blank concat; otherwise it's
-             * an abuttal. */
+             * an abuttal.
+             *
+             * Keyword check: a symbol that is a known keyword (THEN,
+             * ELSE, WHEN, DO, END, etc.) cannot start a concatenated
+             * term — it is a clause-level delimiter, not an operand. */
+            if (t0->tok_type == TOK_SYMBOL) {
+                char kbuf[32];
+                int  kn = (int)t0->tok_length;
+                if (kn < (int)sizeof(kbuf)) {
+                    memcpy(kbuf, t0->tok_text, (size_t)kn);
+                    kbuf[kn] = '\0';
+                    upper_bytes((unsigned char *)kbuf, (size_t)kn);
+                    if (find_keyword((unsigned char *)kbuf,
+                                     (size_t)kn) != NULL) {
+                        break; /* keyword: stop concatenation */
+                    }
+                }
+            }
             prev = peek_tok(p, -1);
             if (prev == NULL || prev->tok_line != t0->tok_line) break;
             if (toks_adjacent(prev, t0)) {
@@ -1287,8 +2287,16 @@ static int exec_clause(struct irx_parser *p)
         const struct irx_token *t1 = peek_tok(p, 1);
         if (t1 != NULL && t1->tok_type == TOK_SEMICOLON &&
             t1->tok_length == 1 && t1->tok_text[0] == ':') {
-            /* Label declaration - WP-15 will record it. For now, just
-             * consume the two tokens. */
+            /* Label declaration: record in exec_stack->last_label so
+             * the immediately following DO can associate it. */
+            {
+                struct irx_exec_stack *es =
+                    (struct irx_exec_stack *)p->exec_stack;
+                if (es != NULL) {
+                    es->last_label_len = sym_to_upper(
+                        t0, es->last_label, CTRL_NAME_MAX);
+                }
+            }
             advance_tok(p);
             advance_tok(p);
             return IRXPARS_OK;
@@ -1325,6 +2333,7 @@ int irx_pars_init(struct irx_parser *p,
                   struct lstr_alloc *alloc,
                   struct envblock *envblock)
 {
+    int rc;
     if (p == NULL || tokens == NULL || vpool == NULL || alloc == NULL) {
         return IRXPARS_BADARG;
     }
@@ -1338,12 +2347,17 @@ int irx_pars_init(struct irx_parser *p,
     Lzeroinit(&p->result);
     p->error_code = IRXPARS_OK;
     p->error_line = 0;
+
+    rc = irx_ctrl_init(p);
+    if (rc != IRXPARS_OK) return rc;
+
     return IRXPARS_OK;
 }
 
 void irx_pars_cleanup(struct irx_parser *p)
 {
     if (p == NULL) return;
+    irx_ctrl_cleanup(p);
     Lfree(p->alloc, &p->result);
 }
 
@@ -1355,15 +2369,21 @@ int irx_pars_eval_expr(struct irx_parser *p, PLstr out)
 
 int irx_pars_run(struct irx_parser *p)
 {
+    int rc;
     if (p == NULL) return IRXPARS_BADARG;
+
+    /* First pass: build the label table for CALL/SIGNAL. */
+    rc = irx_ctrl_label_scan(p);
+    if (rc != IRXPARS_OK) return rc;
 
     while (p->tok_pos < p->tok_count) {
         const struct irx_token *t = cur_tok(p);
-        int rc;
         if (t == NULL || t->tok_type == TOK_EOF) break;
 
         rc = exec_clause(p);
         if (rc != IRXPARS_OK) return rc;
+
+        if (p->exit_requested) break;
 
         /* Consume trailing clause terminators. */
         while (cur_tok(p) != NULL &&
