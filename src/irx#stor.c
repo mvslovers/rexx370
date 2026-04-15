@@ -16,11 +16,11 @@
 #include <string.h>
 
 #include "irx.h"
-#include "irxwkblk.h"
 #include "irxfunc.h"
+#include "irxwkblk.h"
 
 #ifdef __MVS__
-#include <clibos.h>     /* getmain(), freemain() — crent370 */
+#include <clibos.h> /* getmain(), freemain() — crent370 */
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -40,52 +40,66 @@ int irxstor(int function, int length, void **addr_ptr,
     int subpool = 0;
 
     /* Determine subpool from PARMBLOCK if available */
-    if (envblock != NULL && envblock->envblock_parmblock != NULL) {
+    if (envblock != NULL && envblock->envblock_parmblock != NULL)
+    {
         struct parmblock *pb = (struct parmblock *)envblock->envblock_parmblock;
-        if (pb->parmblock_subpool > 0) {
+        if (pb->parmblock_subpool > 0)
+        {
             subpool = pb->parmblock_subpool;
         }
     }
 
-    switch (function) {
-
-    case RXSMGET:
-        if (length <= 0 || addr_ptr == NULL) {
-            return 20;
-        }
+    switch (function)
+    {
+        case RXSMGET:
+            if (length <= 0 || addr_ptr == NULL)
+            {
+                return 20;
+            }
 #ifdef __MVS__
-        if (subpool > 0) {
-            /* Specific subpool: use GETMAIN R,LV=,SP= */
-            void *ptr = getmain((unsigned)length, subpool);
-            if (ptr == NULL) return 20;
-            memset(ptr, 0, (unsigned)length);
-            *addr_ptr = ptr;
-        } else
+            if (subpool > 0)
+            {
+                /* Specific subpool: use GETMAIN R,LV=,SP= */
+                void *ptr = getmain((unsigned)length, subpool);
+                if (ptr == NULL)
+                {
+                    return 20;
+                }
+                memset(ptr, 0, (unsigned)length);
+                *addr_ptr = ptr;
+            }
+            else
 #endif
-        {
-            /* Default: crent370 heap (calloc zeros the memory) */
-            void *ptr = calloc(1, (size_t)length);
-            if (ptr == NULL) return 20;
-            *addr_ptr = ptr;
-        }
-        return 0;
+            {
+                /* Default: crent370 heap (calloc zeros the memory) */
+                void *ptr = calloc(1, (size_t)length);
+                if (ptr == NULL)
+                {
+                    return 20;
+                }
+                *addr_ptr = ptr;
+            }
+            return 0;
 
-    case RXSMFRE:
-        if (addr_ptr == NULL || *addr_ptr == NULL) {
-            return 20;
-        }
+        case RXSMFRE:
+            if (addr_ptr == NULL || *addr_ptr == NULL)
+            {
+                return 20;
+            }
 #ifdef __MVS__
-        if (subpool > 0) {
-            freemain(*addr_ptr);
-        } else
+            if (subpool > 0)
+            {
+                freemain(*addr_ptr);
+            }
+            else
 #endif
-        {
-            free(*addr_ptr);
-        }
-        *addr_ptr = NULL;
-        return 0;
+            {
+                free(*addr_ptr);
+            }
+            *addr_ptr = NULL;
+            return 0;
 
-    default:
-        return 20;
+        default:
+            return 20;
     }
 }

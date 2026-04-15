@@ -11,32 +11,35 @@
 /* ------------------------------------------------------------------ */
 
 #include <string.h>
+
 #include "irx.h"
 #include "irxfunc.h"
 
-#define MSGID_GET   0
-#define MSGID_SET   1
+#define MSGID_GET 0
+#define MSGID_SET 1
 
 static char default_prefix[4] = "IRX";
 
 int irxmsgid(int function, char *prefix, struct envblock *envblock)
 {
-    (void)envblock;  /* unused for now */
+    (void)envblock; /* unused for now */
 
-    if (prefix == NULL) {
+    if (prefix == NULL)
+    {
         return 20;
     }
 
-    switch (function) {
-    case MSGID_GET:
-        memcpy(prefix, default_prefix, 3);
-        return 0;
+    switch (function)
+    {
+        case MSGID_GET:
+            memcpy(prefix, default_prefix, 3);
+            return 0;
 
-    case MSGID_SET:
-        memcpy(default_prefix, prefix, 3);
-        return 0;
+        case MSGID_SET:
+            memcpy(default_prefix, prefix, 3);
+            return 0;
 
-    default:
-        return 20;
+        default:
+            return 20;
     }
 }

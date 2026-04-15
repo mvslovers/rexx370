@@ -24,9 +24,8 @@
 #include <string.h>
 
 #include "irx.h"
-#include "irxwkblk.h"
-#include "irxfunc.h"
 #include "irxexec.h"
+#include "irxfunc.h"
 #include "irxwkblk.h"
 #include "lstring.h"
 
@@ -34,20 +33,24 @@
 void *_simulated_tcbuser = NULL;
 #endif
 
-static int tests_run    = 0;
+static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define CHECK(cond, msg) \
-    do { \
-        tests_run++; \
-        if (cond) { \
-            tests_passed++; \
+#define CHECK(cond, msg)                 \
+    do                                   \
+    {                                    \
+        tests_run++;                     \
+        if (cond)                        \
+        {                                \
+            tests_passed++;              \
             printf("  PASS: %s\n", msg); \
-        } else { \
-            tests_failed++; \
+        }                                \
+        else                             \
+        {                                \
+            tests_failed++;              \
             printf("  FAIL: %s\n", msg); \
-        } \
+        }                                \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -57,12 +60,12 @@ static int tests_failed = 0;
 #define OUT_BUF_SIZE 4096
 
 static char g_out[OUT_BUF_SIZE];
-static int  g_out_len = 0;
+static int g_out_len = 0;
 
 static void reset_output(void)
 {
     g_out_len = 0;
-    g_out[0]  = '\0';
+    g_out[0] = '\0';
 }
 
 /* Returns 1 if the accumulated output contains the given line. */
@@ -71,9 +74,12 @@ static int output_contains(const char *line)
     int line_len = (int)strlen(line);
     int i;
 
-    for (i = 0; i <= g_out_len - line_len; i++) {
+    for (i = 0; i <= g_out_len - line_len; i++)
+    {
         if (memcmp(g_out + i, line, (size_t)line_len) == 0)
+        {
             return 1;
+        }
     }
     return 0;
 }
@@ -81,14 +87,15 @@ static int output_contains(const char *line)
 static int mock_io(int function, PLstr data, struct envblock *envblock)
 {
     (void)envblock;
-    if (function == RXFWRITE && data != NULL
-            && data->pstr != NULL && data->len > 0) {
+    if (function == RXFWRITE && data != NULL && data->pstr != NULL && data->len > 0)
+    {
         int n = (int)data->len;
-        if (g_out_len + n + 1 < OUT_BUF_SIZE) {
+        if (g_out_len + n + 1 < OUT_BUF_SIZE)
+        {
             memcpy(g_out + g_out_len, data->pstr, (size_t)n);
-            g_out_len          += n;
-            g_out[g_out_len++]  = '\n';
-            g_out[g_out_len]    = '\0';
+            g_out_len += n;
+            g_out[g_out_len++] = '\n';
+            g_out[g_out_len] = '\0';
         }
     }
     return 0;
@@ -98,7 +105,9 @@ static void install_mock(struct envblock *env)
 {
     struct irxexte *exte = (struct irxexte *)env->envblock_irxexte;
     if (exte != NULL)
+    {
         exte->io_routine = (void *)mock_io;
+    }
 }
 
 /* Run source through irx_exec_run, installing mock I/O first. */
@@ -108,7 +117,10 @@ static int run_with_mock(const char *src, int *exit_rc_out)
     int rc;
 
     rc = irxinit(NULL, &env);
-    if (rc != 0) return rc;
+    if (rc != 0)
+    {
+        return rc;
+    }
 
     install_mock(env);
     reset_output();
@@ -138,7 +150,7 @@ static void test_hw1_hello_world(void)
         "exit 0\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "EXIT return code is 0");
     CHECK(output_contains("Hello World from REXX/370!"),
           "first SAY: 'Hello World from REXX/370!'");
@@ -163,7 +175,7 @@ static void test_hw2_do_loop_sum(void)
         "exit sum\n",
         &exit_rc);
 
-    CHECK(rc == 0,       "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 55, "EXIT return code is 55");
     CHECK(output_contains("Sum 1..10 = 55"),
           "SAY: 'Sum 1..10 = 55'");
@@ -182,10 +194,11 @@ static void test_hw3_null_envblock(void)
 
     /* Redirect irxinout output to /dev/null by hijacking the real
      * irxinout (it uses printf); just verify rc is correct. */
-    const char *src = "x = 6 * 7\n" "exit x\n";
+    const char *src = "x = 6 * 7\n"
+                      "exit x\n";
     rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, NULL);
 
-    CHECK(rc == 0,       "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 42, "EXIT return code is 42");
 
     (void)exte; /* suppress unused warning */
@@ -216,7 +229,7 @@ static void test_hw5_exit_nonzero(void)
         "exit 7\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 7, "EXIT return code is 7");
 }
 
@@ -232,7 +245,7 @@ static void test_hw6_no_exit_clause(void)
         "x = 1\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit_rc is 0 (no EXIT in source)");
 }
 

@@ -16,37 +16,41 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "irx.h"
+#include "irxfunc.h"
+#include "irxlstr.h"
 #include "irxrab.h"
 #include "irxwkblk.h"
-#include "irxfunc.h"
-#include "lstring.h"
 #include "lstralloc.h"
-#include "irxlstr.h"
+#include "lstring.h"
 
 #ifndef __MVS__
 void *_simulated_tcbuser = NULL;
 #endif
 
-static int tests_run    = 0;
+static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define CHECK(cond, msg) \
-    do { \
-        tests_run++; \
-        if (cond) { \
-            tests_passed++; \
+#define CHECK(cond, msg)                 \
+    do                                   \
+    {                                    \
+        tests_run++;                     \
+        if (cond)                        \
+        {                                \
+            tests_passed++;              \
             printf("  PASS: %s\n", msg); \
-        } else { \
-            tests_failed++; \
+        }                                \
+        else                             \
+        {                                \
+            tests_failed++;              \
             printf("  FAIL: %s\n", msg); \
-        } \
+        }                                \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -57,10 +61,10 @@ static int tests_failed = 0;
 static Lstr make_lstr(const char *cstr)
 {
     Lstr s;
-    s.pstr   = (unsigned char *)(uintptr_t)cstr;
-    s.len    = strlen(cstr);
+    s.pstr = (unsigned char *)(uintptr_t)cstr;
+    s.len = strlen(cstr);
     s.maxlen = s.len;
-    s.type   = LSTRING_TY;
+    s.type = LSTRING_TY;
     return s;
 }
 
@@ -146,7 +150,7 @@ static void test_datatype_numeric(void)
     printf("\n--- Test: irx_datatype N / no-option ---\n");
 
     s = make_lstr("42");
-    CHECK(irx_datatype(&s, 0)   == 1, "'42' is NUM (no option)");
+    CHECK(irx_datatype(&s, 0) == 1, "'42' is NUM (no option)");
     CHECK(irx_datatype(&s, 'N') == 1, "'42' is NUM ('N')");
 
     s = make_lstr("abc");
@@ -213,7 +217,7 @@ static void test_datatype_classifiers(void)
 
 static void test_allocator_bridge(void)
 {
-    struct envblock   *env = NULL;
+    struct envblock *env = NULL;
     struct irx_wkblk_int *wkbi;
     struct lstr_alloc *alloc;
     struct lstr_alloc *alloc2;
@@ -223,13 +227,16 @@ static void test_allocator_bridge(void)
 
     rc = irxinit(NULL, &env);
     CHECK(rc == 0 && env != NULL, "irxinit succeeds");
-    if (env == NULL) return;
+    if (env == NULL)
+    {
+        return;
+    }
 
     alloc = irx_lstr_init(env);
     CHECK(alloc != NULL, "irx_lstr_init returns non-NULL");
-    CHECK(alloc->alloc   != NULL, "alloc function pointer set");
+    CHECK(alloc->alloc != NULL, "alloc function pointer set");
     CHECK(alloc->dealloc != NULL, "dealloc function pointer set");
-    CHECK(alloc->ctx == env,      "ctx is the envblock");
+    CHECK(alloc->ctx == env, "ctx is the envblock");
 
     /* Second call must return the same pointer (cached in wkbi). */
     alloc2 = irx_lstr_init(env);
@@ -242,7 +249,8 @@ static void test_allocator_bridge(void)
     /* Exercise the bridge by alloc/free via the callbacks directly. */
     void *mem = (*alloc->alloc)(64, alloc->ctx);
     CHECK(mem != NULL, "bridged alloc(64) succeeds");
-    if (mem != NULL) {
+    if (mem != NULL)
+    {
         memset(mem, 0xAB, 64);
         (*alloc->dealloc)(mem, 64, alloc->ctx);
     }
@@ -269,7 +277,10 @@ int main(void)
 
     printf("\n=== Results: %d/%d passed",
            tests_passed, tests_run);
-    if (tests_failed > 0) printf(", %d FAILED", tests_failed);
+    if (tests_failed > 0)
+    {
+        printf(", %d FAILED", tests_failed);
+    }
     printf(" ===\n");
 
     return tests_failed > 0 ? 1 : 0;

@@ -13,28 +13,31 @@
 /* ------------------------------------------------------------------ */
 
 #include <string.h>
+
 #include "irx.h"
-#include "irxrab.h"
-#include "irxwkblk.h"
 #include "irxfunc.h"
 #include "irxio.h"
+#include "irxrab.h"
+#include "irxwkblk.h"
 
 /* Default host command environments */
-#define DEFAULT_HOSTENV_TSO     "TSO     "
-#define DEFAULT_HOSTENV_MVS     "MVS     "
-#define DEFAULT_HOSTENV_LINK    "LINK    "
-#define DEFAULT_HANDLER_NAME    "IRXSTAM "
+#define DEFAULT_HOSTENV_TSO  "TSO     "
+#define DEFAULT_HOSTENV_MVS  "MVS     "
+#define DEFAULT_HOSTENV_LINK "LINK    "
+#define DEFAULT_HANDLER_NAME "IRXSTAM "
 
 /* Default number of subcommand table entries */
-#define DEFAULT_SUBCOMTB_ENTRIES    8
+#define DEFAULT_SUBCOMTB_ENTRIES 8
 
 /* Internal helper: allocate via irxstor with error propagation */
-#define ALLOC(ptr, size, envblk) \
-    do { \
-        void *_tmp = NULL; \
+#define ALLOC(ptr, size, envblk)                                  \
+    do                                                            \
+    {                                                             \
+        void *_tmp = NULL;                                        \
         int _rc = irxstor(RXSMGET, (int)(size), &_tmp, (envblk)); \
-        if (_rc != 0) goto cleanup; \
-        (ptr) = _tmp; \
+        if (_rc != 0)                                             \
+            goto cleanup;                                         \
+        (ptr) = _tmp;                                             \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -49,8 +52,8 @@ static int init_parmblock(struct parmblock **pb_out,
 
     ALLOC(pb, sizeof(struct parmblock), envblk);
 
-    memcpy(pb->parmblock_id,      PARMBLOCK_ID,            8);
-    memcpy(pb->parmblock_version, PARMBLOCK_VERSION_0200,  4);
+    memcpy(pb->parmblock_id, PARMBLOCK_ID, 8);
+    memcpy(pb->parmblock_version, PARMBLOCK_VERSION_0200, 4);
     memcpy(pb->parmblock_language, "ENU", 3);
 
     /* Default flags: nothing special */
@@ -79,7 +82,7 @@ static int init_subcomtb(struct subcomtb_header **hdr_out,
                          struct envblock *envblk)
 {
     struct subcomtb_header *hdr = NULL;
-    struct subcomtb_entry  *entries = NULL;
+    struct subcomtb_entry *entries = NULL;
     int used = 0;
 
     ALLOC(hdr, sizeof(struct subcomtb_header), envblk);
@@ -87,27 +90,27 @@ static int init_subcomtb(struct subcomtb_header **hdr_out,
           envblk);
 
     /* MVS environment (always present) */
-    memcpy(entries[used].subcomtb_name,    DEFAULT_HOSTENV_MVS,  8);
+    memcpy(entries[used].subcomtb_name, DEFAULT_HOSTENV_MVS, 8);
     memcpy(entries[used].subcomtb_routine, DEFAULT_HANDLER_NAME, 8);
     memset(entries[used].subcomtb_token, ' ', 16);
     used++;
 
     /* TSO environment (if TSO flag set or running under TSO) */
-    memcpy(entries[used].subcomtb_name,    DEFAULT_HOSTENV_TSO,  8);
+    memcpy(entries[used].subcomtb_name, DEFAULT_HOSTENV_TSO, 8);
     memcpy(entries[used].subcomtb_routine, DEFAULT_HANDLER_NAME, 8);
     memset(entries[used].subcomtb_token, ' ', 16);
     used++;
 
     /* LINK environment */
-    memcpy(entries[used].subcomtb_name,    DEFAULT_HOSTENV_LINK, 8);
+    memcpy(entries[used].subcomtb_name, DEFAULT_HOSTENV_LINK, 8);
     memcpy(entries[used].subcomtb_routine, DEFAULT_HANDLER_NAME, 8);
     memset(entries[used].subcomtb_token, ' ', 16);
     used++;
 
     /* Populate header */
-    hdr->subcomtb_first  = entries;
-    hdr->subcomtb_total  = DEFAULT_SUBCOMTB_ENTRIES;
-    hdr->subcomtb_used   = used;
+    hdr->subcomtb_first = entries;
+    hdr->subcomtb_total = DEFAULT_SUBCOMTB_ENTRIES;
+    hdr->subcomtb_used = used;
     hdr->subcomtb_length = SUBCOMTB_ENTRY_LEN;
     memcpy(hdr->subcomtb_initial, DEFAULT_HOSTENV_MVS, 8);
     memset(hdr->_filler1, 0, 8);
@@ -121,11 +124,13 @@ static int init_subcomtb(struct subcomtb_header **hdr_out,
 
 cleanup:
     /* Partial cleanup */
-    if (entries != NULL) {
+    if (entries != NULL)
+    {
         void *p = entries;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
-    if (hdr != NULL) {
+    if (hdr != NULL)
+    {
         void *p = hdr;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
@@ -155,36 +160,36 @@ static int init_irxexte(struct irxexte **exte_out,
      */
 
     /* Phase 1: Storage, User ID, Message ID */
-    exte->irxinit       = NULL;  /* Will be set after init completes */
-    exte->irxterm       = NULL;  /* Same */
-    exte->irxuid        = (void *)irxuid;
-    exte->userid_routine= (void *)irxuid;
-    exte->irxmsgid      = (void *)irxmsgid;
+    exte->irxinit = NULL; /* Will be set after init completes */
+    exte->irxterm = NULL; /* Same */
+    exte->irxuid = (void *)irxuid;
+    exte->userid_routine = (void *)irxuid;
+    exte->irxmsgid = (void *)irxmsgid;
     exte->msgid_routine = (void *)irxmsgid;
 
     /* Phase 2+: stubs */
-    exte->irxexec       = NULL;
-    exte->irxexcom      = NULL;
-    exte->irxjcl        = NULL;
-    exte->irxrlt        = NULL;
-    exte->irxsubcm      = NULL;
-    exte->irxic         = NULL;
-    exte->irxterma      = NULL;
-    exte->load_routine  = NULL;
-    exte->irxload       = NULL;
+    exte->irxexec = NULL;
+    exte->irxexcom = NULL;
+    exte->irxjcl = NULL;
+    exte->irxrlt = NULL;
+    exte->irxsubcm = NULL;
+    exte->irxic = NULL;
+    exte->irxterma = NULL;
+    exte->load_routine = NULL;
+    exte->irxload = NULL;
 
     /* Phase 2 (WP-14): Default and active I/O routine */
-    exte->io_routine    = (void *)irxinout;
-    exte->irxinout      = (void *)irxinout;
+    exte->io_routine = (void *)irxinout;
+    exte->irxinout = (void *)irxinout;
     exte->stack_routine = NULL;
-    exte->irxstk        = NULL;
-    exte->irxsay        = NULL;
-    exte->irxers        = NULL;
-    exte->irxhst        = NULL;
-    exte->irxhlt        = NULL;
-    exte->irxtxt        = NULL;
-    exte->irxlin        = NULL;
-    exte->irxrte        = NULL;
+    exte->irxstk = NULL;
+    exte->irxsay = NULL;
+    exte->irxers = NULL;
+    exte->irxhst = NULL;
+    exte->irxhlt = NULL;
+    exte->irxtxt = NULL;
+    exte->irxlin = NULL;
+    exte->irxrte = NULL;
 
     *exte_out = exte;
     return 0;
@@ -205,20 +210,20 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
     ALLOC(wk, sizeof(struct irx_wkblk_int), envblk);
 
     memcpy(wk->wkbi_id, WKBLK_INT_ID, 4);
-    wk->wkbi_length   = (int)sizeof(struct irx_wkblk_int);
+    wk->wkbi_length = (int)sizeof(struct irx_wkblk_int);
     wk->wkbi_envblock = envblk;
 
     /* NUMERIC defaults */
-    wk->wkbi_digits   = NUMERIC_DIGITS_DEFAULT;
-    wk->wkbi_fuzz     = NUMERIC_FUZZ_DEFAULT;
-    wk->wkbi_form     = NUMFORM_SCIENTIFIC;
+    wk->wkbi_digits = NUMERIC_DIGITS_DEFAULT;
+    wk->wkbi_fuzz = NUMERIC_FUZZ_DEFAULT;
+    wk->wkbi_form = NUMFORM_SCIENTIFIC;
 
     /* TRACE default */
-    wk->wkbi_trace    = TRACE_NORMAL;
+    wk->wkbi_trace = TRACE_NORMAL;
 
     /* Special variables */
-    wk->wkbi_sigl     = 0;
-    wk->wkbi_rc       = 0;
+    wk->wkbi_sigl = 0;
+    wk->wkbi_rc = 0;
 
     /* All pointer fields are already NULL from irxstor zero-fill */
 
@@ -251,22 +256,24 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
 {
     int rc = 0;
 
-    struct irx_rab         *rab      = NULL;
-    struct envblock        *envblk   = NULL;
-    struct parmblock       *pb       = NULL;
-    struct workblok_ext    *wkext    = NULL;
-    struct irxexte         *exte     = NULL;
-    struct subcomtb_header *subcmd   = NULL;
-    struct irx_wkblk_int   *wkbi    = NULL;
-    struct irx_env_node    *node     = NULL;
+    struct irx_rab *rab = NULL;
+    struct envblock *envblk = NULL;
+    struct parmblock *pb = NULL;
+    struct workblok_ext *wkext = NULL;
+    struct irxexte *exte = NULL;
+    struct subcomtb_header *subcmd = NULL;
+    struct irx_wkblk_int *wkbi = NULL;
+    struct irx_env_node *node = NULL;
 
-    if (envblock_ptr == NULL) {
+    if (envblock_ptr == NULL)
+    {
         return 20;
     }
 
     /* 1. Obtain RAB */
     rc = irx_rab_obtain(&rab);
-    if (rc != 0) {
+    if (rc != 0)
+    {
         return 28;
     }
 
@@ -275,18 +282,24 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         void *storage = NULL;
         rc = irxstor(RXSMGET, (int)sizeof(struct envblock),
                      &storage, NULL);
-        if (rc != 0) goto cleanup;
+        if (rc != 0)
+        {
+            goto cleanup;
+        }
         envblk = (struct envblock *)storage;
     }
 
     /* Populate ENVBLOCK eye-catcher and version */
-    memcpy(envblk->envblock_id,      ENVBLOCK_ID,           8);
+    memcpy(envblk->envblock_id, ENVBLOCK_ID, 8);
     memcpy(envblk->envblock_version, ENVBLOCK_VERSION_0100, 4);
     envblk->envblock_length = (int)sizeof(struct envblock);
 
     /* 3. PARMBLOCK */
     rc = init_parmblock(&pb, parms, envblk);
-    if (rc != 0) goto cleanup;
+    if (rc != 0)
+    {
+        goto cleanup;
+    }
     envblk->envblock_parmblock = pb;
 
     /* 4. Work Block Extension (IBM standard) */
@@ -294,23 +307,35 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         void *storage = NULL;
         rc = irxstor(RXSMGET, (int)sizeof(struct workblok_ext),
                      &storage, envblk);
-        if (rc != 0) goto cleanup;
+        if (rc != 0)
+        {
+            goto cleanup;
+        }
         wkext = (struct workblok_ext *)storage;
     }
     envblk->envblock_workblok_ext = wkext;
 
     /* 5. IRXEXTE */
     rc = init_irxexte(&exte, envblk);
-    if (rc != 0) goto cleanup;
+    if (rc != 0)
+    {
+        goto cleanup;
+    }
     envblk->envblock_irxexte = exte;
 
     /* 6. SUBCOMTB (host command environments) */
     rc = init_subcomtb(&subcmd, pb, envblk);
-    if (rc != 0) goto cleanup;
+    if (rc != 0)
+    {
+        goto cleanup;
+    }
 
     /* 7. Internal Work Block (interpreter state) */
     rc = init_wkblk_int(&wkbi, envblk);
-    if (rc != 0) goto cleanup;
+    if (rc != 0)
+    {
+        goto cleanup;
+    }
 
     /* Link internal work block via envblock_userfield */
     envblk->envblock_userfield = wkbi;
@@ -320,17 +345,23 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         void *storage = NULL;
         rc = irxstor(RXSMGET, (int)sizeof(struct irx_env_node),
                      &storage, envblk);
-        if (rc != 0) goto cleanup;
+        if (rc != 0)
+        {
+            goto cleanup;
+        }
         node = (struct irx_env_node *)storage;
     }
 
     memcpy(node->node_id, ENVNODE_ID, 4);
-    node->node_length   = (int)sizeof(struct irx_env_node);
+    node->node_length = (int)sizeof(struct irx_env_node);
     node->node_envblock = envblk;
-    node->node_flags    = ENVNODE_ACTIVE;
+    node->node_flags = ENVNODE_ACTIVE;
 
     rc = irx_rab_add_env(rab, node);
-    if (rc != 0) goto cleanup;
+    if (rc != 0)
+    {
+        goto cleanup;
+    }
 
     /* 9. Init exit — deferred to Phase 6 */
 
@@ -341,28 +372,34 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
 cleanup:
     /* Reverse-order cleanup of whatever was allocated */
     /* Note: irxstor handles NULL gracefully */
-    if (node != NULL) {
+    if (node != NULL)
+    {
         void *p = node;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
-    if (wkbi != NULL) {
+    if (wkbi != NULL)
+    {
         void *p = wkbi;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
     /* subcmd entries freed inside init_subcomtb on its own failure */
-    if (exte != NULL) {
+    if (exte != NULL)
+    {
         void *p = exte;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
-    if (wkext != NULL) {
+    if (wkext != NULL)
+    {
         void *p = wkext;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
-    if (pb != NULL) {
+    if (pb != NULL)
+    {
         void *p = pb;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
-    if (envblk != NULL) {
+    if (envblk != NULL)
+    {
         void *p = envblk;
         irxstor(RXSMFRE, 0, &p, NULL);
     }

@@ -12,12 +12,14 @@
 /* ------------------------------------------------------------------ */
 
 #include <string.h>
+
 #include "irx.h"
 #include "irxfunc.h"
 
 int irxuid(char *userid, struct envblock *envblock)
 {
-    if (userid == NULL) {
+    if (userid == NULL)
+    {
         return 20;
     }
 
@@ -34,16 +36,20 @@ int irxuid(char *userid, struct envblock *envblock)
 
     /* PSA+X'224' -> current ASCB */
     void *ascb = *(void **)0x224;
-    if (ascb != NULL) {
+    if (ascb != NULL)
+    {
         /* ASCB+X'6C' -> ASXB */
         void *asxb = *(void **)((char *)ascb + 0x6C);
-        if (asxb != NULL) {
+        if (asxb != NULL)
+        {
             /* ASXB+X'14' -> LWA (Logon Work Area) */
             void *lwa = *(void **)((char *)asxb + 0x14);
-            if (lwa != NULL) {
+            if (lwa != NULL)
+            {
                 /* LWA+X'18' -> PSCB */
                 void *pscb = *(void **)((char *)lwa + 0x18);
-                if (pscb != NULL) {
+                if (pscb != NULL)
+                {
                     /* PSCB+X'00' = PSCBUSER (7 bytes) */
                     memcpy(userid, (char *)pscb, 7);
                     return 0;
@@ -58,7 +64,10 @@ int irxuid(char *userid, struct envblock *envblock)
     /* Cross-compile: use getlogin() or environment */
     const char *user = "TESTUSER";
     int len = (int)strlen(user);
-    if (len > 8) len = 8;
+    if (len > 8)
+    {
+        len = 8;
+    }
     memcpy(userid, user, len);
 #endif
 

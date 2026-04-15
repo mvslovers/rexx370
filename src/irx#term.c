@@ -12,15 +12,17 @@
 /* ------------------------------------------------------------------ */
 
 #include <string.h>
+
 #include "irx.h"
+#include "irxfunc.h"
 #include "irxrab.h"
 #include "irxwkblk.h"
-#include "irxfunc.h"
 
 /* Internal helper: free via irxstor, NULL-safe */
 static void stor_free(void **ptr, struct envblock *envblk)
 {
-    if (ptr != NULL && *ptr != NULL) {
+    if (ptr != NULL && *ptr != NULL)
+    {
         irxstor(RXSMFRE, 0, ptr, envblk);
     }
 }
@@ -46,15 +48,16 @@ static void stor_free(void **ptr, struct envblock *envblk)
 
 int irxterm(struct envblock *envblk)
 {
-    struct irx_wkblk_int   *wkbi;
-    struct parmblock       *pb;
+    struct irx_wkblk_int *wkbi;
+    struct parmblock *pb;
     struct subcomtb_header *subcmd;
-    struct irx_rab         *rab;
-    struct irx_env_node    *node;
+    struct irx_rab *rab;
+    struct irx_env_node *node;
 
     /* 1. Validate */
     if (envblk == NULL ||
-        memcmp(envblk->envblock_id, ENVBLOCK_ID, 8) != 0) {
+        memcmp(envblk->envblock_id, ENVBLOCK_ID, 8) != 0)
+    {
         return 20;
     }
 
@@ -62,13 +65,15 @@ int irxterm(struct envblock *envblk)
 
     /* 3. Free internal Work Block */
     wkbi = (struct irx_wkblk_int *)envblk->envblock_userfield;
-    if (wkbi != NULL) {
+    if (wkbi != NULL)
+    {
         /* TODO Phase 2+: Free variable pool, data stack,
          * exec stack, token stream, label table, cache
          * that hang off wkbi before freeing wkbi itself */
 
         /* Free the lstring370 allocator bridge if it was installed. */
-        if (wkbi->wkbi_lstr_alloc != NULL) {
+        if (wkbi->wkbi_lstr_alloc != NULL)
+        {
             stor_free(&wkbi->wkbi_lstr_alloc, envblk);
         }
 
@@ -78,9 +83,11 @@ int irxterm(struct envblock *envblk)
 
     /* 4. Free SUBCOMTB */
     pb = (struct parmblock *)envblk->envblock_parmblock;
-    if (pb != NULL) {
+    if (pb != NULL)
+    {
         subcmd = (struct subcomtb_header *)pb->parmblock_subcomtb;
-        if (subcmd != NULL) {
+        if (subcmd != NULL)
+        {
             stor_free((void **)&subcmd->subcomtb_first, envblk);
             pb->parmblock_subcomtb = NULL;
             stor_free((void **)&subcmd, envblk);
@@ -110,13 +117,17 @@ int irxterm(struct envblock *envblk)
     tcbuser_ptr = &_simulated_tcbuser;
 #endif
 
-    if (*tcbuser_ptr != NULL) {
+    if (*tcbuser_ptr != NULL)
+    {
         rab = (struct irx_rab *)(*tcbuser_ptr);
-        if (memcmp(rab->rab_id, RAB_ID, 4) == 0) {
+        if (memcmp(rab->rab_id, RAB_ID, 4) == 0)
+        {
             /* Find node for this envblock */
             cur = (struct irx_env_node *)rab->rab_first;
-            while (cur != NULL) {
-                if (cur->node_envblock == envblk) {
+            while (cur != NULL)
+            {
+                if (cur->node_envblock == envblk)
+                {
                     node = cur;
                     irx_rab_remove_env(rab, node);
                     stor_free((void **)&node, envblk);
@@ -132,7 +143,8 @@ int irxterm(struct envblock *envblk)
     irxstor(RXSMFRE, 0, &p, NULL);
 
     /* 11. Release RAB if empty */
-    if (rab != NULL && rab->rab_env_count == 0) {
+    if (rab != NULL && rab->rab_env_count == 0)
+    {
         irx_rab_release(rab);
     }
 

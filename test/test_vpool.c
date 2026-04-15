@@ -15,33 +15,37 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "lstring.h"
-#include "lstralloc.h"
 #include "irxvpool.h"
+#include "lstralloc.h"
+#include "lstring.h"
 
 #ifndef __MVS__
 void *_simulated_tcbuser = NULL;
 #endif
 
-static int tests_run    = 0;
+static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define CHECK(cond, msg) \
-    do { \
-        tests_run++; \
-        if (cond) { \
-            tests_passed++; \
+#define CHECK(cond, msg)                 \
+    do                                   \
+    {                                    \
+        tests_run++;                     \
+        if (cond)                        \
+        {                                \
+            tests_passed++;              \
             printf("  PASS: %s\n", msg); \
-        } else { \
-            tests_failed++; \
+        }                                \
+        else                             \
+        {                                \
+            tests_failed++;              \
             printf("  FAIL: %s\n", msg); \
-        } \
+        }                                \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -56,7 +60,10 @@ static void set_lstr(struct lstr_alloc *a, Lstr *s, const char *cstr)
 static int lstr_eq_cstr(const Lstr *s, const char *cstr)
 {
     size_t n = strlen(cstr);
-    if (s->len != n) return 0;
+    if (s->len != n)
+    {
+        return 0;
+    }
     return memcmp(s->pstr, cstr, n) == 0;
 }
 
@@ -66,7 +73,8 @@ static int lstr_eq_cstr(const Lstr *s, const char *cstr)
 /*  injected callbacks).                                              */
 /* ------------------------------------------------------------------ */
 
-struct track {
+struct track
+{
     long alloc_calls;
     long dealloc_calls;
     long bytes_live;
@@ -76,7 +84,8 @@ static void *track_alloc(size_t size, void *ctx)
 {
     struct track *t = (struct track *)ctx;
     void *p = malloc(size);
-    if (p != NULL) {
+    if (p != NULL)
+    {
         t->alloc_calls++;
         t->bytes_live += (long)size;
     }
@@ -86,7 +95,8 @@ static void *track_alloc(size_t size, void *ctx)
 static void track_dealloc(void *ptr, size_t size, void *ctx)
 {
     struct track *t = (struct track *)ctx;
-    if (ptr != NULL) {
+    if (ptr != NULL)
+    {
         t->dealloc_calls++;
         t->bytes_live -= (long)size;
         free(ptr);
@@ -100,7 +110,7 @@ static void track_dealloc(void *ptr, size_t size, void *ctx)
 static void test_basic_set_get_drop(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *pool;
+    struct irx_vpool *pool;
     Lstr name, value, out;
 
     printf("\n--- Test: set/get/drop for simple variables ---\n");
@@ -108,7 +118,9 @@ static void test_basic_set_get_drop(void)
     pool = vpool_create(a, NULL);
     CHECK(pool != NULL, "vpool_create returns non-NULL");
 
-    Lzeroinit(&name); Lzeroinit(&value); Lzeroinit(&out);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out);
     set_lstr(a, &name, "X");
     set_lstr(a, &value, "42");
 
@@ -132,7 +144,9 @@ static void test_basic_set_get_drop(void)
     CHECK(vpool_exists(pool, &name) == 0,
           "vpool_exists(X) after drop == 0");
 
-    Lfree(a, &name); Lfree(a, &value); Lfree(a, &out);
+    Lfree(a, &name);
+    Lfree(a, &value);
+    Lfree(a, &out);
     vpool_destroy(pool);
 }
 
@@ -143,13 +157,15 @@ static void test_basic_set_get_drop(void)
 static void test_stem_default(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *pool;
+    struct irx_vpool *pool;
     Lstr name, value, out;
 
     printf("\n--- Test: stem-default lookup ---\n");
 
     pool = vpool_create(a, NULL);
-    Lzeroinit(&name); Lzeroinit(&value); Lzeroinit(&out);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out);
 
     /* Set STEM. = 'default' */
     set_lstr(a, &name, "STEM.");
@@ -182,7 +198,9 @@ static void test_stem_default(void)
     CHECK(vpool_get(pool, &name, &out) == VPOOL_NOT_FOUND,
           "non-compound missing var -> NOT_FOUND");
 
-    Lfree(a, &name); Lfree(a, &value); Lfree(a, &out);
+    Lfree(a, &name);
+    Lfree(a, &value);
+    Lfree(a, &out);
     vpool_destroy(pool);
 }
 
@@ -193,7 +211,7 @@ static void test_stem_default(void)
 static void test_resize(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *pool;
+    struct irx_vpool *pool;
     Lstr name, value, out;
     int i;
     int all_ok;
@@ -201,19 +219,24 @@ static void test_resize(void)
     printf("\n--- Test: dynamic resize with 5000 entries ---\n");
 
     pool = vpool_create(a, NULL);
-    Lzeroinit(&name); Lzeroinit(&value); Lzeroinit(&out);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out);
 
     CHECK(pool->bucket_count == 67, "initial bucket count is 67");
 
     all_ok = 1;
-    for (i = 0; i < 5000; i++) {
+    for (i = 0; i < 5000; i++)
+    {
         char buf[16];
         sprintf(buf, "V%d", i);
         set_lstr(a, &name, buf);
         sprintf(buf, "val%d", i);
         set_lstr(a, &value, buf);
-        if (vpool_set(pool, &name, &value) != VPOOL_OK) {
-            all_ok = 0; break;
+        if (vpool_set(pool, &name, &value) != VPOOL_OK)
+        {
+            all_ok = 0;
+            break;
         }
     }
     CHECK(all_ok, "5000 inserts succeeded");
@@ -232,7 +255,9 @@ static void test_resize(void)
     vpool_get(pool, &name, &out);
     CHECK(lstr_eq_cstr(&out, "val4999"), "V4999 survives resizes");
 
-    Lfree(a, &name); Lfree(a, &value); Lfree(a, &out);
+    Lfree(a, &name);
+    Lfree(a, &value);
+    Lfree(a, &out);
     vpool_destroy(pool);
 }
 
@@ -243,16 +268,18 @@ static void test_resize(void)
 static void test_large_load(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *pool;
+    struct irx_vpool *pool;
     Lstr name, value;
     int i;
 
     printf("\n--- Test: 10000 variables, load factor below 4 ---\n");
 
     pool = vpool_create(a, NULL);
-    Lzeroinit(&name); Lzeroinit(&value);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
 
-    for (i = 0; i < 10000; i++) {
+    for (i = 0; i < 10000; i++)
+    {
         char buf[16];
         sprintf(buf, "VAR%d", i);
         set_lstr(a, &name, buf);
@@ -266,7 +293,8 @@ static void test_large_load(void)
            load, pool->bucket_count);
     CHECK(load < 4.0, "load factor stays below 4");
 
-    Lfree(a, &name); Lfree(a, &value);
+    Lfree(a, &name);
+    Lfree(a, &value);
     vpool_destroy(pool);
 }
 
@@ -277,16 +305,18 @@ static void test_large_load(void)
 static void test_scope_isolation(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *parent;
-    struct irx_vpool  *child;
+    struct irx_vpool *parent;
+    struct irx_vpool *child;
     Lstr name, value, out;
 
     printf("\n--- Test: PROCEDURE scope isolation ---\n");
 
     parent = vpool_create(a, NULL);
-    child  = vpool_create(a, parent);
+    child = vpool_create(a, parent);
 
-    Lzeroinit(&name); Lzeroinit(&value); Lzeroinit(&out);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out);
 
     set_lstr(a, &name, "PARENT_VAR");
     set_lstr(a, &value, "parent_val");
@@ -302,7 +332,9 @@ static void test_scope_isolation(void)
     CHECK(vpool_get(parent, &name, &out) == VPOOL_OK,
           "parent still sees PARENT_VAR");
 
-    Lfree(a, &name); Lfree(a, &value); Lfree(a, &out);
+    Lfree(a, &name);
+    Lfree(a, &value);
+    Lfree(a, &out);
     vpool_destroy(child);
     vpool_destroy(parent);
 }
@@ -314,16 +346,18 @@ static void test_scope_isolation(void)
 static void test_expose_var(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *parent;
-    struct irx_vpool  *child;
+    struct irx_vpool *parent;
+    struct irx_vpool *child;
     Lstr name, value, out;
 
     printf("\n--- Test: EXPOSE single variable ---\n");
 
     parent = vpool_create(a, NULL);
-    child  = vpool_create(a, parent);
+    child = vpool_create(a, parent);
 
-    Lzeroinit(&name); Lzeroinit(&value); Lzeroinit(&out);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out);
 
     /* Parent already has Y = 'parent_y' */
     set_lstr(a, &name, "Y");
@@ -369,7 +403,9 @@ static void test_expose_var(void)
     CHECK(lstr_eq_cstr(&out, "via_child"),
           "parent's Z has the child-written value");
 
-    Lfree(a, &name); Lfree(a, &value); Lfree(a, &out);
+    Lfree(a, &name);
+    Lfree(a, &value);
+    Lfree(a, &out);
     vpool_destroy(child);
     vpool_destroy(parent);
 }
@@ -381,16 +417,18 @@ static void test_expose_var(void)
 static void test_expose_stem(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *parent;
-    struct irx_vpool  *child;
+    struct irx_vpool *parent;
+    struct irx_vpool *child;
     Lstr name, value, out;
 
     printf("\n--- Test: EXPOSE stem ---\n");
 
     parent = vpool_create(a, NULL);
-    child  = vpool_create(a, parent);
+    child = vpool_create(a, parent);
 
-    Lzeroinit(&name); Lzeroinit(&value); Lzeroinit(&out);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out);
 
     /* Expose STEM. on child */
     set_lstr(a, &name, "STEM.");
@@ -416,7 +454,9 @@ static void test_expose_stem(void)
     CHECK(vpool_exists(parent, &name) == 0,
           "drop propagates to parent through stem EXPOSE");
 
-    Lfree(a, &name); Lfree(a, &value); Lfree(a, &out);
+    Lfree(a, &name);
+    Lfree(a, &value);
+    Lfree(a, &out);
     vpool_destroy(child);
     vpool_destroy(parent);
 }
@@ -428,21 +468,24 @@ static void test_expose_stem(void)
 static void test_iteration(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
-    struct irx_vpool  *pool;
+    struct irx_vpool *pool;
     Lstr name, value;
     Lstr out_name, out_value;
-    int  seen[10];
-    int  rc;
-    int  count;
-    int  i;
+    int seen[10];
+    int rc;
+    int count;
+    int i;
 
     printf("\n--- Test: vpool_next iteration ---\n");
 
     pool = vpool_create(a, NULL);
-    Lzeroinit(&name); Lzeroinit(&value);
-    Lzeroinit(&out_name); Lzeroinit(&out_value);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out_name);
+    Lzeroinit(&out_value);
 
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 10; i++)
+    {
         char buf[8];
         sprintf(buf, "V%d", i);
         set_lstr(a, &name, buf);
@@ -454,17 +497,31 @@ static void test_iteration(void)
 
     vpool_next_reset(pool);
     count = 0;
-    while ((rc = vpool_next(pool, &out_name, &out_value)) == VPOOL_OK) {
+    while ((rc = vpool_next(pool, &out_name, &out_value)) == VPOOL_OK)
+    {
         /* out_name is "V<i>" -> index from "<i>" suffix */
         int idx = atoi((const char *)out_name.pstr + 1);
-        if (idx >= 0 && idx < 10 && !seen[idx]) seen[idx] = 1;
+        if (idx >= 0 && idx < 10 && !seen[idx])
+        {
+            seen[idx] = 1;
+        }
         count++;
-        if (count > 20) break;   /* safety cap */
+        if (count > 20)
+        {
+            break; /* safety cap */
+        }
     }
     CHECK(rc == VPOOL_LAST, "iteration ends with VPOOL_LAST");
     CHECK(count == 10, "iteration visited 10 entries");
     int all_seen = 1;
-    for (i = 0; i < 10; i++) if (!seen[i]) { all_seen = 0; break; }
+    for (i = 0; i < 10; i++)
+    {
+        if (!seen[i])
+        {
+            all_seen = 0;
+            break;
+        }
+    }
     CHECK(all_seen, "every entry visited exactly once");
 
     /* Empty pool: NOT_FOUND on first call. */
@@ -474,8 +531,10 @@ static void test_iteration(void)
           "empty pool -> NOT_FOUND");
     vpool_destroy(empty);
 
-    Lfree(a, &name);     Lfree(a, &value);
-    Lfree(a, &out_name); Lfree(a, &out_value);
+    Lfree(a, &name);
+    Lfree(a, &value);
+    Lfree(a, &out_name);
+    Lfree(a, &out_value);
     vpool_destroy(pool);
 }
 
@@ -485,26 +544,31 @@ static void test_iteration(void)
 
 static void test_allocator_injection(void)
 {
-    struct track       st;
-    struct lstr_alloc  tracking;
-    struct irx_vpool  *pool;
+    struct track st;
+    struct lstr_alloc tracking;
+    struct irx_vpool *pool;
     Lstr name, value, out;
     int i;
 
     printf("\n--- Test: allocator injection (no leaks) ---\n");
 
-    st.alloc_calls = 0; st.dealloc_calls = 0; st.bytes_live = 0;
-    tracking.alloc   = track_alloc;
+    st.alloc_calls = 0;
+    st.dealloc_calls = 0;
+    st.bytes_live = 0;
+    tracking.alloc = track_alloc;
     tracking.dealloc = track_dealloc;
-    tracking.ctx     = &st;
+    tracking.ctx = &st;
 
     pool = vpool_create(&tracking, NULL);
     CHECK(pool != NULL, "vpool_create with injected allocator");
     CHECK(st.bytes_live > 0, "allocator received alloc calls");
 
-    Lzeroinit(&name); Lzeroinit(&value); Lzeroinit(&out);
+    Lzeroinit(&name);
+    Lzeroinit(&value);
+    Lzeroinit(&out);
 
-    for (i = 0; i < 50; i++) {
+    for (i = 0; i < 50; i++)
+    {
         char buf[16];
         sprintf(buf, "K%d", i);
         set_lstr(&tracking, &name, buf);
@@ -512,7 +576,8 @@ static void test_allocator_injection(void)
         set_lstr(&tracking, &value, buf);
         vpool_set(pool, &name, &value);
     }
-    for (i = 0; i < 50; i++) {
+    for (i = 0; i < 50; i++)
+    {
         char buf[16];
         sprintf(buf, "K%d", i);
         set_lstr(&tracking, &name, buf);
@@ -550,7 +615,10 @@ int main(void)
 
     printf("\n=== Results: %d/%d passed",
            tests_passed, tests_run);
-    if (tests_failed > 0) printf(", %d FAILED", tests_failed);
+    if (tests_failed > 0)
+    {
+        printf(", %d FAILED", tests_failed);
+    }
     printf(" ===\n");
 
     return tests_failed > 0 ? 1 : 0;

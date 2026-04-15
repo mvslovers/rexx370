@@ -26,62 +26,64 @@
 #ifndef IRXVPOOL_H
 #define IRXVPOOL_H
 
-#include "lstring.h"
 #include "lstralloc.h"
+#include "lstring.h"
 
 /* ================================================================== */
 /*  Return codes                                                      */
 /* ================================================================== */
 
-#define VPOOL_OK          0   /* success                              */
-#define VPOOL_NOT_FOUND   1   /* variable does not exist              */
-#define VPOOL_LAST        2   /* last variable returned (for NEXT)    */
-#define VPOOL_NOMEM      20   /* allocator failed                     */
-#define VPOOL_BADARG     21   /* invalid argument                     */
+#define VPOOL_OK        0  /* success                              */
+#define VPOOL_NOT_FOUND 1  /* variable does not exist              */
+#define VPOOL_LAST      2  /* last variable returned (for NEXT)    */
+#define VPOOL_NOMEM     20 /* allocator failed                     */
+#define VPOOL_BADARG    21 /* invalid argument                     */
 
 /* ================================================================== */
 /*  Entry flags                                                       */
 /* ================================================================== */
 
-#define VPOOL_DROPPED     0x01  /* entry is tombstoned after DROP    */
-#define VPOOL_EXPOSED_REF 0x02  /* entry is a ref into parent pool   */
-#define VPOOL_UNSET       0x04  /* placeholder created by EXPOSE     */
+#define VPOOL_DROPPED     0x01 /* entry is tombstoned after DROP    */
+#define VPOOL_EXPOSED_REF 0x02 /* entry is a ref into parent pool   */
+#define VPOOL_UNSET       0x04 /* placeholder created by EXPOSE     */
 
 /* ================================================================== */
 /*  Entry                                                             */
 /* ================================================================== */
 
-struct vpool_entry {
-    struct vpool_entry *next;          /* chain within bucket          */
-    Lstr                name;          /* variable name (bytes as-is) */
-    Lstr                value;         /* variable value              */
-    int                 flags;         /* VPOOL_DROPPED / _EXPOSED_REF */
-    struct vpool_entry *exposed_ref;   /* -> parent entry if exposed  */
+struct vpool_entry
+{
+    struct vpool_entry *next;        /* chain within bucket          */
+    Lstr name;                       /* variable name (bytes as-is) */
+    Lstr value;                      /* variable value              */
+    int flags;                       /* VPOOL_DROPPED / _EXPOSED_REF */
+    struct vpool_entry *exposed_ref; /* -> parent entry if exposed  */
 };
 
 /* ================================================================== */
 /*  Pool                                                              */
 /* ================================================================== */
 
-#define VPOOL_ID      "VPOL"
-#define VPOOL_ID_LEN  4
+#define VPOOL_ID     "VPOL"
+#define VPOOL_ID_LEN 4
 
-struct irx_vpool {
-    unsigned char        vp_id[VPOOL_ID_LEN];  /* eye-catcher 'VPOL'   */
-    struct vpool_entry **buckets;              /* bucket array         */
-    int                  bucket_count;         /* current bucket count */
-    int                  entry_count;          /* live entries (incl.
-                                                * exposed refs)        */
-    struct irx_vpool    *parent;               /* -> parent scope      */
-    Lstr                *exposed_stems;        /* array of stem names  */
-    int                  exposed_stem_count;
-    int                  exposed_stem_cap;
-    struct lstr_alloc   *alloc;                /* injected allocator   */
+struct irx_vpool
+{
+    unsigned char vp_id[VPOOL_ID_LEN]; /* eye-catcher 'VPOL'   */
+    struct vpool_entry **buckets;      /* bucket array         */
+    int bucket_count;                  /* current bucket count */
+    int entry_count;                   /* live entries (incl.
+                                        * exposed refs)        */
+    struct irx_vpool *parent;          /* -> parent scope      */
+    Lstr *exposed_stems;               /* array of stem names  */
+    int exposed_stem_count;
+    int exposed_stem_cap;
+    struct lstr_alloc *alloc; /* injected allocator   */
 
     /* NEXT cursor. Do not mutate the pool while iterating. */
-    int                  next_bucket;
-    struct vpool_entry  *next_entry;
-    int                  next_started;
+    int next_bucket;
+    struct vpool_entry *next_entry;
+    int next_started;
 };
 
 /* ================================================================== */
@@ -93,35 +95,35 @@ struct irx_vpool {
 /* ================================================================== */
 
 /* Lifecycle */
-struct irx_vpool *vpool_create (struct lstr_alloc *a,
-                                struct irx_vpool *parent);
-void              vpool_destroy(struct irx_vpool *pool);
+struct irx_vpool *vpool_create(struct lstr_alloc *a,
+                               struct irx_vpool *parent);
+void vpool_destroy(struct irx_vpool *pool);
 
 /* Core operations. `name` is used as-is (no uppercasing). The
  * parser is responsible for producing the canonical name. */
-int vpool_set   (struct irx_vpool *pool,
-                 const PLstr name, const PLstr value);
-int vpool_get   (struct irx_vpool *pool,
-                 const PLstr name, PLstr value);
-int vpool_drop  (struct irx_vpool *pool, const PLstr name);
+int vpool_set(struct irx_vpool *pool,
+              const PLstr name, const PLstr value);
+int vpool_get(struct irx_vpool *pool,
+              const PLstr name, PLstr value);
+int vpool_drop(struct irx_vpool *pool, const PLstr name);
 int vpool_exists(struct irx_vpool *pool,
-                 const PLstr name)                      asm("VPOOLEXI");
+                 const PLstr name) asm("VPOOLEXI");
 
 /* EXPOSE registration. Should be called on the child pool before
  * any set/get operations. `name` for expose_stem must include the
  * trailing dot (e.g. "STEM."). */
-int vpool_expose_var (struct irx_vpool *pool,
-                      const PLstr name)                 asm("VPOOLXPV");
+int vpool_expose_var(struct irx_vpool *pool,
+                     const PLstr name) asm("VPOOLXPV");
 int vpool_expose_stem(struct irx_vpool *pool,
-                      const PLstr stem_name)            asm("VPOOLXPS");
+                      const PLstr stem_name) asm("VPOOLXPS");
 
 /* Iteration. Call vpool_next_reset() before the first vpool_next()
  * to rewind the cursor. vpool_next() returns VPOOL_OK with the
  * current entry's name and value copied out, or VPOOL_LAST after the
  * last entry has been returned, or VPOOL_NOT_FOUND if the pool is
  * empty. `name` and `value` are grown via the pool's allocator. */
-int  vpool_next      (struct irx_vpool *pool,
-                      PLstr name, PLstr value)          asm("VPOOLNXT");
-void vpool_next_reset(struct irx_vpool *pool)           asm("VPOOLNRS");
+int vpool_next(struct irx_vpool *pool,
+               PLstr name, PLstr value) asm("VPOOLNXT");
+void vpool_next_reset(struct irx_vpool *pool) asm("VPOOLNRS");
 
 #endif /* IRXVPOOL_H */

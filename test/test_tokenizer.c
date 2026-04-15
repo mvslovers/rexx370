@@ -12,33 +12,37 @@
 /* ------------------------------------------------------------------ */
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "irx.h"
-#include "irxrab.h"
-#include "irxwkblk.h"
 #include "irxfunc.h"
+#include "irxrab.h"
 #include "irxtokn.h"
+#include "irxwkblk.h"
 
 #ifndef __MVS__
 void *_simulated_tcbuser = NULL;
 #endif
 
-static int tests_run    = 0;
+static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define CHECK(cond, msg) \
-    do { \
-        tests_run++; \
-        if (cond) { \
-            tests_passed++; \
+#define CHECK(cond, msg)                 \
+    do                                   \
+    {                                    \
+        tests_run++;                     \
+        if (cond)                        \
+        {                                \
+            tests_passed++;              \
             printf("  PASS: %s\n", msg); \
-        } else { \
-            tests_failed++; \
+        }                                \
+        else                             \
+        {                                \
+            tests_failed++;              \
             printf("  FAIL: %s\n", msg); \
-        } \
+        }                                \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -48,7 +52,10 @@ static int tests_failed = 0;
 static int tok_text_eq(const struct irx_token *t, const char *s)
 {
     int n = (int)strlen(s);
-    if (t->tok_length != (unsigned short)n) return 0;
+    if (t->tok_length != (unsigned short)n)
+    {
+        return 0;
+    }
     return memcmp(t->tok_text, s, (size_t)n) == 0;
 }
 
@@ -74,13 +81,14 @@ static void test_hello_world(void)
     rc = run("say 'Hello World'", &toks, &n, &err);
     CHECK(rc == 0, "tokenizer returns 0");
     CHECK(n == 4, "produces 4 tokens (SYMBOL STRING EOC EOF)");
-    if (n >= 4) {
+    if (n >= 4)
+    {
         CHECK(toks[0].tok_type == TOK_SYMBOL && tok_text_eq(&toks[0], "say"),
               "[0] SYMBOL 'say'");
         CHECK(toks[1].tok_type == TOK_STRING && tok_text_eq(&toks[1], "Hello World"),
               "[1] STRING 'Hello World'");
-        CHECK(toks[2].tok_type == TOK_EOC,  "[2] EOC");
-        CHECK(toks[3].tok_type == TOK_EOF,  "[3] EOF");
+        CHECK(toks[2].tok_type == TOK_EOC, "[2] EOC");
+        CHECK(toks[3].tok_type == TOK_EOF, "[3] EOF");
     }
     irx_tokn_free(NULL, toks, n);
 }
@@ -95,7 +103,8 @@ static void test_compound_symbol(void)
 
     run("stem.i.j", &toks, &n, &err);
     CHECK(n == 3, "3 tokens (SYMBOL EOC EOF)");
-    if (n >= 1) {
+    if (n >= 1)
+    {
         CHECK(toks[0].tok_type == TOK_SYMBOL,
               "[0] is SYMBOL");
         CHECK(tok_text_eq(&toks[0], "stem.i.j"),
@@ -116,9 +125,10 @@ static void test_hex_string(void)
 
     run("'FF'x", &toks, &n, &err);
     CHECK(n == 3, "3 tokens (HEXSTRING EOC EOF)");
-    if (n >= 1) {
+    if (n >= 1)
+    {
         CHECK(toks[0].tok_type == TOK_HEXSTRING, "[0] HEXSTRING");
-        CHECK(tok_text_eq(&toks[0], "FF"),       "[0] body 'FF'");
+        CHECK(tok_text_eq(&toks[0], "FF"), "[0] body 'FF'");
     }
     irx_tokn_free(NULL, toks, n);
 }
@@ -133,9 +143,10 @@ static void test_bin_string(void)
 
     run("'1010'b", &toks, &n, &err);
     CHECK(n == 3, "3 tokens (BINSTRING EOC EOF)");
-    if (n >= 1) {
+    if (n >= 1)
+    {
         CHECK(toks[0].tok_type == TOK_BINSTRING, "[0] BINSTRING");
-        CHECK(tok_text_eq(&toks[0], "1010"),     "[0] body '1010'");
+        CHECK(tok_text_eq(&toks[0], "1010"), "[0] body '1010'");
     }
     irx_tokn_free(NULL, toks, n);
 }
@@ -150,7 +161,8 @@ static void test_string_doubling(void)
 
     run("'it''s'", &toks, &n, &err);
     CHECK(n == 3, "3 tokens");
-    if (n >= 1) {
+    if (n >= 1)
+    {
         CHECK(toks[0].tok_type == TOK_STRING, "[0] STRING");
         /* Body retains the doubling - decoding is the parser's job. */
         CHECK(tok_text_eq(&toks[0], "it''s"),
@@ -175,7 +187,8 @@ static void test_operators_single_char(void)
     rc = run("a||b", &toks, &n, &err);
     CHECK(rc == 0, "'a||b' tokenizes");
     CHECK(n == 6, "6 tokens (SYM | | SYM EOC EOF)");
-    if (n >= 6) {
+    if (n >= 6)
+    {
         CHECK(toks[0].tok_type == TOK_SYMBOL && tok_text_eq(&toks[0], "a"),
               "[0] SYMBOL a");
         CHECK(toks[1].tok_type == TOK_LOGICAL && tok_text_eq(&toks[1], "|"),
@@ -188,10 +201,12 @@ static void test_operators_single_char(void)
     irx_tokn_free(NULL, toks, n);
 
     /* ** as two TOK_OPERATOR */
-    toks = NULL; n = 0;
+    toks = NULL;
+    n = 0;
     rc = run("2**3", &toks, &n, &err);
     CHECK(rc == 0, "'2**3' tokenizes");
-    if (n >= 4) {
+    if (n >= 4)
+    {
         CHECK(toks[0].tok_type == TOK_NUMBER, "[0] NUMBER 2");
         CHECK(toks[1].tok_type == TOK_OPERATOR && tok_text_eq(&toks[1], "*"),
               "[1] OPERATOR '*'");
@@ -202,10 +217,12 @@ static void test_operators_single_char(void)
     irx_tokn_free(NULL, toks, n);
 
     /* \= as NOT followed by COMPARISON */
-    toks = NULL; n = 0;
+    toks = NULL;
+    n = 0;
     rc = run("a\\=b", &toks, &n, &err);
     CHECK(rc == 0, "'a\\=b' tokenizes");
-    if (n >= 4) {
+    if (n >= 4)
+    {
         CHECK(toks[1].tok_type == TOK_NOT && tok_text_eq(&toks[1], "\\"),
               "[1] NOT '\\'");
         CHECK(toks[2].tok_type == TOK_COMPARISON && tok_text_eq(&toks[2], "="),
@@ -214,10 +231,12 @@ static void test_operators_single_char(void)
     irx_tokn_free(NULL, toks, n);
 
     /* >= as two COMPARISONs */
-    toks = NULL; n = 0;
+    toks = NULL;
+    n = 0;
     rc = run("a>=b", &toks, &n, &err);
     CHECK(rc == 0, "'a>=b' tokenizes");
-    if (n >= 4) {
+    if (n >= 4)
+    {
         CHECK(toks[1].tok_type == TOK_COMPARISON && tok_text_eq(&toks[1], ">"),
               "[1] COMPARISON '>'");
         CHECK(toks[2].tok_type == TOK_COMPARISON && tok_text_eq(&toks[2], "="),
@@ -226,10 +245,12 @@ static void test_operators_single_char(void)
     irx_tokn_free(NULL, toks, n);
 
     /* Comment between || characters - parser will still see two | */
-    toks = NULL; n = 0;
+    toks = NULL;
+    n = 0;
     rc = run("a| /* gap */ |b", &toks, &n, &err);
     CHECK(rc == 0, "'a| /* gap */ |b' tokenizes (comment inside ||)");
-    if (n >= 4) {
+    if (n >= 4)
+    {
         CHECK(toks[1].tok_type == TOK_LOGICAL && tok_text_eq(&toks[1], "|"),
               "first | preserved");
         CHECK(toks[2].tok_type == TOK_LOGICAL && tok_text_eq(&toks[2], "|"),
@@ -249,15 +270,18 @@ static void test_punctuation(void)
 
     rc = run("a;b", &toks, &n, &err);
     CHECK(rc == 0, "'a;b' tokenizes");
-    if (n >= 4) {
+    if (n >= 4)
+    {
         CHECK(toks[1].tok_type == TOK_SEMICOLON, "[1] ';' is SEMICOLON");
     }
     irx_tokn_free(NULL, toks, n);
 
-    toks = NULL; n = 0;
+    toks = NULL;
+    n = 0;
     rc = run("loop:\nsay 'x'", &toks, &n, &err);
     CHECK(rc == 0, "'loop:' label tokenizes");
-    if (n >= 2) {
+    if (n >= 2)
+    {
         CHECK(toks[0].tok_type == TOK_SYMBOL && tok_text_eq(&toks[0], "loop"),
               "[0] SYMBOL 'loop'");
         CHECK(toks[1].tok_type == TOK_SEMICOLON,
@@ -281,7 +305,8 @@ static void test_comments_and_lines(void)
 
     rc = run(src, &toks, &n, &err);
     CHECK(rc == 0, "tokenizer returns 0");
-    if (rc == 0) {
+    if (rc == 0)
+    {
         CHECK(toks[0].tok_type == TOK_SYMBOL && tok_text_eq(&toks[0], "say"),
               "[0] 'say' on line 2");
         CHECK(toks[0].tok_line == 2, "[0] tok_line == 2");
@@ -291,9 +316,11 @@ static void test_comments_and_lines(void)
         /* After EOC, we have x = 1 on line 3. */
         int i;
         int found_x = 0;
-        for (i = 0; i < n; i++) {
+        for (i = 0; i < n; i++)
+        {
             if (toks[i].tok_type == TOK_SYMBOL &&
-                tok_text_eq(&toks[i], "x")) {
+                tok_text_eq(&toks[i], "x"))
+            {
                 found_x = (toks[i].tok_line == 3);
                 break;
             }
@@ -318,12 +345,13 @@ static void test_continuation(void)
     /* Comma stays (argument separator), only EOC suppressed:
      * SYM STR COMMA STR EOC EOF = 6 */
     CHECK(n == 6, "6 tokens (comma kept, EOC suppressed)");
-    if (n >= 5) {
+    if (n >= 5)
+    {
         CHECK(toks[0].tok_type == TOK_SYMBOL, "[0] SYMBOL say");
         CHECK(toks[1].tok_type == TOK_STRING, "[1] STRING 'a'");
-        CHECK(toks[2].tok_type == TOK_COMMA,  "[2] COMMA (kept for parser)");
+        CHECK(toks[2].tok_type == TOK_COMMA, "[2] COMMA (kept for parser)");
         CHECK(toks[3].tok_type == TOK_STRING, "[3] STRING 'b'");
-        CHECK(toks[4].tok_type == TOK_EOC,    "[4] EOC");
+        CHECK(toks[4].tok_type == TOK_EOC, "[4] EOC");
     }
     irx_tokn_free(NULL, toks, n);
 }
@@ -338,7 +366,8 @@ static void test_numbers(void)
 
     run("42 3.14 1E5 1.5e-2 .5", &toks, &n, &err);
     CHECK(n == 7, "5 numbers + EOC + EOF");
-    if (n >= 5) {
+    if (n >= 5)
+    {
         CHECK(toks[0].tok_type == TOK_NUMBER && tok_text_eq(&toks[0], "42"),
               "42");
         CHECK(toks[1].tok_type == TOK_NUMBER && tok_text_eq(&toks[1], "3.14"),
@@ -374,20 +403,25 @@ static void test_stress_1000_lines(void)
 {
     /* Build "say 'line N'\n" 1000 times. */
     char *buf;
-    int   buf_len = 0;
-    int   buf_cap = 64 * 1024;
-    int   i;
+    int buf_len = 0;
+    int buf_cap = 64 * 1024;
+    int i;
     struct irx_token *toks = NULL;
-    int   n = 0;
+    int n = 0;
     struct irx_tokn_error err;
-    int   rc;
+    int rc;
 
     printf("\n--- Test: stress 1000 lines ---\n");
 
     buf = (char *)malloc((size_t)buf_cap);
-    if (buf == NULL) { CHECK(0, "malloc"); return; }
+    if (buf == NULL)
+    {
+        CHECK(0, "malloc");
+        return;
+    }
 
-    for (i = 1; i <= 1000; i++) {
+    for (i = 1; i <= 1000; i++)
+    {
         int written = sprintf(buf + buf_len, "say 'line %d'\n", i);
         buf_len += written;
     }
@@ -424,7 +458,10 @@ int main(void)
 
     printf("\n=== Results: %d/%d passed",
            tests_passed, tests_run);
-    if (tests_failed > 0) printf(", %d FAILED", tests_failed);
+    if (tests_failed > 0)
+    {
+        printf(", %d FAILED", tests_failed);
+    }
     printf(" ===\n");
 
     return tests_failed > 0 ? 1 : 0;
