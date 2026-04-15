@@ -114,6 +114,10 @@ struct irx_bif {
 /*  Public entry points                                               */
 /* ================================================================== */
 
+/* asm() aliases: every irx_pars_* function shares the same first 8
+ * characters ("irx_pars") and would collide under c2asm370's
+ * 8-character identifier truncation without explicit aliases. */
+
 /* Initialise a parser context. Does NOT take ownership of tokens or
  * vpool; the caller is responsible for their lifetime. The result
  * Lstr inside the context is zero-initialised and grown on demand. */
@@ -121,20 +125,21 @@ int  irx_pars_init(struct irx_parser *p,
                    struct irx_token *tokens, int tok_count,
                    struct irx_vpool *vpool,
                    struct lstr_alloc *alloc,
-                   struct envblock *envblock);
+                   struct envblock *envblock)          asm("IRXPARIN");
 
 /* Release allocator-backed memory owned by the context (the result
  * Lstr). Safe to call on a zero-initialised context. */
-void irx_pars_cleanup(struct irx_parser *p);
+void irx_pars_cleanup(struct irx_parser *p)            asm("IRXPARCL");
 
 /* Top-level clause loop. Processes every clause in the token stream
  * until TOK_EOF or an error. Returns IRXPARS_OK or an IRXPARS_* code. */
-int  irx_pars_run(struct irx_parser *p);
+int  irx_pars_run(struct irx_parser *p)                asm("IRXPARRN");
 
 /* Evaluate the expression starting at the current token position
  * into out. Stops at a clause terminator or a right parenthesis at
  * depth 0. Used both internally and by higher-level instructions
  * (SAY, IF, WHILE, etc.) in later work packages. */
-int  irx_pars_eval_expr(struct irx_parser *p, PLstr out);
+int  irx_pars_eval_expr(struct irx_parser *p,
+                        PLstr out)                     asm("IRXPAREV");
 
 #endif /* __IRXPARS_H__ */
