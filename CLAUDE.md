@@ -66,6 +66,12 @@ Tests: `test/test_name.c`
 | `src/irx#rab.c` | IRX#RAB | RAB chain management |
 | `src/irx#uid.c` | IRX#UID | User ID replaceable routine |
 | `src/irx#msid.c` | IRX#MSID | Message ID replaceable routine |
+| `src/irx#tokn.c` | IRX#TOKN | Tokenizer (WP-10) |
+| `src/irx#lstr.c` | IRX#LSTR | lstring370 adapter (WP-11b) |
+| `src/irx#vpol.c` | IRX#VPOL | Variable pool (WP-12) |
+| `src/irx#pars.c` | IRX#PARS | Parser + expression evaluator (WP-13) |
+| `src/irx#io.c`   | IRX#IO   | Default I/O routine IRXINOUT (WP-14) |
+| `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
 
 New source files follow the same pattern: `src/irx#xxxx.c` where
 `xxxx` is a 4-character identifier. Member names must be ≤ 8 chars.
@@ -191,28 +197,72 @@ Every work package produces a `test/test_*.c` file that runs on
 Linux/gcc without MVS. Tests use a simple CHECK macro:
 
 ```c
-#define CHECK(cond, msg) ...  /* see test/test_phase1.c */
+#define CHECK(cond, msg) ...  /* see test/test_tokenizer.c */
 ```
 
-Run Phase 1 test:
+The common dependency set for cross-compile tests is:
+
 ```bash
-gcc -I./include -Wall -Wextra -std=gnu99 -o test/test_phase1 \
-    test/test_phase1.c \
-    'src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
-    'src/irx#rab.c' 'src/irx#uid.c' 'src/irx#msid.c'
-./test/test_phase1
+LSTRING_SRC=../lstring370/src/'lstr#cor.c'
+LSTRING_INC=-I contrib/lstring370-0.1.0-dev/include
+PHASE1_SRC='src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
+           'src/irx#rab.c'  'src/irx#uid.c'  'src/irx#msid.c'
+PHASE2_SRC='src/irx#io.c' 'src/irx#lstr.c' 'src/irx#tokn.c' \
+           'src/irx#vpol.c' 'src/irx#pars.c' 'src/irx#ctrl.c'
 ```
 
-Expected: `38/38 passed`
+Run all tests (Phase 1–2):
+
+```bash
+# Tokenizer (WP-10) — 70/70
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_tokenizer test/test_tokenizer.c \
+    'src/irx#tokn.c' $LSTRING_SRC
+./test/test_tokenizer
+
+# Variable pool (WP-12) — 47/47
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_vpool test/test_vpool.c \
+    $PHASE1_SRC 'src/irx#lstr.c' 'src/irx#tokn.c' 'src/irx#vpol.c' \
+    $LSTRING_SRC
+./test/test_vpool
+
+# Parser (WP-13) — 38/38
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_parser test/test_parser.c \
+    $PHASE1_SRC 'src/irx#lstr.c' 'src/irx#tokn.c' \
+    'src/irx#vpol.c' 'src/irx#pars.c' $LSTRING_SRC
+./test/test_parser
+
+# SAY / I/O (WP-14) — 27/27
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_say test/test_say.c \
+    $PHASE1_SRC $PHASE2_SRC $LSTRING_SRC
+./test/test_say
+
+# lstring adapter (WP-11b) — 50/50
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_irxlstr test/test_irxlstr.c \
+    $PHASE1_SRC 'src/irx#lstr.c' $LSTRING_SRC
+./test/test_irxlstr
+
+# Control flow (WP-15) — 62/62
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_control test/test_control.c \
+    $PHASE1_SRC $PHASE2_SRC $LSTRING_SRC
+./test/test_control
+```
 
 ## Work packages
 
-See `doc/workpackages.md` for the full list of work packages.
+See `docs/workpackages.md` for the full list of work packages.
 Each WP is self-contained with inputs, outputs, constraints,
 and acceptance criteria.
 
-Current status: Phase 1 (WP-01 through WP-05) is complete.
-Next: Phase 2 starting with WP-10 (Tokenizer).
+Current status:
+- Phase 1 (WP-01 through WP-05): complete
+- Phase 2 (WP-10 through WP-15): complete
+- Next: WP-16 (PARSE instruction)
 
 ## Knowledge sources
 

@@ -16,12 +16,12 @@ Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3
 | WP-03 | RAB management | 1 | DONE |
 | WP-04 | IRXINIT + IRXTERM | 1 | DONE |
 | WP-05 | Phase 1 smoke test | 1 | DONE (38/38) |
-| WP-10 | Tokenizer (IRXTOKN) | 2 | OPEN |
-| WP-11 | LString library port | 2 | OPEN |
-| WP-12 | Variable pool | 2 | OPEN |
-| WP-13 | Parser + evaluator (IRXPARS) | 2 | OPEN |
-| WP-14 | SAY + basic I/O routine | 2 | OPEN |
-| WP-15 | DO/IF/SELECT/CALL/RETURN | 2 | OPEN |
+| WP-10 | Tokenizer (IRX#TOKN) | 2 | DONE (70/70) — PR #2 |
+| WP-11b | LString adapter (IRX#LSTR) | 2 | DONE (50/50) — PR #4 |
+| WP-12 | Variable pool (IRX#VPOL) | 2 | DONE (47/47) — PR #6 |
+| WP-13 | Parser + evaluator (IRX#PARS) | 2 | DONE (38/38) — PR #8 |
+| WP-14 | SAY + basic I/O routine (IRX#IO) | 2 | DONE (27/27) — PR #10 |
+| WP-15 | DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL | 2 | DONE (62/62) — PR #12 |
 | WP-16 | PARSE instruction | 2 | OPEN |
 | WP-17 | PROCEDURE EXPOSE | 2 | OPEN |
 | WP-18 | Hello World end-to-end | 2 | OPEN |
@@ -441,11 +441,15 @@ mbt build --target irxjcl   # build specific module
 
 Cross-compile test (Linux/gcc):
 ```bash
-gcc -I./include -Wall -Wextra -std=gnu99 -o test/test_NAME \
-    test/test_NAME.c \
-    'src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
-    'src/irx#rab.c' 'src/irx#uid.c' 'src/irx#msid.c' \
-    src/NEW_MODULE.c
+# Standard dependency sets (expand as needed):
+LSTRING_INC="-I contrib/lstring370-0.1.0-dev/include"
+LSTRING_SRC="../lstring370/src/lstr#cor.c"
+PHASE1="src/irx#init.c src/irx#term.c src/irx#stor.c src/irx#rab.c src/irx#uid.c src/irx#msid.c"
+PHASE2="src/irx#io.c src/irx#lstr.c src/irx#tokn.c src/irx#vpol.c src/irx#pars.c src/irx#ctrl.c"
+
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_NAME test/test_NAME.c \
+    $PHASE1 $PHASE2 src/NEW_MODULE.c "$LSTRING_SRC"
 ```
 
 ### File Naming Convention
@@ -463,8 +467,11 @@ Header files use plain names in `include/` directory.
 | `src/irx#uid.c` | IRX#UID | User ID routine |
 | `src/irx#msid.c` | IRX#MSID | Message ID routine |
 | `src/irx#tokn.c` | IRX#TOKN | Tokenizer (WP-10) |
-| `src/irx#pars.c` | IRX#PARS | Parser/Evaluator (WP-13) |
+| `src/irx#lstr.c` | IRX#LSTR | lstring370 adapter (WP-11b) |
 | `src/irx#vpol.c` | IRX#VPOL | Variable pool (WP-12) |
+| `src/irx#pars.c` | IRX#PARS | Parser/Evaluator (WP-13) |
+| `src/irx#io.c`   | IRX#IO   | Default I/O routine IRXINOUT (WP-14) |
+| `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
 
 ### crent370 APIs
 
