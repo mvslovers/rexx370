@@ -22,18 +22,18 @@
 /* --- RAB Management (TCB -> TCBUSER -> RAB -> ENVBLOCK chain) --- */
 
 /* Get or create the RAB for the current task */
-int  irx_rab_obtain(struct irx_rab **rab_ptr)           asm("IRXRABOB");
+int irx_rab_obtain(struct irx_rab **rab_ptr) asm("IRXRABOB");
 
 /* Release the RAB for the current task */
-int  irx_rab_release(struct irx_rab *rab)               asm("IRXRABRL");
+int irx_rab_release(struct irx_rab *rab) asm("IRXRABRL");
 
 /* Add an environment node to the RAB chain */
-int  irx_rab_add_env(struct irx_rab *rab,
-                     struct irx_env_node *node)         asm("IRXRABAD");
+int irx_rab_add_env(struct irx_rab *rab,
+                    struct irx_env_node *node) asm("IRXRABAD");
 
 /* Remove an environment node from the RAB chain */
-int  irx_rab_remove_env(struct irx_rab *rab,
-                        struct irx_env_node *node)      asm("IRXRABRM");
+int irx_rab_remove_env(struct irx_rab *rab,
+                       struct irx_env_node *node) asm("IRXRABRM");
 
 /* --- Environment Lifecycle --- */
 
@@ -48,7 +48,7 @@ int  irx_rab_remove_env(struct irx_rab *rab,
  *
  * Returns: 0=OK, 20=init error, 28=storage error
  */
-int  irxinit(void *parms, struct envblock **envblock_ptr);
+int irxinit(void *parms, struct envblock **envblock_ptr);
 
 /* IRXTERM - Terminate a Language Processor Environment
  * Frees all storage associated with the environment,
@@ -59,7 +59,7 @@ int  irxinit(void *parms, struct envblock **envblock_ptr);
  *
  * Returns: 0=OK, 20=term error
  */
-int  irxterm(struct envblock *envblock_ptr);
+int irxterm(struct envblock *envblock_ptr);
 
 /* --- Storage Management Replaceable Routine --- */
 
@@ -75,8 +75,8 @@ int  irxterm(struct envblock *envblock_ptr);
  *
  * Returns: 0=OK, 20=storage not available
  */
-int  irxstor(int function, int length, void **addr_ptr,
-             struct envblock *envblock);
+int irxstor(int function, int length, void **addr_ptr,
+            struct envblock *envblock);
 
 /* --- User ID Replaceable Routine --- */
 
@@ -90,7 +90,7 @@ int  irxstor(int function, int length, void **addr_ptr,
  *
  * Returns: 0=OK, 20=error
  */
-int  irxuid(char *userid, struct envblock *envblock);
+int irxuid(char *userid, struct envblock *envblock);
 
 /* --- Message ID Replaceable Routine --- */
 
@@ -104,7 +104,7 @@ int  irxuid(char *userid, struct envblock *envblock);
  *
  * Returns: 0=OK
  */
-int  irxmsgid(int function, char *prefix, struct envblock *envblock);
+int irxmsgid(int function, char *prefix, struct envblock *envblock);
 
 /* ================================================================== */
 /*  Phase 2+: Stubs for forward reference                             */
@@ -121,27 +121,27 @@ int  irxmsgid(int function, char *prefix, struct envblock *envblock);
  *
  * Returns: 0=OK, 20=error
  */
-int  irxinout(int function, PLstr data, struct envblock *envblock);
+int irxinout(int function, PLstr data, struct envblock *envblock);
 
 /* IRXEXEC - Execute a REXX exec */
-int  irxexec(struct irxexec_plist *plist);
+int irxexec(struct irxexec_plist *plist);
 
 /* IRXEXCOM - Variable access */
-int  irxexcom(char *irxid, void *dummy1, void *dummy2,
-              struct shvblock *shvblock, struct envblock *envblock,
-              int *retval);
+int irxexcom(char *irxid, void *dummy1, void *dummy2,
+             struct shvblock *shvblock, struct envblock *envblock,
+             int *retval);
 
 /* IRXSUBCM - Subcommand table management */
-int  irxsubcm(void *parms, struct envblock *envblock);
+int irxsubcm(void *parms, struct envblock *envblock);
 
 /* IRXRLT - Get result */
-int  irxrlt(void *parms, struct envblock *envblock);
+int irxrlt(void *parms, struct envblock *envblock);
 
 /* IRXIC - Immediate command / Trace control */
-int  irxic(void *parms, struct envblock *envblock);
+int irxic(void *parms, struct envblock *envblock);
 
 /* IRXJCL - Batch entry point (PGM=IRXJCL) */
-int  irxjcl(void *cppl_or_parm);
+int irxjcl(void *cppl_or_parm);
 
 /* ================================================================== */
 /*  Internal Helper Functions                                         */
@@ -157,6 +157,6 @@ struct envblock *irx_find_env(void);
 struct envblock *irx_find_env_by_name(const char *name);
 
 /* Validate an ENVBLOCK (check eye-catcher, pointers) */
-int  irx_validate_envblock(struct envblock *envblock);
+int irx_validate_envblock(struct envblock *envblock);
 
 #endif /* IRXFUNC_H */

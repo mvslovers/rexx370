@@ -18,31 +18,32 @@
 #include <stdio.h>
 
 #include "irx.h"
+#include "irxio.h"
 #include "irxwkblk.h"
 #include "lstring.h"
-#include "irxio.h"
 
 int irxinout(int function, PLstr data, struct envblock *envblock)
 {
-    (void)envblock;     /* reserved for WP-33 dataset / stack I/O */
+    (void)envblock; /* reserved for WP-33 dataset / stack I/O */
 
-    switch (function) {
+    switch (function)
+    {
+        case RXFWRITE:   /* SAY output                             */
+        case RXFWRITERR: /* Error message output                   */
+        case RXFTWRITE:  /* Trace output                           */
+            if (data != NULL && data->pstr != NULL && data->len > 0)
+            {
+                fwrite(data->pstr, 1, (size_t)data->len, stdout);
+            }
+            fputc('\n', stdout);
+            return 0;
 
-    case RXFWRITE:      /* SAY output                             */
-    case RXFWRITERR:    /* Error message output                   */
-    case RXFTWRITE:     /* Trace output                           */
-        if (data != NULL && data->pstr != NULL && data->len > 0) {
-            fwrite(data->pstr, 1, (size_t)data->len, stdout);
-        }
-        fputc('\n', stdout);
-        return 0;
+        case RXFREAD:  /* PULL from terminal (WP-33)             */
+        case RXFREADP: /* PULL from stack then terminal (WP-33)  */
+            /* TODO WP-33: implement PULL / LINEIN */
+            return 20;
 
-    case RXFREAD:       /* PULL from terminal (WP-33)             */
-    case RXFREADP:      /* PULL from stack then terminal (WP-33)  */
-        /* TODO WP-33: implement PULL / LINEIN */
-        return 20;
-
-    default:
-        return 20;
+        default:
+            return 20;
     }
 }

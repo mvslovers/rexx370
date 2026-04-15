@@ -40,16 +40,16 @@
 /*  _Lisnum() / irx_datatype().                                       */
 /* ================================================================== */
 
-#define LINTEGER_TY   1   /* validated as an integer literal          */
-#define LREAL_TY      2   /* validated as a real / exponent literal   */
+#define LINTEGER_TY 1 /* validated as an integer literal          */
+#define LREAL_TY    2 /* validated as a real / exponent literal   */
 
 /* ================================================================== */
 /*  _Lisnum() result values                                           */
 /* ================================================================== */
 
-#define LNUM_NOT_NUM  0   /* not a valid REXX number                  */
-#define LNUM_INTEGER  1   /* valid REXX integer (no dot, no exponent) */
-#define LNUM_REAL     2   /* valid REXX real (has dot or exponent)    */
+#define LNUM_NOT_NUM 0 /* not a valid REXX number                  */
+#define LNUM_INTEGER 1 /* valid REXX integer (no dot, no exponent) */
+#define LNUM_REAL    2 /* valid REXX real (has dot or exponent)    */
 
 /* ================================================================== */
 /*  Public API                                                        */

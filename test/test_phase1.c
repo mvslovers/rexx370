@@ -16,30 +16,35 @@
 
 #include <stdio.h>
 #include <string.h>
+
 #include "irx.h"
+#include "irxfunc.h"
 #include "irxrab.h"
 #include "irxwkblk.h"
-#include "irxfunc.h"
 
 /* Cross-compile: expose simulated TCBUSER from irxrab.c */
 #ifndef __MVS__
 void *_simulated_tcbuser = NULL;
 #endif
 
-static int tests_run    = 0;
+static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define CHECK(cond, msg) \
-    do { \
-        tests_run++; \
-        if (cond) { \
-            tests_passed++; \
+#define CHECK(cond, msg)                 \
+    do                                   \
+    {                                    \
+        tests_run++;                     \
+        if (cond)                        \
+        {                                \
+            tests_passed++;              \
             printf("  PASS: %s\n", msg); \
-        } else { \
-            tests_failed++; \
+        }                                \
+        else                             \
+        {                                \
+            tests_failed++;              \
             printf("  FAIL: %s\n", msg); \
-        } \
+        }                                \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -48,9 +53,9 @@ static int tests_failed = 0;
 
 static void test_single_env(void)
 {
-    struct envblock      *envblk = NULL;
-    struct parmblock     *pb;
-    struct irxexte       *exte;
+    struct envblock *envblk = NULL;
+    struct parmblock *pb;
+    struct irxexte *exte;
     struct irx_wkblk_int *wkbi;
     int rc;
 
@@ -61,7 +66,10 @@ static void test_single_env(void)
     CHECK(rc == 0, "irxinit returns 0");
     CHECK(envblk != NULL, "envblock is not NULL");
 
-    if (envblk == NULL) return;
+    if (envblk == NULL)
+    {
+        return;
+    }
 
     /* Validate ENVBLOCK */
     CHECK(memcmp(envblk->envblock_id, ENVBLOCK_ID, 8) == 0,
@@ -72,7 +80,8 @@ static void test_single_env(void)
     /* Validate PARMBLOCK link */
     pb = (struct parmblock *)envblk->envblock_parmblock;
     CHECK(pb != NULL, "parmblock is linked");
-    if (pb != NULL) {
+    if (pb != NULL)
+    {
         CHECK(memcmp(pb->parmblock_id, PARMBLOCK_ID, 8) == 0,
               "parmblock eye-catcher is IRXPARMS");
         CHECK(pb->parmblock_subcomtb != NULL,
@@ -82,7 +91,8 @@ static void test_single_env(void)
     /* Validate IRXEXTE link */
     exte = (struct irxexte *)envblk->envblock_irxexte;
     CHECK(exte != NULL, "irxexte is linked");
-    if (exte != NULL) {
+    if (exte != NULL)
+    {
         CHECK(exte->irxexte_entry_count == IRXEXTE_ENTRY_COUNT,
               "irxexte has correct entry count");
         CHECK(exte->irxuid != NULL,
@@ -94,7 +104,8 @@ static void test_single_env(void)
     /* Validate internal Work Block */
     wkbi = (struct irx_wkblk_int *)envblk->envblock_userfield;
     CHECK(wkbi != NULL, "internal wkblk is linked via userfield");
-    if (wkbi != NULL) {
+    if (wkbi != NULL)
+    {
         CHECK(memcmp(wkbi->wkbi_id, WKBLK_INT_ID, 4) == 0,
               "wkblk eye-catcher is WKBI");
         CHECK(wkbi->wkbi_digits == NUMERIC_DIGITS_DEFAULT,
@@ -223,7 +234,8 @@ int main(void)
 
     printf("\n=== Results: %d/%d passed",
            tests_passed, tests_run);
-    if (tests_failed > 0) {
+    if (tests_failed > 0)
+    {
         printf(", %d FAILED", tests_failed);
     }
     printf(" ===\n");

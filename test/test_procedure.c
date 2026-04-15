@@ -20,29 +20,33 @@
 #include <string.h>
 
 #include "irx.h"
-#include "irxwkblk.h"
-#include "irxfunc.h"
 #include "irxexec.h"
+#include "irxfunc.h"
+#include "irxwkblk.h"
 #include "lstring.h"
 
 #ifndef __MVS__
 void *_simulated_tcbuser = NULL;
 #endif
 
-static int tests_run    = 0;
+static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define CHECK(cond, msg) \
-    do { \
-        tests_run++; \
-        if (cond) { \
-            tests_passed++; \
+#define CHECK(cond, msg)                 \
+    do                                   \
+    {                                    \
+        tests_run++;                     \
+        if (cond)                        \
+        {                                \
+            tests_passed++;              \
             printf("  PASS: %s\n", msg); \
-        } else { \
-            tests_failed++; \
+        }                                \
+        else                             \
+        {                                \
+            tests_failed++;              \
             printf("  FAIL: %s\n", msg); \
-        } \
+        }                                \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -52,20 +56,24 @@ static int tests_failed = 0;
 #define OUT_BUF_SIZE 4096
 
 static char g_out[OUT_BUF_SIZE];
-static int  g_out_len = 0;
+static int g_out_len = 0;
 
 static void reset_output(void)
 {
     g_out_len = 0;
-    g_out[0]  = '\0';
+    g_out[0] = '\0';
 }
 
 static int output_contains(const char *line)
 {
     int line_len = (int)strlen(line);
     int i;
-    for (i = 0; i <= g_out_len - line_len; i++) {
-        if (memcmp(g_out + i, line, (size_t)line_len) == 0) return 1;
+    for (i = 0; i <= g_out_len - line_len; i++)
+    {
+        if (memcmp(g_out + i, line, (size_t)line_len) == 0)
+        {
+            return 1;
+        }
     }
     return 0;
 }
@@ -73,14 +81,15 @@ static int output_contains(const char *line)
 static int mock_io(int function, PLstr data, struct envblock *envblock)
 {
     (void)envblock;
-    if (function == RXFWRITE && data != NULL
-            && data->pstr != NULL && data->len > 0) {
+    if (function == RXFWRITE && data != NULL && data->pstr != NULL && data->len > 0)
+    {
         int n = (int)data->len;
-        if (g_out_len + n + 1 < OUT_BUF_SIZE) {
+        if (g_out_len + n + 1 < OUT_BUF_SIZE)
+        {
             memcpy(g_out + g_out_len, data->pstr, (size_t)n);
-            g_out_len          += n;
-            g_out[g_out_len++]  = '\n';
-            g_out[g_out_len]    = '\0';
+            g_out_len += n;
+            g_out[g_out_len++] = '\n';
+            g_out[g_out_len] = '\0';
         }
     }
     return 0;
@@ -90,7 +99,9 @@ static void install_mock(struct envblock *env)
 {
     struct irxexte *exte = (struct irxexte *)env->envblock_irxexte;
     if (exte != NULL)
+    {
         exte->io_routine = (void *)mock_io;
+    }
 }
 
 static int run_src(const char *src, int *exit_rc_out)
@@ -99,7 +110,10 @@ static int run_src(const char *src, int *exit_rc_out)
     int rc;
 
     rc = irxinit(NULL, &env);
-    if (rc != 0) return rc;
+    if (rc != 0)
+    {
+        return rc;
+    }
 
     install_mock(env);
     reset_output();
@@ -111,13 +125,16 @@ static int run_src(const char *src, int *exit_rc_out)
 }
 
 static int run_src_with_args(const char *src, const char *args,
-                              int *exit_rc_out)
+                             int *exit_rc_out)
 {
     struct envblock *env = NULL;
     int rc;
 
     rc = irxinit(NULL, &env);
-    if (rc != 0) return rc;
+    if (rc != 0)
+    {
+        return rc;
+    }
 
     install_mock(env);
     reset_output();
@@ -152,7 +169,7 @@ static void test_pr01_call_no_procedure(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,     "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("x = 99"),
           "SAY shows x=99 (sub modified caller's var)");
@@ -181,7 +198,7 @@ static void test_pr02_procedure_isolates(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("x = 42"),
           "SAY shows x=42 (PROCEDURE kept sub's x private)");
@@ -213,7 +230,7 @@ static void test_pr03_expose_var(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("x = 99"),
           "SAY shows x=99 (exposed var modified)");
@@ -243,7 +260,7 @@ static void test_pr04_return_value(void)
         "  return n + n\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("result = 42"),
           "SAY shows result=42 (RETURN value)");
@@ -271,7 +288,7 @@ static void test_pr05_call_multiple_args(void)
         "  return a + b\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("sum = 10"),
           "SAY shows sum=10 (3+7)");
@@ -298,7 +315,7 @@ static void test_pr06_arg_bif_count(void)
         "  return arg()\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("count = 3"),
           "ARG() returns 3");
@@ -325,7 +342,7 @@ static void test_pr07_arg_bif_nth(void)
         "  return arg(2)\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("world"),
           "ARG(2) returns 'world'");
@@ -353,7 +370,7 @@ static void test_pr08_arg_bif_exists_omitted(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("1 0 1"),
           "exists: arg1=1, arg2=0 (omitted), arg3=1");
@@ -389,7 +406,7 @@ static void test_pr09_nested_calls(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("x = 1"),
           "x stays 1 in caller after nested PROCEDURE calls");
@@ -417,7 +434,7 @@ static void test_pr10_arg_uppercase(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("HELLO WORLD"),
           "ARG uppercases 'hello world' to 'HELLO WORLD'");
@@ -447,11 +464,11 @@ static void test_pr11_arg_word_split(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
-    CHECK(output_contains("ALPHA"),  "first word: ALPHA");
-    CHECK(output_contains("BETA"),   "second word: BETA");
-    CHECK(output_contains("GAMMA"),  "rest: GAMMA");
+    CHECK(output_contains("ALPHA"), "first word: ALPHA");
+    CHECK(output_contains("BETA"), "second word: BETA");
+    CHECK(output_contains("GAMMA"), "rest: GAMMA");
 }
 
 /* ------------------------------------------------------------------ */
@@ -471,7 +488,7 @@ static void test_pr12_toplevel_arg_bif_no_args(void)
         "exit 0\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("0"),
           "ARG() at top level with no args returns 0");
@@ -497,10 +514,10 @@ static void test_pr13_toplevel_arg_with_args(void)
         "hello world",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
-    CHECK(output_contains("HELLO"),  "ARG first word = HELLO");
-    CHECK(output_contains("1"),      "ARG() = 1 (one arg string passed)");
+    CHECK(output_contains("HELLO"), "ARG first word = HELLO");
+    CHECK(output_contains("1"), "ARG() = 1 (one arg string passed)");
 }
 
 /* ------------------------------------------------------------------ */
@@ -530,7 +547,7 @@ static void test_pr14_procedure_all_private(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("1 2 3"),
           "a b c unchanged (all private via PROCEDURE)");
@@ -563,7 +580,7 @@ static void test_pr15_expose_multiple(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("10 2 30"),
           "a=10 (exposed), b=2 (private), c=30 (exposed)");
@@ -602,7 +619,7 @@ static void test_pr16_expose_indirect(void)
         "  return\n",
         &exit_rc);
 
-    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(rc == 0, "irx_exec_run returns 0");
     CHECK(exit_rc == 0, "exit code 0");
     CHECK(output_contains("11 22 ONE TWO"),
           "a, b, stem.* all exposed via (names) indirect");
