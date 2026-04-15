@@ -24,7 +24,7 @@ Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3
 | WP-15 | DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL | 2 | DONE (62/62) — PR #12 |
 | WP-16 | PARSE instruction | 2 | OPEN |
 | WP-17 | PROCEDURE EXPOSE | 2 | OPEN |
-| WP-18 | Hello World end-to-end | 2 | OPEN |
+| WP-18 | Hello World end-to-end (IRX#EXEC) | 2 | DONE (16/16) — PR #14 |
 | WP-20 | Arithmetic engine (IRXARITH) | 3 | OPEN |
 | WP-21 | Built-in string functions | 3 | OPEN |
 | WP-22 | Built-in misc functions | 3 | OPEN |

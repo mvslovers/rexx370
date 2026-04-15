@@ -72,6 +72,7 @@ Tests: `test/test_name.c`
 | `src/irx#pars.c` | IRX#PARS | Parser + expression evaluator (WP-13) |
 | `src/irx#io.c`   | IRX#IO   | Default I/O routine IRXINOUT (WP-14) |
 | `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
+| `src/irx#exec.c` | IRX#EXEC | End-to-end execution pipeline irx_exec_run() (WP-18) |
 
 New source files follow the same pattern: `src/irx#xxxx.c` where
 `xxxx` is a 4-character identifier. Member names must be ≤ 8 chars.
@@ -251,6 +252,12 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     -o test/test_control test/test_control.c \
     $PHASE1_SRC $PHASE2_SRC $LSTRING_SRC
 ./test/test_control
+
+# Hello World end-to-end (WP-18) — 16/16
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_hello test/test_hello.c \
+    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC
+./test/test_hello
 ```
 
 ## Work packages
@@ -261,7 +268,7 @@ and acceptance criteria.
 
 Current status:
 - Phase 1 (WP-01 through WP-05): complete
-- Phase 2 (WP-10 through WP-15): complete
+- Phase 2 (WP-10 through WP-15, WP-18): complete
 - Next: WP-16 (PARSE instruction)
 
 ## Knowledge sources
