@@ -113,7 +113,7 @@ static int run_with_mock(const char *src, int *exit_rc_out)
     install_mock(env);
     reset_output();
 
-    rc = irx_exec_run(src, (int)strlen(src), exit_rc_out, env);
+    rc = irx_exec_run(src, (int)strlen(src), NULL, 0, exit_rc_out, env);
 
     irxterm(env);
     return rc;
@@ -184,7 +184,7 @@ static void test_hw3_null_envblock(void)
      * irxinout (it uses printf); just verify rc is correct. */
     {
         const char *src = "x = 6 * 7\n" "exit x\n";
-        rc = irx_exec_run(src, (int)strlen(src), &exit_rc, NULL);
+        rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, NULL);
     }
 
     CHECK(rc == 0,       "irx_exec_run returns 0");
