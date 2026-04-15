@@ -631,6 +631,72 @@ static void test_cf25_if_do_block(void)
     vpool_destroy(pool);
 }
 
+/* CF#26: DO i = 5 TO 1 BY -1 (negative step, countdown) */
+static void test_cf26_do_ctrl_neg_step(void)
+{
+    struct lstr_alloc *a    = lstr_default_alloc();
+    struct irx_vpool  *pool = vpool_create(a, NULL);
+    Lstr k, v;
+    printf("\n--- CF#26: DO i = 5 TO 1 BY -1 (negative step) ---\n");
+
+    Lzeroinit(&k); Lzeroinit(&v);
+    set_lstr(a, &k, "X"); set_lstr(a, &v, "0");
+    vpool_set(pool, &k, &v);
+    Lfree(a, &k); Lfree(a, &v);
+
+    CHECK(run_source(a, pool,
+        "DO i = 5 TO 1 BY -1\n"
+        "  x = x + i\n"
+        "END\n") == IRXPARS_OK, "parser OK");
+    CHECK(get_var_eq(a, pool, "X", "15"), "X = '15' (5+4+3+2+1)");
+    CHECK(get_var_eq(a, pool, "I", "1"),  "I = '1' (final value)");
+    vpool_destroy(pool);
+}
+
+/* CF#27: DO i = 1 TO 10 BY 2 (step > 1) */
+static void test_cf27_do_ctrl_step2(void)
+{
+    struct lstr_alloc *a    = lstr_default_alloc();
+    struct irx_vpool  *pool = vpool_create(a, NULL);
+    Lstr k, v;
+    printf("\n--- CF#27: DO i = 1 TO 10 BY 2 (step > 1) ---\n");
+
+    Lzeroinit(&k); Lzeroinit(&v);
+    set_lstr(a, &k, "X"); set_lstr(a, &v, "0");
+    vpool_set(pool, &k, &v);
+    Lfree(a, &k); Lfree(a, &v);
+
+    CHECK(run_source(a, pool,
+        "DO i = 1 TO 10 BY 2\n"
+        "  x = x + i\n"
+        "END\n") == IRXPARS_OK, "parser OK");
+    CHECK(get_var_eq(a, pool, "X", "25"), "X = '25' (1+3+5+7+9)");
+    CHECK(get_var_eq(a, pool, "I", "9"),  "I = '9' (final value)");
+    vpool_destroy(pool);
+}
+
+/* CF#28: DO i = 1 TO 10 BY 3 (step doesn't land on limit exactly) */
+static void test_cf28_do_ctrl_step3(void)
+{
+    struct lstr_alloc *a    = lstr_default_alloc();
+    struct irx_vpool  *pool = vpool_create(a, NULL);
+    Lstr k, v;
+    printf("\n--- CF#28: DO i = 1 TO 10 BY 3 (step doesn't land on limit) ---\n");
+
+    Lzeroinit(&k); Lzeroinit(&v);
+    set_lstr(a, &k, "X"); set_lstr(a, &v, "0");
+    vpool_set(pool, &k, &v);
+    Lfree(a, &k); Lfree(a, &v);
+
+    CHECK(run_source(a, pool,
+        "DO i = 1 TO 10 BY 3\n"
+        "  x = x + i\n"
+        "END\n") == IRXPARS_OK, "parser OK");
+    CHECK(get_var_eq(a, pool, "X", "22"), "X = '22' (1+4+7+10)");
+    CHECK(get_var_eq(a, pool, "I", "10"), "I = '10' (final value)");
+    vpool_destroy(pool);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
@@ -664,6 +730,9 @@ int main(void)
     test_cf23_do_count();
     test_cf24_if_no_else();
     test_cf25_if_do_block();
+    test_cf26_do_ctrl_neg_step();
+    test_cf27_do_ctrl_step2();
+    test_cf28_do_ctrl_step3();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);

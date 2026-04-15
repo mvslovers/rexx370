@@ -1133,8 +1133,7 @@ static int kw_when(struct irx_parser *p)
     if (f->select_matched) {
         /* A prior WHEN already matched: skip this WHEN entirely
          * (condition + THEN + clause) and jump to the next WHEN,
-         * OTHERWISE, or END. */
-        Lfree(p->alloc, &cond);
+         * OTHERWISE, or END. cond was never allocated — no Lfree. */
         /* Skip condition */
         rc = skip_instruction(p);
         if (rc != IRXPARS_OK) return rc;
@@ -1219,8 +1218,7 @@ static int kw_call(struct irx_parser *p)
     call_line = cur_tok(p)->tok_line;
     advance_tok(p);
 
-    /* Skip past any arguments for now (future WP handles argument
-     * passing via PARSE ARG / procedure call ABI). */
+    /* Arguments skipped — CALL argument passing is implemented in WP-17. */
     skip_to_clause_end(p);
 
     /* Where to return to (first token of next clause). */
