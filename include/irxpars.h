@@ -18,8 +18,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXPARS_H__
-#define __IRXPARS_H__
+#ifndef IRXPARS_H
+#define IRXPARS_H
 
 #include "irx.h"
 #include "irxtokn.h"
@@ -142,4 +142,4 @@ int  irx_pars_run(struct irx_parser *p)                asm("IRXPARRN");
 int  irx_pars_eval_expr(struct irx_parser *p,
                         PLstr out)                     asm("IRXPAREV");
 
-#endif /* __IRXPARS_H__ */
+#endif /* IRXPARS_H */

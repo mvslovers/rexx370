@@ -23,8 +23,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXVPOOL_H__
-#define __IRXVPOOL_H__
+#ifndef IRXVPOOL_H
+#define IRXVPOOL_H
 
 #include "lstring.h"
 #include "lstralloc.h"
@@ -124,4 +124,4 @@ int  vpool_next      (struct irx_vpool *pool,
                       PLstr name, PLstr value)          asm("VPOOLNXT");
 void vpool_next_reset(struct irx_vpool *pool)           asm("VPOOLNRS");
 
-#endif /* __IRXVPOOL_H__ */
+#endif /* IRXVPOOL_H */

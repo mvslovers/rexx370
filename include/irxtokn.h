@@ -12,8 +12,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXTOKN_H__
-#define __IRXTOKN_H__
+#ifndef IRXTOKN_H
+#define IRXTOKN_H
 
 #include "irx.h"
 
@@ -121,4 +121,4 @@ int  irx_tokn_run(struct envblock *envblock,
 void irx_tokn_free(struct envblock *envblock,
                    struct irx_token *tokens, int count) asm("IRXTOKNF");
 
-#endif /* __IRXTOKN_H__ */
+#endif /* IRXTOKN_H */

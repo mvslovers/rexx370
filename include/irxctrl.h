@@ -9,8 +9,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXCTRL_H__
-#define __IRXCTRL_H__
+#ifndef IRXCTRL_H
+#define IRXCTRL_H
 
 #include "lstring.h"
 #include "lstralloc.h"
@@ -178,4 +178,4 @@ int irx_ctrl_find_do(struct irx_parser *p,
                      const char *label,
                      int label_len)                    asm("IRXCTLFD");
 
-#endif /* __IRXCTRL_H__ */
+#endif /* IRXCTRL_H */
