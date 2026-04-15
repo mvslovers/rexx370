@@ -57,8 +57,11 @@ struct irx_parser {
     int                  error_code;   /* IRXPARS_*                   */
     int                  error_line;   /* source line of the error    */
 
-    void                *label_table;  /* reserved for WP-15          */
-    void                *exec_stack;   /* reserved for WP-15          */
+    void                *label_table;  /* label table (WP-15)         */
+    void                *exec_stack;   /* execution stack (WP-15)     */
+
+    int                  exit_requested; /* set by EXIT / RETURN      */
+    int                  exit_rc;        /* RC passed to EXIT          */
 };
 
 /* ================================================================== */
