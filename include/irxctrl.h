@@ -134,39 +134,48 @@ struct irx_exec_stack {
 
 /* ================================================================== */
 /*  Public entry points                                               */
+/*                                                                    */
+/*  asm() aliases are required because all irx_ctrl_* functions share */
+/*  the same first 8 characters ("irx_ctrl") and would collide under  */
+/*  c2asm370's 8-character identifier truncation, leaving only the    */
+/*  first non-static function visible as the module entry point.      */
 /* ================================================================== */
 
 /* Allocate and attach a label table and exec stack to the parser.
  * Must be called from irx_pars_init before any parsing starts. */
-int  irx_ctrl_init   (struct irx_parser *p);
+int  irx_ctrl_init   (struct irx_parser *p)            asm("IRXCTLIN");
 
 /* Free everything attached by irx_ctrl_init. Safe to call on a
  * partially initialised parser. */
-void irx_ctrl_cleanup(struct irx_parser *p);
+void irx_ctrl_cleanup(struct irx_parser *p)            asm("IRXCTLCL");
 
 /* First-pass scan of the token stream. Populates the label table
  * so that SIGNAL/CALL can resolve names without forward-lookup. */
-int  irx_ctrl_label_scan(struct irx_parser *p);
+int  irx_ctrl_label_scan(struct irx_parser *p)         asm("IRXCTLLS");
 
 /* Look up a label by upper-case name. Returns tok_pos (>= 0) or -1. */
 int  irx_ctrl_label_find(struct irx_parser *p,
-                         const char *name, int name_len);
+                         const char *name,
+                         int name_len)                 asm("IRXCTLLF");
 
 /* Push a new frame. Returns pointer to the frame (never NULL on
  * success) or NULL on allocator failure. */
-struct irx_exec_frame *irx_ctrl_frame_push(struct irx_parser *p,
-                                           int frame_type);
+struct irx_exec_frame *irx_ctrl_frame_push(
+                         struct irx_parser *p,
+                         int frame_type)               asm("IRXCTLFP");
 
 /* Return pointer to the topmost frame, or NULL if the stack is empty. */
-struct irx_exec_frame *irx_ctrl_frame_top(struct irx_parser *p);
+struct irx_exec_frame *irx_ctrl_frame_top(
+                         struct irx_parser *p)         asm("IRXCTLFT");
 
 /* Pop the topmost frame. No-op if stack is empty. */
-void irx_ctrl_frame_pop(struct irx_parser *p);
+void irx_ctrl_frame_pop(struct irx_parser *p)          asm("IRXCTLFO");
 
 /* Find the innermost DO frame, optionally matching a specific label.
  * label/len may be NULL/0 to find the innermost DO regardless of label.
  * Returns frame index (>= 0) or -1 if not found. */
 int irx_ctrl_find_do(struct irx_parser *p,
-                     const char *label, int label_len);
+                     const char *label,
+                     int label_len)                    asm("IRXCTLFD");
 
 #endif /* __IRXCTRL_H__ */
