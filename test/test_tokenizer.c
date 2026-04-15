@@ -289,18 +289,16 @@ static void test_comments_and_lines(void)
               "[1] STRING 'hi' on line 2");
         CHECK(toks[1].tok_line == 2, "[1] tok_line == 2");
         /* After EOC, we have x = 1 on line 3. */
-        {
-            int i;
-            int found_x = 0;
-            for (i = 0; i < n; i++) {
-                if (toks[i].tok_type == TOK_SYMBOL &&
-                    tok_text_eq(&toks[i], "x")) {
-                    found_x = (toks[i].tok_line == 3);
-                    break;
-                }
+        int i;
+        int found_x = 0;
+        for (i = 0; i < n; i++) {
+            if (toks[i].tok_type == TOK_SYMBOL &&
+                tok_text_eq(&toks[i], "x")) {
+                found_x = (toks[i].tok_line == 3);
+                break;
             }
-            CHECK(found_x, "'x' is on line 3 (line numbers preserved)");
         }
+        CHECK(found_x, "'x' is on line 3 (line numbers preserved)");
     }
     irx_tokn_free(NULL, toks, n);
 }

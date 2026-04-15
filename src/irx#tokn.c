@@ -138,12 +138,10 @@ static int grow_tokens(struct tok_ctx *ctx)
     if (ctx->tokens != NULL) {
         memcpy(new_ptr, ctx->tokens,
                ctx->tok_count * sizeof(struct irx_token));
-        {
-            void *p = ctx->tokens;
-            irxstor(RXSMFRE,
-                    (int)(ctx->tok_capacity * sizeof(struct irx_token)),
-                    &p, ctx->envblock);
-        }
+        void *p = ctx->tokens;
+        irxstor(RXSMFRE,
+                (int)(ctx->tok_capacity * sizeof(struct irx_token)),
+                &p, ctx->envblock);
     }
     ctx->tokens = (struct irx_token *)new_ptr;
     ctx->tok_capacity = new_cap;
@@ -305,64 +303,62 @@ static int scan_string(struct tok_ctx *ctx)
     }
 
     /* ctx->pos is at the closing quote. */
-    {
-        int body_len = ctx->pos - text_start;
-        const char *body = ctx->src + text_start;
+    int body_len = ctx->pos - text_start;
+    const char *body = ctx->src + text_start;
 
-        advance(ctx, 1);          /* consume closing quote */
+    advance(ctx, 1);          /* consume closing quote */
 
-        /* Check for x/X or b/B suffix indicating hex/bin string. */
-        suffix = peek(ctx, 0);
-        if (suffix == 'x' || suffix == 'X') {
-            int hex_digits = 0;
-            int i;
-            for (i = 0; i < body_len; i++) {
-                int bc = (unsigned char)body[i];
-                if (bc == ' ' || bc == '\t') continue;
-                if (!isxdigit(bc)) {
-                    ctx->err_code = TOKERR_INVALID_HEX;
-                    ctx->err_line = start_line;
-                    ctx->err_col  = start_col;
-                    return 20;
-                }
-                hex_digits++;
-            }
-            if ((hex_digits & 1) != 0) {
-                ctx->err_code = TOKERR_ODD_HEX_GROUP;
+    /* Check for x/X or b/B suffix indicating hex/bin string. */
+    suffix = peek(ctx, 0);
+    if (suffix == 'x' || suffix == 'X') {
+        int hex_digits = 0;
+        int i;
+        for (i = 0; i < body_len; i++) {
+            int bc = (unsigned char)body[i];
+            if (bc == ' ' || bc == '\t') continue;
+            if (!isxdigit(bc)) {
+                ctx->err_code = TOKERR_INVALID_HEX;
                 ctx->err_line = start_line;
                 ctx->err_col  = start_col;
                 return 20;
             }
-            type = TOK_HEXSTRING;
-            advance(ctx, 1);
-        } else if (suffix == 'b' || suffix == 'B') {
-            int bits = 0;
-            int i;
-            for (i = 0; i < body_len; i++) {
-                int bc = (unsigned char)body[i];
-                if (bc == ' ' || bc == '\t') continue;
-                if (bc != '0' && bc != '1') {
-                    ctx->err_code = TOKERR_INVALID_BIN;
-                    ctx->err_line = start_line;
-                    ctx->err_col  = start_col;
-                    return 20;
-                }
-                bits++;
-            }
-            if ((bits & 3) != 0) {
-                ctx->err_code = TOKERR_BAD_BIN_GROUP;
-                ctx->err_line = start_line;
-                ctx->err_col  = start_col;
-                return 20;
-            }
-            type = TOK_BINSTRING;
-            advance(ctx, 1);
+            hex_digits++;
         }
-
-        if (doubled) flags |= TOKF_QUOTE_DBL;
-        return emit(ctx, type, flags, body, body_len,
-                    start_line, start_col);
+        if ((hex_digits & 1) != 0) {
+            ctx->err_code = TOKERR_ODD_HEX_GROUP;
+            ctx->err_line = start_line;
+            ctx->err_col  = start_col;
+            return 20;
+        }
+        type = TOK_HEXSTRING;
+        advance(ctx, 1);
+    } else if (suffix == 'b' || suffix == 'B') {
+        int bits = 0;
+        int i;
+        for (i = 0; i < body_len; i++) {
+            int bc = (unsigned char)body[i];
+            if (bc == ' ' || bc == '\t') continue;
+            if (bc != '0' && bc != '1') {
+                ctx->err_code = TOKERR_INVALID_BIN;
+                ctx->err_line = start_line;
+                ctx->err_col  = start_col;
+                return 20;
+            }
+            bits++;
+        }
+        if ((bits & 3) != 0) {
+            ctx->err_code = TOKERR_BAD_BIN_GROUP;
+            ctx->err_line = start_line;
+            ctx->err_col  = start_col;
+            return 20;
+        }
+        type = TOK_BINSTRING;
+        advance(ctx, 1);
     }
+
+    if (doubled) flags |= TOKF_QUOTE_DBL;
+    return emit(ctx, type, flags, body, body_len,
+                start_line, start_col);
 }
 
 /* ------------------------------------------------------------------ */

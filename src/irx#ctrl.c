@@ -183,13 +183,11 @@ int irx_ctrl_label_scan(struct irx_parser *p)
         if (lt->count >= lt->cap) {
             if (label_table_grow(lt) != 0) return IRXPARS_NOMEM;
         }
-        {
-            struct irx_label *lbl = &lt->entries[lt->count];
-            lbl->name_len = tok_to_upper_name(t0, lbl->name,
-                                               CTRL_NAME_MAX);
-            lbl->tok_pos  = i;   /* position of the SYMBOL token     */
-            lt->count++;
-        }
+        struct irx_label *lbl = &lt->entries[lt->count];
+        lbl->name_len = tok_to_upper_name(t0, lbl->name,
+                                           CTRL_NAME_MAX);
+        lbl->tok_pos  = i;   /* position of the SYMBOL token     */
+        lt->count++;
     }
     return IRXPARS_OK;
 }

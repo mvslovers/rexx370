@@ -389,32 +389,30 @@ int vpool_get(struct irx_vpool *pool, const PLstr name, PLstr value)
     /* Stem default: if `name` is compound (contains a dot before the
      * last character), look up "STEM." as the fallback. The stem key
      * includes the first dot. */
-    {
-        int dot = first_dot(name);
-        if (dot >= 0) {
-            Lstr stem_key;
-            int  stem_idx;
-            struct vpool_entry *stem_e;
+    int dot = first_dot(name);
+    if (dot >= 0) {
+        Lstr stem_key;
+        int  stem_idx;
+        struct vpool_entry *stem_e;
 
-            stem_key.pstr   = name->pstr;
-            stem_key.len    = (size_t)(dot + 1);
-            stem_key.maxlen = stem_key.len;
-            stem_key.type   = LSTRING_TY;
+        stem_key.pstr   = name->pstr;
+        stem_key.len    = (size_t)(dot + 1);
+        stem_key.maxlen = stem_key.len;
+        stem_key.type   = LSTRING_TY;
 
-            /* Don't fall into infinite recursion: only fall back on a
-             * true compound, i.e. there is at least one character
-             * after the dot (otherwise the caller already asked for
-             * the stem default). */
-            if (name->len > stem_key.len) {
-                stem_idx = bucket_index(pool, &stem_key);
-                stem_e   = find_in_bucket(pool->buckets[stem_idx],
-                                          &stem_key);
-                if (stem_e != NULL) {
-                    struct vpool_entry *tgt = resolve_ref(stem_e);
-                    if (tgt != NULL && !(tgt->flags & VPOOL_UNSET)) {
-                        rc = Lstrcpy(pool->alloc, value, &tgt->value);
-                        return (rc == LSTR_OK) ? VPOOL_OK : VPOOL_NOMEM;
-                    }
+        /* Don't fall into infinite recursion: only fall back on a
+         * true compound, i.e. there is at least one character
+         * after the dot (otherwise the caller already asked for
+         * the stem default). */
+        if (name->len > stem_key.len) {
+            stem_idx = bucket_index(pool, &stem_key);
+            stem_e   = find_in_bucket(pool->buckets[stem_idx],
+                                      &stem_key);
+            if (stem_e != NULL) {
+                struct vpool_entry *tgt = resolve_ref(stem_e);
+                if (tgt != NULL && !(tgt->flags & VPOOL_UNSET)) {
+                    rc = Lstrcpy(pool->alloc, value, &tgt->value);
+                    return (rc == LSTR_OK) ? VPOOL_OK : VPOOL_NOMEM;
                 }
             }
         }
@@ -463,11 +461,9 @@ int vpool_exists(struct irx_vpool *pool, const PLstr name)
     e = find_in_bucket(pool->buckets[idx], name);
     if (e == NULL) return 0;
 
-    {
-        struct vpool_entry *tgt = resolve_ref(e);
-        if (tgt == NULL) return 0;
-        return (tgt->flags & VPOOL_UNSET) ? 0 : 1;
-    }
+    struct vpool_entry *tgt = resolve_ref(e);
+    if (tgt == NULL) return 0;
+    return (tgt->flags & VPOOL_UNSET) ? 0 : 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -486,14 +482,12 @@ int vpool_expose_var(struct irx_vpool *pool, const PLstr name)
 
     /* If an entry with this name already exists locally (e.g. the
      * caller called EXPOSE twice), drop it and re-create as a ref. */
-    {
-        int idx = bucket_index(pool, name);
-        struct vpool_entry *existing =
-            find_in_bucket(pool->buckets[idx], name);
-        if (existing != NULL) {
-            unlink_entry(pool, idx, existing);
-            vp_entry_free(pool->alloc, existing);
-        }
+    int idx = bucket_index(pool, name);
+    struct vpool_entry *existing =
+        find_in_bucket(pool->buckets[idx], name);
+    if (existing != NULL) {
+        unlink_entry(pool, idx, existing);
+        vp_entry_free(pool->alloc, existing);
     }
 
     /* Look up or create a placeholder entry in the parent. */
@@ -557,13 +551,11 @@ int vpool_expose_stem(struct irx_vpool *pool, const PLstr stem_name)
         pool->exposed_stem_cap = new_cap;
     }
 
-    {
-        Lstr *slot = &pool->exposed_stems[pool->exposed_stem_count];
-        Lzeroinit(slot);
-        rc = Lstrcpy(pool->alloc, slot, stem_name);
-        if (rc != LSTR_OK) return VPOOL_NOMEM;
-        pool->exposed_stem_count++;
-    }
+    Lstr *slot = &pool->exposed_stems[pool->exposed_stem_count];
+    Lzeroinit(slot);
+    rc = Lstrcpy(pool->alloc, slot, stem_name);
+    if (rc != LSTR_OK) return VPOOL_NOMEM;
+    pool->exposed_stem_count++;
     return VPOOL_OK;
 }
 

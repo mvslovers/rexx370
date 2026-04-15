@@ -524,14 +524,12 @@ static void test_cf21_no_global_state(void)
     printf("\n--- CF#21: Two independent parsers, no shared state ---\n");
 
     /* Pre-initialize N=0 in each pool so n+i arithmetic works. */
-    {
-        Lstr k2, v2;
-        Lzeroinit(&k2); Lzeroinit(&v2);
-        set_lstr(a, &k2, "N"); set_lstr(a, &v2, "0");
-        vpool_set(pool_a, &k2, &v2);
-        vpool_set(pool_b, &k2, &v2);
-        Lfree(a, &k2); Lfree(a, &v2);
-    }
+    Lstr k2, v2;
+    Lzeroinit(&k2); Lzeroinit(&v2);
+    set_lstr(a, &k2, "N"); set_lstr(a, &v2, "0");
+    vpool_set(pool_a, &k2, &v2);
+    vpool_set(pool_b, &k2, &v2);
+    Lfree(a, &k2); Lfree(a, &v2);
 
     CHECK(run_source(a, pool_a,
         "DO i = 1 TO 3; n = n + i; END\n") == IRXPARS_OK, "parser A OK");

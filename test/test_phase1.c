@@ -108,20 +108,16 @@ static void test_single_env(void)
     }
 
     /* Validate RAB chain */
-    {
-        struct envblock *found = irx_find_env();
-        CHECK(found == envblk, "irx_find_env returns our envblock");
-    }
+    struct envblock *found = irx_find_env();
+    CHECK(found == envblk, "irx_find_env returns our envblock");
 
     /* IRXTERM */
     rc = irxterm(envblk);
     CHECK(rc == 0, "irxterm returns 0");
 
     /* Verify cleanup */
-    {
-        struct envblock *found = irx_find_env();
-        CHECK(found == NULL, "irx_find_env returns NULL after term");
-    }
+    found = irx_find_env();
+    CHECK(found == NULL, "irx_find_env returns NULL after term");
 }
 
 /* ------------------------------------------------------------------ */

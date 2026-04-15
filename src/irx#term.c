@@ -98,44 +98,38 @@ int irxterm(struct envblock *envblk)
 
     /* 8+9. Remove from RAB and free env_node */
     rab = NULL;
-    {
-        /* Walk RAB chain to find our node */
-        void **tcbuser_ptr;
-        struct irx_env_node *cur;
+    /* Walk RAB chain to find our node */
+    void **tcbuser_ptr;
+    struct irx_env_node *cur;
 
 #ifdef __MVS__
-        {
-            void **psa_tcb = (void **)(*(int *)0x218);
-            tcbuser_ptr = (void **)((char *)psa_tcb + 0x0A8);
-        }
+    void **psa_tcb = (void **)(*(int *)0x218);
+    tcbuser_ptr = (void **)((char *)psa_tcb + 0x0A8);
 #else
-        extern void *_simulated_tcbuser;
-        tcbuser_ptr = &_simulated_tcbuser;
+    extern void *_simulated_tcbuser;
+    tcbuser_ptr = &_simulated_tcbuser;
 #endif
 
-        if (*tcbuser_ptr != NULL) {
-            rab = (struct irx_rab *)(*tcbuser_ptr);
-            if (memcmp(rab->rab_id, RAB_ID, 4) == 0) {
-                /* Find node for this envblock */
-                cur = (struct irx_env_node *)rab->rab_first;
-                while (cur != NULL) {
-                    if (cur->node_envblock == envblk) {
-                        node = cur;
-                        irx_rab_remove_env(rab, node);
-                        stor_free((void **)&node, envblk);
-                        break;
-                    }
-                    cur = cur->node_next;
+    if (*tcbuser_ptr != NULL) {
+        rab = (struct irx_rab *)(*tcbuser_ptr);
+        if (memcmp(rab->rab_id, RAB_ID, 4) == 0) {
+            /* Find node for this envblock */
+            cur = (struct irx_env_node *)rab->rab_first;
+            while (cur != NULL) {
+                if (cur->node_envblock == envblk) {
+                    node = cur;
+                    irx_rab_remove_env(rab, node);
+                    stor_free((void **)&node, envblk);
+                    break;
                 }
+                cur = cur->node_next;
             }
         }
     }
 
     /* 10. Free ENVBLOCK itself (no envblock context for this free) */
-    {
-        void *p = envblk;
-        irxstor(RXSMFRE, 0, &p, NULL);
-    }
+    void *p = envblk;
+    irxstor(RXSMFRE, 0, &p, NULL);
 
     /* 11. Release RAB if empty */
     if (rab != NULL && rab->rab_env_count == 0) {
