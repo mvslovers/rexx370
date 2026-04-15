@@ -7,8 +7,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXFUNC_H__
-#define __IRXFUNC_H__
+#ifndef IRXFUNC_H
+#define IRXFUNC_H
 
 #include "irx.h"
 #include "irxrab.h"
@@ -159,4 +159,4 @@ struct envblock *irx_find_env_by_name(const char *name);
 /* Validate an ENVBLOCK (check eye-catcher, pointers) */
 int  irx_validate_envblock(struct envblock *envblock);
 
-#endif /* __IRXFUNC_H__ */
+#endif /* IRXFUNC_H */

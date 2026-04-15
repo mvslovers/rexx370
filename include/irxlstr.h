@@ -21,8 +21,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXLSTR_H__
-#define __IRXLSTR_H__
+#ifndef IRXLSTR_H
+#define IRXLSTR_H
 
 #include "irx.h"
 #include "lstring.h"
@@ -110,4 +110,4 @@ int _Lisnum(PLstr s);
  */
 int irx_datatype(PLstr s, char option);
 
-#endif /* __IRXLSTR_H__ */
+#endif /* IRXLSTR_H */

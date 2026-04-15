@@ -11,8 +11,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRX_H__
-#define __IRX_H__
+#ifndef IRX_H
+#define IRX_H
 
 /* ================================================================== */
 /*  Argument Table (ARGTABLE)                                         */
@@ -642,4 +642,4 @@ struct irxexec_plist {
 #define IRXEXEC_BADPLIST    32
 #define IRXEXEC_NOHOSTCMD   (-3)
 
-#endif /* __IRX_H__ */
+#endif /* IRX_H */

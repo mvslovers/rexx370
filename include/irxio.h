@@ -12,8 +12,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXIO_H__
-#define __IRXIO_H__
+#ifndef IRXIO_H
+#define IRXIO_H
 
 #include "irx.h"
 #include "lstring.h"
@@ -34,4 +34,4 @@
  */
 int irxinout(int function, PLstr data, struct envblock *envblock);
 
-#endif /* __IRXIO_H__ */
+#endif /* IRXIO_H */

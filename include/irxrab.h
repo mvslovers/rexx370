@@ -23,8 +23,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXRAB_H__
-#define __IRXRAB_H__
+#ifndef IRXRAB_H
+#define IRXRAB_H
 
 #include "irx.h"
 
@@ -73,4 +73,4 @@ struct irx_env_node {
 #define ENVNODE_ACTIVE  0x80000000  /* Environment is active             */
 #define ENVNODE_TERM    0x40000000  /* Being terminated                  */
 
-#endif /* __IRXRAB_H__ */
+#endif /* IRXRAB_H */

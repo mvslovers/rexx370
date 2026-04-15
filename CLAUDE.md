@@ -26,21 +26,28 @@ Key points:
   interpreter runtime state (variables, stack, trace, numeric settings)
 - All state is per-environment. Zero globals. This is non-negotiable.
 
-## C Language Standard
+## Code Style
 
-**We target C99 / gnu99, not C89.** `project.toml` sets
+**We target C99 / gnu99.** `project.toml` sets
 `cflags = ["-std=gnu99"]` and the cross-compile tests use `-std=gnu99`.
-c2asm370 (GCC 3.2.3) accepts gnu99 features.
+c2asm370 (GCC 3.2.3) accepts gnu99 features. C99 idioms are expected
+throughout `src/`, `include/`, and `test/`.
 
-**Allowed and encouraged:**
-- Variable declarations anywhere in a block — not just at the top.
-- Mixed declarations and code: declare each variable at its point of
-  first use. This shortens live ranges and improves readability.
-- `for (int i = 0; ...)` loop-initializer declarations.
-- `//` single-line comments.
+The full style guide lives in [`docs/code-style.md`](docs/code-style.md).
+`.clang-format` and `.clang-tidy` at the repo root encode the
+mechanically enforceable parts. **Run `clang-format -i src/*.c
+include/*.h test/*.c` before every commit.**
 
-**Do NOT** wrap code in bare `{}` blocks purely to introduce a new
-variable scope. That is a C89 workaround and is no longer needed.
+### Language rules
+
+- Declare variables where they are first used, not at block top.
+  Shortens live ranges and improves readability.
+- `for (int i = 0; i < n; i++)` loop-initializer declarations are fine.
+- `//` single-line comments are fine.
+- **Do NOT** wrap code in bare `{}` blocks just to declare variables
+  mid-function. Bare blocks are legitimate only to narrow a resource
+  lifetime (e.g. a temporary `Lstr` that must be freed before the
+  surrounding control flow continues).
 
 ```c
 /* BAD — bare block exists only to declare idx and existing */
@@ -62,14 +69,47 @@ if (some_condition) {
 }
 ```
 
-A bare `{}` block is legitimate only when you genuinely need a
-narrower scope for resource lifetime (e.g. a temporary `Lstr` that
-must be freed before the surrounding control flow continues). If the
-block exists because "C89 requires declarations at top" — remove it.
+### Formatting
 
-**Note on headers:** public headers in `include/` may still prefer
-C89-compatible declarations if they are consumed by external projects
-that pin to `-std=c89`. Inside `src/`, use C99 freely.
+- **Allman / BSD braces**: opening brace on its own line for functions,
+  control flow, and compound statements.
+- 4-space indent, no tabs.
+- **Braces are required** even on single-line `if`/`for`/`while`
+  bodies. `clang-format`'s `InsertBraces` enforces this automatically.
+- `switch`/`case`: indent `case` one level from `switch`; wrap each
+  non-trivial case body in its own `{ ... }`. clang-format cannot
+  enforce case-body braces — apply them by hand.
+- Pointer style: `char *ptr` (star attached to the name).
+
+### Naming
+
+- `snake_case` for variables, functions, types, and struct members.
+- `ALL_CAPS` for macros and enum values.
+- Typedefs end with `_t` (e.g. `irx_parser_t`).
+- Header guards use the `FILENAME_H` form — **no** leading double
+  underscores (those are reserved by the C standard). Example:
+  `#ifndef IRXVPOOL_H` / `#define IRXVPOOL_H` / `#endif /* IRXVPOOL_H */`.
+
+### Constants
+
+- Prefer enums over `#define` chains for related constants.
+- No magic numbers in code — hoist them to a `#define` or an enum with
+  a meaningful name.
+
+### Includes
+
+- System headers first, then project headers, with a blank line
+  between the two groups.
+- Inside each group, keep entries alphabetized where practical.
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "irxpars.h"
+#include "irxvpool.h"
+```
 
 ## Build system
 

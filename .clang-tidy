@@ -1,0 +1,88 @@
+---
+# REXX/370 — Static analysis rules
+# Run: clang-tidy src/*.c -- -I./include -I../lstring370/include -std=gnu99
+#
+# NOTE: Some checks are disabled because crent370 / MVS headers
+# are not available during cross-compile analysis. The tool will
+# report warnings from our code only, not from system headers.
+
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -bugprone-assignment-in-if-condition,
+  cert-*,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  misc-*,
+  -misc-unused-parameters,
+  -misc-no-recursion,
+  performance-*,
+  readability-braces-around-statements,
+  readability-else-after-return,
+  readability-function-cognitive-complexity,
+  readability-identifier-naming,
+  readability-isolate-declaration,
+  readability-magic-numbers,
+  readability-misleading-indentation,
+  readability-redundant-declaration,
+
+# Naming conventions: snake_case everywhere, ALL_CAPS for macros
+CheckOptions:
+  # Functions
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+
+  # Variables (local + global)
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+
+  # Parameters
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+
+  # Struct/Union/Enum members
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+
+  # Struct/Union/Enum type names
+  - key: readability-identifier-naming.TypedefCase
+    value: lower_case
+  - key: readability-identifier-naming.TypedefSuffix
+    value: '_t'
+  - key: readability-identifier-naming.StructCase
+    value: lower_case
+  - key: readability-identifier-naming.UnionCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumCase
+    value: lower_case
+
+  # Enum constants: ALL_CAPS (same as macros)
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+
+  # Macros: ALL_CAPS
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+
+  # Magic numbers: allow 0 and 1 (they're ubiquitous)
+  - key: readability-magic-numbers.IgnoredIntegerValues
+    value: '0;1;2;-1'
+
+  # Cognitive complexity threshold
+  - key: readability-function-cognitive-complexity.Threshold
+    value: '40'
+
+# Treat warnings as non-fatal during build (advisory)
+WarningsAsErrors: ''
+
+# Only analyze our source, not system headers
+HeaderFilterRegex: '(irx|lstr|vpool).*\.h$'
+...

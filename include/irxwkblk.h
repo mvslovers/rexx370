@@ -14,8 +14,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXWKBLK_H__
-#define __IRXWKBLK_H__
+#ifndef IRXWKBLK_H
+#define IRXWKBLK_H
 
 #include "irx.h"
 
@@ -158,4 +158,4 @@ struct irx_wkblk_int {
 #define NUMERIC_FUZZ_DEFAULT    0
 #define NUMERIC_DIGITS_MAX      50  /* MVS 3.8j practical limit          */
 
-#endif /* __IRXWKBLK_H__ */
+#endif /* IRXWKBLK_H */

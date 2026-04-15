@@ -9,8 +9,8 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#ifndef __IRXEXEC_H__
-#define __IRXEXEC_H__
+#ifndef IRXEXEC_H
+#define IRXEXEC_H
 
 #include "irx.h"
 
@@ -41,4 +41,4 @@ int irx_exec_run(const char *source, int source_len,
                  const char *args, int args_len,
                  int *rc_out, struct envblock *envblock);
 
-#endif /* __IRXEXEC_H__ */
+#endif /* IRXEXEC_H */
