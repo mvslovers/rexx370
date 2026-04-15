@@ -310,6 +310,9 @@ static int bif_arg(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
         return long_to_lstr(p->alloc, result, (long)p->call_argc);
     }
 
+    /* Empty index string is a syntax error. */
+    if (argv[0]->len == 0) return fail(p, IRXPARS_SYNTAX);
+
     /* Get positional index n (1-based). */
     nlen = (argv[0]->len < (int)sizeof(nbuf) - 1)
            ? (int)argv[0]->len : (int)(sizeof(nbuf) - 1);
@@ -1333,7 +1336,11 @@ static int kw_call(struct irx_parser *p)
             /* Evaluate the expression for this argument position. */
             Lzeroinit(&new_args[argc]);
             rc = irx_pars_eval_expr(p, &new_args[argc]);
-            if (rc != IRXPARS_OK) goto err;
+            if (rc != IRXPARS_OK) {
+                /* eval may have partially allocated into new_args[argc]. */
+                Lfree(p->alloc, &new_args[argc]);
+                goto err;
+            }
             new_exists[argc] = 1;
             argc++;
             after_comma = 0;
@@ -1523,7 +1530,8 @@ static int kw_procedure(struct irx_parser *p)
 
     /* Parse optional EXPOSE keyword and variable list. */
     t = cur_tok(p);
-    if (t != NULL && !tok_ends_clause(t) && t->tok_type == TOK_SYMBOL) {
+    if (t != NULL && !tok_ends_clause(t) && t->tok_type == TOK_SYMBOL &&
+        t->tok_length == 6) {
         kw_len = sym_to_upper(t, kw, (int)sizeof(kw));
         if (kw_len == 6 && memcmp(kw, "EXPOSE", 6) == 0) {
             advance_tok(p);   /* consume EXPOSE */
@@ -1535,7 +1543,82 @@ static int kw_procedure(struct irx_parser *p)
                 size_t el;
 
                 t = cur_tok(p);
-                if (t == NULL || t->tok_type != TOK_SYMBOL) break;
+                if (t == NULL) break;
+
+                /* Indirect expose: (varname) — look up varname in the
+                 * caller's pool, split its value by whitespace, expose
+                 * each resulting name (or stem if it ends with '.'). */
+                if (t->tok_type == TOK_LPAREN) {
+                    Lstr   iname;
+                    Lstr   ival;
+                    size_t ipos;
+                    size_t ilen;
+
+                    advance_tok(p);               /* consume ( */
+                    t = cur_tok(p);
+                    if (t == NULL || t->tok_type != TOK_SYMBOL)
+                        return fail(p, IRXPARS_SYNTAX);
+
+                    Lzeroinit(&iname);
+                    if (set_upper_from_tok(p->alloc, &iname, t) != LSTR_OK) {
+                        Lfree(p->alloc, &iname);
+                        return fail(p, IRXPARS_NOMEM);
+                    }
+                    advance_tok(p);               /* consume varname */
+
+                    t = cur_tok(p);
+                    if (t == NULL || t->tok_type != TOK_RPAREN) {
+                        Lfree(p->alloc, &iname);
+                        return fail(p, IRXPARS_SYNTAX);
+                    }
+                    advance_tok(p);               /* consume ) */
+
+                    /* Look up in the caller's pool (f->saved_vpool). */
+                    Lzeroinit(&ival);
+                    vpool_get(f->saved_vpool, &iname, &ival);
+                    Lfree(p->alloc, &iname);
+
+                    /* Split ival by whitespace and expose each word. */
+                    ilen = ival.len;
+                    ipos = 0;
+                    while (ipos < ilen) {
+                        size_t wstart;
+                        size_t wend;
+
+                        while (ipos < ilen &&
+                               isspace((unsigned char)ival.pstr[ipos]))
+                            ipos++;
+                        wstart = ipos;
+                        while (ipos < ilen &&
+                               !isspace((unsigned char)ival.pstr[ipos]))
+                            ipos++;
+                        wend = ipos;
+                        if (wend == wstart) break;
+
+                        Lzeroinit(&ename);
+                        if (Lfx(p->alloc, &ename,
+                                wend - wstart) != LSTR_OK) {
+                            Lfree(p->alloc, &ival);
+                            return fail(p, IRXPARS_NOMEM);
+                        }
+                        memcpy(ename.pstr, ival.pstr + wstart,
+                               wend - wstart);
+                        ename.len  = wend - wstart;
+                        ename.type = LSTRING_TY;
+                        upper_bytes(ename.pstr, ename.len);
+
+                        el = ename.len;
+                        if (el > 0 && ename.pstr[el - 1] == '.')
+                            vpool_expose_stem(child, &ename);
+                        else
+                            vpool_expose_var(child, &ename);
+                        Lfree(p->alloc, &ename);
+                    }
+                    Lfree(p->alloc, &ival);
+                    continue;
+                }
+
+                if (t->tok_type != TOK_SYMBOL) break;
 
                 Lzeroinit(&ename);
                 rc = set_upper_from_tok(p->alloc, &ename, t);
@@ -1572,10 +1655,13 @@ static int kw_procedure(struct irx_parser *p)
 /* Assign words from src[0..srclen-1] (starting at *pos_inout) to
  * vars[0..nvar-1], uppercased. The last variable gets the remaining text
  * trailing-stripped. Updates *pos_inout to reflect consumed input. */
+/* Get pointer to the i-th variable name slot in the flat heap buffer. */
+#define ARG_VAR(vars, i) ((vars) + (i) * CTRL_NAME_MAX)
+
 static int arg_assign_words(struct irx_parser *p,
                              const unsigned char *src, size_t srclen,
                              size_t *pos_inout,
-                             char vars[][CTRL_NAME_MAX], int *var_lens,
+                             char *vars, int *var_lens,
                              int nvar)
 {
     int    i;
@@ -1616,7 +1702,8 @@ static int arg_assign_words(struct irx_parser *p,
             upper_bytes(val.pstr, vlen);
         }
 
-        rc = lstr_set_bytes(p->alloc, &key, vars[i], (size_t)var_lens[i]);
+        rc = lstr_set_bytes(p->alloc, &key, ARG_VAR(vars, i),
+                            (size_t)var_lens[i]);
         if (rc != LSTR_OK) {
             Lfree(p->alloc, &val);
             return fail(p, IRXPARS_NOMEM);
@@ -1634,16 +1721,32 @@ static int kw_arg(struct irx_parser *p)
 {
     /* ARG [template [, template ...]]
      * Each comma advances to the next argument position.
-     * Each template assigns words from that argument to variables. */
-    char   vars[IRX_MAX_ARGS][CTRL_NAME_MAX];
-    int    var_lens[IRX_MAX_ARGS];
+     * Each template assigns words from that argument to variables.
+     *
+     * Variable name storage is heap-allocated (IRX_MAX_ARGS *
+     * CTRL_NAME_MAX bytes) to keep the parser stack frame small
+     * on MVS 24-bit targets. */
+    char   *vars;
+    int    *var_lens;
     int    nvar;
     int    arg_idx = 0;
     int    hit_comma;
-    int    rc;
+    int    rc     = IRXPARS_OK;
     size_t pos;
     const unsigned char *src;
     size_t srclen;
+    size_t vars_size     = (size_t)IRX_MAX_ARGS * CTRL_NAME_MAX;
+    size_t var_lens_size = (size_t)IRX_MAX_ARGS * sizeof(int);
+
+    vars     = (char *)p->alloc->alloc(vars_size, p->alloc->ctx);
+    var_lens = (int  *)p->alloc->alloc(var_lens_size, p->alloc->ctx);
+    if (vars == NULL || var_lens == NULL) {
+        if (vars != NULL)
+            p->alloc->dealloc(vars, vars_size, p->alloc->ctx);
+        if (var_lens != NULL)
+            p->alloc->dealloc(var_lens, var_lens_size, p->alloc->ctx);
+        return fail(p, IRXPARS_NOMEM);
+    }
 
     while (!tok_ends_clause(cur_tok(p))) {
         const struct irx_token *t;
@@ -1661,10 +1764,11 @@ static int kw_arg(struct irx_parser *p)
             }
             if (t->tok_type != TOK_SYMBOL) {
                 skip_to_clause_end(p);
-                return IRXPARS_OK;
+                goto done;
             }
             if (nvar < IRX_MAX_ARGS) {
-                var_lens[nvar] = sym_to_upper(t, vars[nvar], CTRL_NAME_MAX);
+                var_lens[nvar] = sym_to_upper(t, ARG_VAR(vars, nvar),
+                                              CTRL_NAME_MAX);
                 nvar++;
             }
             advance_tok(p);
@@ -1684,7 +1788,7 @@ static int kw_arg(struct irx_parser *p)
         if (nvar > 0) {
             rc = arg_assign_words(p, src, srclen, &pos,
                                   vars, var_lens, nvar);
-            if (rc != IRXPARS_OK) return rc;
+            if (rc != IRXPARS_OK) goto done;
         }
 
         arg_idx++;
@@ -1692,7 +1796,10 @@ static int kw_arg(struct irx_parser *p)
         if (!hit_comma) break;   /* no comma: done */
     }
 
-    return IRXPARS_OK;
+done:
+    p->alloc->dealloc(vars,     vars_size,     p->alloc->ctx);
+    p->alloc->dealloc(var_lens, var_lens_size, p->alloc->ctx);
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */

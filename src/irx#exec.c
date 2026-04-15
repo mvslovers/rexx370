@@ -81,11 +81,17 @@ int irx_exec_run(const char *source, int source_len,
         }
         memset(la, 0, (size_t)IRX_MAX_ARGS * sizeof(Lstr));
         memset(le, 0, (size_t)IRX_MAX_ARGS * sizeof(int));
-        if (Lfx(alloc, &la[0], (size_t)args_len) == LSTR_OK) {
-            memcpy(la[0].pstr, args, (size_t)args_len);
-            la[0].len  = (size_t)args_len;
-            la[0].type = LSTRING_TY;
+        if (Lfx(alloc, &la[0], (size_t)args_len) != LSTR_OK) {
+            alloc->dealloc(la, (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                           alloc->ctx);
+            alloc->dealloc(le, (size_t)IRX_MAX_ARGS * sizeof(int),
+                           alloc->ctx);
+            rc = 20;
+            goto cleanup;
         }
+        memcpy(la[0].pstr, args, (size_t)args_len);
+        la[0].len  = (size_t)args_len;
+        la[0].type = LSTRING_TY;
         le[0]                = 1;
         parser.call_args       = la;
         parser.call_arg_exists = le;

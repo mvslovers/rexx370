@@ -570,6 +570,45 @@ static void test_pr15_expose_multiple(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Test: PROCEDURE EXPOSE (indirect)                                 */
+/* ------------------------------------------------------------------ */
+
+static void test_pr16_expose_indirect(void)
+{
+    int exit_rc = -1;
+    int rc;
+
+    printf("\n--- PR#16: PROCEDURE EXPOSE (indirect) ---\n");
+
+    /* NAMES holds 'A B STEM.' — parenthesized indirection in
+     * EXPOSE should look up NAMES in the caller's pool, split
+     * its value by whitespace, and expose A, B, and STEM. (stem). */
+    rc = run_src(
+        "/* REXX */\n"
+        "a = 1\n"
+        "b = 2\n"
+        "stem.1 = 'one'\n"
+        "stem.2 = 'two'\n"
+        "names = 'A B STEM.'\n"
+        "call mysub\n"
+        "say a b stem.1 stem.2\n"
+        "exit 0\n"
+        "mysub:\n"
+        "  procedure expose (names)\n"
+        "  a = 11\n"
+        "  b = 22\n"
+        "  stem.1 = 'ONE'\n"
+        "  stem.2 = 'TWO'\n"
+        "  return\n",
+        &exit_rc);
+
+    CHECK(rc == 0,      "irx_exec_run returns 0");
+    CHECK(exit_rc == 0, "exit code 0");
+    CHECK(output_contains("11 22 ONE TWO"),
+          "a, b, stem.* all exposed via (names) indirect");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -592,6 +631,7 @@ int main(void)
     test_pr13_toplevel_arg_with_args();
     test_pr14_procedure_all_private();
     test_pr15_expose_multiple();
+    test_pr16_expose_indirect();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
