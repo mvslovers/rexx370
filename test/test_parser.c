@@ -197,14 +197,31 @@ static void test_ac5_power_right_assoc(void)
     vpool_destroy(pool);
 }
 
-static void test_ac6_eq_case_insensitive(void)
+static void test_ac6_eq_case_sensitive(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
     struct irx_vpool  *pool = vpool_create(a, NULL);
-    printf("\n--- AC#6: r = ('abc' = 'ABC') ---\n");
+    printf("\n--- AC#6: normal '=' is case-sensitive, blank-padded ---\n");
+
     CHECK(run_source(a, pool, "r = ('abc' = 'ABC')\n") == IRXPARS_OK,
-          "parser OK");
-    CHECK(get_var_eq(a, pool, "R", "1"), "R = '1'");
+          "parser OK (abc = ABC)");
+    CHECK(get_var_eq(a, pool, "R", "0"),
+          "'abc' = 'ABC' -> 0 (different case)");
+
+    CHECK(run_source(a, pool, "r = ('abc' = 'abc')\n") == IRXPARS_OK,
+          "parser OK (abc = abc)");
+    CHECK(get_var_eq(a, pool, "R", "1"),
+          "'abc' = 'abc' -> 1 (identical bytes)");
+
+    CHECK(run_source(a, pool, "r = ('abc ' = 'abc')\n") == IRXPARS_OK,
+          "parser OK ('abc ' = 'abc')");
+    CHECK(get_var_eq(a, pool, "R", "1"),
+          "'abc ' = 'abc' -> 1 (blank-padded equal)");
+
+    CHECK(run_source(a, pool, "r = ('ABC' = 'ABC')\n") == IRXPARS_OK,
+          "parser OK (ABC = ABC)");
+    CHECK(get_var_eq(a, pool, "R", "1"), "'ABC' = 'ABC' -> 1");
+
     vpool_destroy(pool);
 }
 
@@ -345,7 +362,7 @@ int main(void)
     test_ac3_explicit_concat();
     test_ac4_precedence();
     test_ac5_power_right_assoc();
-    test_ac6_eq_case_insensitive();
+    test_ac6_eq_case_sensitive();
     test_ac7_strict_eq();
     test_ac8_function_length();
     test_ac9_nested_parens();

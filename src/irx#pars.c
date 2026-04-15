@@ -225,14 +225,14 @@ static int long_to_lstr(struct lstr_alloc *a, PLstr dst, long v)
 /* ------------------------------------------------------------------ */
 /*  Comparison helpers                                                */
 /*                                                                    */
-/*  REXX `=` : if both numeric, compare numerically; else strip       */
-/*             trailing blanks from both sides, uppercase, and         */
-/*             compare the (blank-padded) results.                    */
-/*  REXX `==`: exact byte-for-byte comparison (case-sensitive, no     */
-/*             padding).                                              */
+/*  REXX `=` : if both numeric, compare numerically; else blank-pad   */
+/*             the shorter operand with spaces and compare            */
+/*             byte-for-byte. Case-sensitive.                         */
+/*  REXX `==`: exact byte-for-byte comparison, no padding.            */
 /*                                                                    */
-/*  The case-insensitive behaviour of `=` follows the rexx370         */
-/*  acceptance specification (see WP-13 acceptance criteria #6/#7).   */
+/*  Ref: SC28-1883-0 Chapter 7; ANSI X3J18 Section 7.4.7.             */
+/*  Case folding applies to variable NAMES (done by the parser        */
+/*  before pool access), never to VALUES in a comparison.             */
 /* ------------------------------------------------------------------ */
 
 static int compare_strict(PLstr a, PLstr b)
@@ -263,7 +263,10 @@ static int compare_normal(PLstr a, PLstr b)
         return 0;
     }
 
-    /* String comparison with blank-pad and case folding. */
+    /* String comparison with blank-pad. Case-sensitive per
+     * SC28-1883-0 Chapter 7. Trailing blanks on either side are
+     * dropped first; any remaining length difference is then
+     * padded with spaces on the right. */
     la_len = a->len;
     while (la_len > 0 && a->pstr[la_len - 1] == ' ') la_len--;
     lb_len = b->len;
@@ -273,8 +276,6 @@ static int compare_normal(PLstr a, PLstr b)
     for (i = 0; i < max_len; i++) {
         ca = (unsigned char)(i < la_len ? a->pstr[i] : ' ');
         cb = (unsigned char)(i < lb_len ? b->pstr[i] : ' ');
-        if (islower(ca)) ca = (unsigned char)toupper(ca);
-        if (islower(cb)) cb = (unsigned char)toupper(cb);
         if (ca < cb) return -1;
         if (ca > cb) return 1;
     }
