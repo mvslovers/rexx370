@@ -67,6 +67,12 @@ include = [
   "IRX#UID",
   "IRX#MSID",
   "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
 ]
 
 # ---------------------------------------------------------------
