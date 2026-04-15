@@ -17,6 +17,7 @@
 #include "irxrab.h"
 #include "irxwkblk.h"
 #include "irxfunc.h"
+#include "irxio.h"
 
 /* Default host command environments */
 #define DEFAULT_HOSTENV_TSO     "TSO     "
@@ -171,8 +172,10 @@ static int init_irxexte(struct irxexte **exte_out,
     exte->irxterma      = NULL;
     exte->load_routine  = NULL;
     exte->irxload       = NULL;
-    exte->io_routine    = NULL;
-    exte->irxinout      = NULL;
+
+    /* Phase 2 (WP-14): Default and active I/O routine */
+    exte->io_routine    = (void *)irxinout;
+    exte->irxinout      = (void *)irxinout;
     exte->stack_routine = NULL;
     exte->irxstk        = NULL;
     exte->irxsay        = NULL;

@@ -20,6 +20,7 @@
 #include <ctype.h>
 
 #include "irx.h"
+#include "irxwkblk.h"
 #include "lstring.h"
 #include "lstralloc.h"
 #include "irxlstr.h"
@@ -313,6 +314,50 @@ static const struct irx_bif *find_bif(const unsigned char *name, size_t len)
 }
 
 /* ------------------------------------------------------------------ */
+/*  SAY keyword handler (WP-14)                                       */
+/*                                                                    */
+/*  SAY [expr]                                                        */
+/*  Evaluates the expression (or produces an empty string if none)   */
+/*  and writes it followed by a newline via the IRXEXTE io_routine.  */
+/* ------------------------------------------------------------------ */
+
+static int kw_say(struct irx_parser *p)
+{
+    Lstr result;
+    struct irxexte *exte;
+    int (*io_fn)(int, PLstr, struct envblock *);
+    int rc;
+
+    Lzeroinit(&result);
+
+    if (tok_ends_clause(cur_tok(p))) {
+        /* SAY with no expression -> output an empty line */
+        rc = Lfx(p->alloc, &result, 0);
+        if (rc != LSTR_OK) {
+            return fail(p, IRXPARS_NOMEM);
+        }
+        result.len = 0;
+    } else {
+        rc = irx_pars_eval_expr(p, &result);
+        if (rc != IRXPARS_OK) {
+            Lfree(p->alloc, &result);
+            return rc;
+        }
+    }
+
+    if (p->envblock != NULL) {
+        exte = (struct irxexte *)p->envblock->envblock_irxexte;
+        if (exte != NULL && exte->io_routine != NULL) {
+            io_fn = (int (*)(int, PLstr, struct envblock *))exte->io_routine;
+            io_fn(RXFWRITE, &result, p->envblock);
+        }
+    }
+
+    Lfree(p->alloc, &result);
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Keyword table (WP-13 registers no handlers)                       */
 /*                                                                    */
 /*  WP-14 adds SAY. WP-15 adds DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL. */
@@ -321,7 +366,8 @@ static const struct irx_bif *find_bif(const unsigned char *name, size_t len)
 /* ------------------------------------------------------------------ */
 
 static const struct irx_keyword g_keyword_table[] = {
-    { NULL, NULL }
+    { "SAY", kw_say },
+    { NULL,  NULL   }
 };
 
 static const struct irx_keyword *find_keyword(const unsigned char *name,
