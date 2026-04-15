@@ -24,6 +24,10 @@
 #include "lstralloc.h"
 #include "irxvpool.h"
 
+#ifndef __MVS__
+void *_simulated_tcbuser = NULL;
+#endif
+
 static int tests_run    = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -257,12 +261,10 @@ static void test_large_load(void)
         vpool_set(pool, &name, &value);
     }
     CHECK(pool->entry_count == 10000, "all 10000 entries present");
-    {
-        double load = (double)pool->entry_count / (double)pool->bucket_count;
-        printf("         load factor = %.2f (buckets=%d)\n",
-               load, pool->bucket_count);
-        CHECK(load < 4.0, "load factor stays below 4");
-    }
+    double load = (double)pool->entry_count / (double)pool->bucket_count;
+    printf("         load factor = %.2f (buckets=%d)\n",
+           load, pool->bucket_count);
+    CHECK(load < 4.0, "load factor stays below 4");
 
     Lfree(a, &name); Lfree(a, &value);
     vpool_destroy(pool);
@@ -461,20 +463,16 @@ static void test_iteration(void)
     }
     CHECK(rc == VPOOL_LAST, "iteration ends with VPOOL_LAST");
     CHECK(count == 10, "iteration visited 10 entries");
-    {
-        int all_seen = 1;
-        for (i = 0; i < 10; i++) if (!seen[i]) { all_seen = 0; break; }
-        CHECK(all_seen, "every entry visited exactly once");
-    }
+    int all_seen = 1;
+    for (i = 0; i < 10; i++) if (!seen[i]) { all_seen = 0; break; }
+    CHECK(all_seen, "every entry visited exactly once");
 
     /* Empty pool: NOT_FOUND on first call. */
-    {
-        struct irx_vpool *empty = vpool_create(a, NULL);
-        vpool_next_reset(empty);
-        CHECK(vpool_next(empty, &out_name, &out_value) == VPOOL_NOT_FOUND,
-              "empty pool -> NOT_FOUND");
-        vpool_destroy(empty);
-    }
+    struct irx_vpool *empty = vpool_create(a, NULL);
+    vpool_next_reset(empty);
+    CHECK(vpool_next(empty, &out_name, &out_value) == VPOOL_NOT_FOUND,
+          "empty pool -> NOT_FOUND");
+    vpool_destroy(empty);
 
     Lfree(a, &name);     Lfree(a, &value);
     Lfree(a, &out_name); Lfree(a, &out_value);

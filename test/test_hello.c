@@ -182,10 +182,8 @@ static void test_hw3_null_envblock(void)
 
     /* Redirect irxinout output to /dev/null by hijacking the real
      * irxinout (it uses printf); just verify rc is correct. */
-    {
-        const char *src = "x = 6 * 7\n" "exit x\n";
-        rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, NULL);
-    }
+    const char *src = "x = 6 * 7\n" "exit x\n";
+    rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, NULL);
 
     CHECK(rc == 0,       "irx_exec_run returns 0");
     CHECK(exit_rc == 42, "EXIT return code is 42");

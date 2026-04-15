@@ -26,6 +26,51 @@ Key points:
   interpreter runtime state (variables, stack, trace, numeric settings)
 - All state is per-environment. Zero globals. This is non-negotiable.
 
+## C Language Standard
+
+**We target C99 / gnu99, not C89.** `project.toml` sets
+`cflags = ["-std=gnu99"]` and the cross-compile tests use `-std=gnu99`.
+c2asm370 (GCC 3.2.3) accepts gnu99 features.
+
+**Allowed and encouraged:**
+- Variable declarations anywhere in a block — not just at the top.
+- Mixed declarations and code: declare each variable at its point of
+  first use. This shortens live ranges and improves readability.
+- `for (int i = 0; ...)` loop-initializer declarations.
+- `//` single-line comments.
+
+**Do NOT** wrap code in bare `{}` blocks purely to introduce a new
+variable scope. That is a C89 workaround and is no longer needed.
+
+```c
+/* BAD — bare block exists only to declare idx and existing */
+if (some_condition) {
+    {
+        int idx = bucket_index(pool, name);
+        struct vpool_entry *existing =
+            find_in_bucket(pool->buckets[idx], name);
+        /* ... */
+    }
+}
+
+/* GOOD — declare where first used */
+if (some_condition) {
+    int idx = bucket_index(pool, name);
+    struct vpool_entry *existing =
+        find_in_bucket(pool->buckets[idx], name);
+    /* ... */
+}
+```
+
+A bare `{}` block is legitimate only when you genuinely need a
+narrower scope for resource lifetime (e.g. a temporary `Lstr` that
+must be freed before the surrounding control flow continues). If the
+block exists because "C89 requires declarations at top" — remove it.
+
+**Note on headers:** public headers in `include/` may still prefer
+C89-compatible declarations if they are consumed by external projects
+that pin to `-std=c89`. Inside `src/`, use C99 freely.
+
 ## Build system
 
 - **Compiler:** c2asm370 (C → HLASM cross-compiler for MVS 3.8j)

@@ -240,13 +240,11 @@ static void test_allocator_bridge(void)
           "wkbi->wkbi_lstr_alloc points at the allocator");
 
     /* Exercise the bridge by alloc/free via the callbacks directly. */
-    {
-        void *mem = (*alloc->alloc)(64, alloc->ctx);
-        CHECK(mem != NULL, "bridged alloc(64) succeeds");
-        if (mem != NULL) {
-            memset(mem, 0xAB, 64);
-            (*alloc->dealloc)(mem, 64, alloc->ctx);
-        }
+    void *mem = (*alloc->alloc)(64, alloc->ctx);
+    CHECK(mem != NULL, "bridged alloc(64) succeeds");
+    if (mem != NULL) {
+        memset(mem, 0xAB, 64);
+        (*alloc->dealloc)(mem, 64, alloc->ctx);
     }
 
     /* irxterm must release the allocator cleanly. */

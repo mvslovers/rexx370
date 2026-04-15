@@ -335,28 +335,26 @@ static int bif_arg(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
 
     /* argc == 2: 'E' (exists) or 'O' (omitted) option. */
     if (argv[1]->len != 1) return fail(p, IRXPARS_SYNTAX);
-    {
-        int   flag;
-        int   exists;
-        unsigned char opt = argv[1]->pstr[0];
-        char  answer;
+    int   flag;
+    int   exists;
+    unsigned char opt = argv[1]->pstr[0];
+    char  answer;
 
-        if (islower(opt)) opt = (unsigned char)toupper(opt);
-        exists = (n <= p->call_argc && p->call_arg_exists != NULL &&
-                  p->call_arg_exists[n - 1]) ? 1 : 0;
+    if (islower(opt)) opt = (unsigned char)toupper(opt);
+    exists = (n <= p->call_argc && p->call_arg_exists != NULL &&
+              p->call_arg_exists[n - 1]) ? 1 : 0;
 
-        if (opt == 'E') {
-            flag = exists;
-        } else if (opt == 'O') {
-            flag = !exists;
-        } else {
-            return fail(p, IRXPARS_SYNTAX);
-        }
-
-        answer = flag ? '1' : '0';
-        return (lstr_set_bytes(p->alloc, result, &answer, 1) == LSTR_OK)
-               ? IRXPARS_OK : fail(p, IRXPARS_NOMEM);
+    if (opt == 'E') {
+        flag = exists;
+    } else if (opt == 'O') {
+        flag = !exists;
+    } else {
+        return fail(p, IRXPARS_SYNTAX);
     }
+
+    answer = flag ? '1' : '0';
+    return (lstr_set_bytes(p->alloc, result, &answer, 1) == LSTR_OK)
+           ? IRXPARS_OK : fail(p, IRXPARS_NOMEM);
 }
 
 static const struct irx_bif g_bif_table[] = {
@@ -782,16 +780,14 @@ static int kw_do(struct irx_parser *p)
         /* Evaluate once to (a) validate syntax and (b) check first time */
         rc = irx_pars_eval_expr(p, &tmp);
         if (rc != IRXPARS_OK) goto done;
-        {
-            long cv = 0;
-            if (!lstr_to_long(&tmp, &cv) || cv == 0) {
-                /* Condition false on entry: find END and jump past */
-                int end_pos = find_end_after(p, p->tok_pos);
-                if (end_pos < 0) { rc = fail(p, IRXPARS_SYNTAX); goto done; }
-                irx_ctrl_frame_pop(p);
-                p->tok_pos = end_pos;
-                goto done;
-            }
+        long cv = 0;
+        if (!lstr_to_long(&tmp, &cv) || cv == 0) {
+            /* Condition false on entry: find END and jump past */
+            int end_pos = find_end_after(p, p->tok_pos);
+            if (end_pos < 0) { rc = fail(p, IRXPARS_SYNTAX); goto done; }
+            irx_ctrl_frame_pop(p);
+            p->tok_pos = end_pos;
+            goto done;
         }
         goto body;
     }
@@ -876,21 +872,19 @@ static int kw_do(struct irx_parser *p)
                 if (rc != IRXPARS_OK) goto done;
 
                 /* Check initial condition: if start > end (BY>0) skip. */
-                {
-                    int skip = 0;
-                    if (f->ctrl_by >= 0 && f->ctrl_val > f->ctrl_to)
-                        skip = 1;
-                    if (f->ctrl_by < 0 && f->ctrl_val < f->ctrl_to)
-                        skip = 1;
-                    if (skip) {
-                        int end_pos = find_end_after(p, p->tok_pos);
-                        if (end_pos < 0) {
-                            rc = fail(p, IRXPARS_SYNTAX); goto done;
-                        }
-                        irx_ctrl_frame_pop(p);
-                        p->tok_pos = end_pos;
-                        goto done;
+                int skip = 0;
+                if (f->ctrl_by >= 0 && f->ctrl_val > f->ctrl_to)
+                    skip = 1;
+                if (f->ctrl_by < 0 && f->ctrl_val < f->ctrl_to)
+                    skip = 1;
+                if (skip) {
+                    int end_pos = find_end_after(p, p->tok_pos);
+                    if (end_pos < 0) {
+                        rc = fail(p, IRXPARS_SYNTAX); goto done;
                     }
+                    irx_ctrl_frame_pop(p);
+                    p->tok_pos = end_pos;
+                    goto done;
                 }
                 goto body;
             }
@@ -1014,15 +1008,13 @@ static int kw_iterate(struct irx_parser *p)
     if (f->do_type == DO_CTRL) {
         f->ctrl_val += f->ctrl_by;
         /* Check bounds */
-        {
-            int in_range;
-            if (f->ctrl_by >= 0) in_range = (f->ctrl_val <= f->ctrl_to);
-            else                 in_range = (f->ctrl_val >= f->ctrl_to);
-            if (!in_range) {
-                p->tok_pos = f->loop_end;
-                irx_ctrl_frame_pop(p);
-                return IRXPARS_OK;
-            }
+        int in_range;
+        if (f->ctrl_by >= 0) in_range = (f->ctrl_val <= f->ctrl_to);
+        else                 in_range = (f->ctrl_val >= f->ctrl_to);
+        if (!in_range) {
+            p->tok_pos = f->loop_end;
+            irx_ctrl_frame_pop(p);
+            return IRXPARS_OK;
         }
         set_var_long(p, f->ctrl_name, f->ctrl_name_len, f->ctrl_val);
     } else if (f->do_type == DO_WHILE) {
@@ -2158,14 +2150,12 @@ static int parse_primary(struct irx_parser *p, PLstr out)
         }
 
         /* Function call: SYMBOL immediately followed by '('. */
-        {
-            const struct irx_token *nxt = peek_tok(p, 1);
-            if (nxt != NULL && nxt->tok_type == TOK_LPAREN &&
-                toks_adjacent(t, nxt)) {
-                const struct irx_token *name_tok = t;
-                advance_tok(p);   /* consume SYMBOL */
-                return parse_function_call(p, name_tok, out);
-            }
+        const struct irx_token *nxt = peek_tok(p, 1);
+        if (nxt != NULL && nxt->tok_type == TOK_LPAREN &&
+            toks_adjacent(t, nxt)) {
+            const struct irx_token *name_tok = t;
+            advance_tok(p);   /* consume SYMBOL */
+            return parse_function_call(p, name_tok, out);
         }
 
         /* Plain variable reference. */
@@ -2203,24 +2193,22 @@ static int parse_prefix(struct irx_parser *p, PLstr out)
         t = cur_tok(p);
     }
 
-    {
-        int rc = parse_primary(p, out);
-        if (rc != IRXPARS_OK) return rc;
+    int rc = parse_primary(p, out);
+    if (rc != IRXPARS_OK) return rc;
 
-        if (negate) {
-            long v;
-            if (!lstr_to_long(out, &v)) return fail(p, IRXPARS_SYNTAX);
-            if (long_to_lstr(p->alloc, out, -v) != LSTR_OK) {
-                return fail(p, IRXPARS_NOMEM);
-            }
+    if (negate) {
+        long v;
+        if (!lstr_to_long(out, &v)) return fail(p, IRXPARS_SYNTAX);
+        if (long_to_lstr(p->alloc, out, -v) != LSTR_OK) {
+            return fail(p, IRXPARS_NOMEM);
         }
-        if (logical_not) {
-            long v;
-            if (!lstr_to_long(out, &v)) return fail(p, IRXPARS_SYNTAX);
-            if (v != 0 && v != 1) return fail(p, IRXPARS_SYNTAX);
-            if (long_to_lstr(p->alloc, out, v ? 0 : 1) != LSTR_OK) {
-                return fail(p, IRXPARS_NOMEM);
-            }
+    }
+    if (logical_not) {
+        long v;
+        if (!lstr_to_long(out, &v)) return fail(p, IRXPARS_SYNTAX);
+        if (v != 0 && v != 1) return fail(p, IRXPARS_SYNTAX);
+        if (long_to_lstr(p->alloc, out, v ? 0 : 1) != LSTR_OK) {
+            return fail(p, IRXPARS_NOMEM);
         }
     }
     return IRXPARS_OK;
@@ -2557,39 +2545,37 @@ static int parse_comparison(struct irx_parser *p, PLstr out)
     int rc = parse_concat(p, out);
     if (rc != IRXPARS_OK) return rc;
 
-    {
-        int op;
-        Lstr rhs;
-        int c, result;
+    int op;
+    Lstr rhs;
+    int c, result;
 
-        if (!match_comparison(p, &op)) return IRXPARS_OK;
+    if (!match_comparison(p, &op)) return IRXPARS_OK;
 
-        Lzeroinit(&rhs);
-        rc = parse_concat(p, &rhs);
-        if (rc != IRXPARS_OK) { Lfree(p->alloc, &rhs); return rc; }
+    Lzeroinit(&rhs);
+    rc = parse_concat(p, &rhs);
+    if (rc != IRXPARS_OK) { Lfree(p->alloc, &rhs); return rc; }
 
-        if (op == CMP_EQS || op == CMP_NES) {
-            c = compare_strict(out, &rhs);
-        } else {
-            c = compare_normal(out, &rhs);
-        }
-        Lfree(p->alloc, &rhs);
+    if (op == CMP_EQS || op == CMP_NES) {
+        c = compare_strict(out, &rhs);
+    } else {
+        c = compare_normal(out, &rhs);
+    }
+    Lfree(p->alloc, &rhs);
 
-        switch (op) {
-        case CMP_EQ:  result = (c == 0); break;
-        case CMP_NE:  result = (c != 0); break;
-        case CMP_EQS: result = (c == 0); break;
-        case CMP_NES: result = (c != 0); break;
-        case CMP_GT:  result = (c >  0); break;
-        case CMP_LT:  result = (c <  0); break;
-        case CMP_GE:  result = (c >= 0); break;
-        case CMP_LE:  result = (c <= 0); break;
-        default:      result = 0; break;
-        }
+    switch (op) {
+    case CMP_EQ:  result = (c == 0); break;
+    case CMP_NE:  result = (c != 0); break;
+    case CMP_EQS: result = (c == 0); break;
+    case CMP_NES: result = (c != 0); break;
+    case CMP_GT:  result = (c >  0); break;
+    case CMP_LT:  result = (c <  0); break;
+    case CMP_GE:  result = (c >= 0); break;
+    case CMP_LE:  result = (c <= 0); break;
+    default:      result = 0; break;
+    }
 
-        if (long_to_lstr(p->alloc, out, (long)result) != LSTR_OK) {
-            return fail(p, IRXPARS_NOMEM);
-        }
+    if (long_to_lstr(p->alloc, out, (long)result) != LSTR_OK) {
+        return fail(p, IRXPARS_NOMEM);
     }
     return IRXPARS_OK;
 }
@@ -2813,13 +2799,11 @@ static int exec_clause(struct irx_parser *p)
             /* Label declaration: record in exec_stack->last_label so
              * the immediately following DO can associate it.
              * Labels do NOT clear procedure_allowed. */
-            {
-                struct irx_exec_stack *es =
-                    (struct irx_exec_stack *)p->exec_stack;
-                if (es != NULL) {
-                    es->last_label_len = sym_to_upper(
-                        t0, es->last_label, CTRL_NAME_MAX);
-                }
+            struct irx_exec_stack *es =
+                (struct irx_exec_stack *)p->exec_stack;
+            if (es != NULL) {
+                es->last_label_len = sym_to_upper(
+                    t0, es->last_label, CTRL_NAME_MAX);
             }
             advance_tok(p);
             advance_tok(p);
@@ -2827,24 +2811,22 @@ static int exec_clause(struct irx_parser *p)
         }
 
         /* Rule 3: keyword instruction. */
-        {
-            Lstr upname;
-            const struct irx_keyword *kw;
-            Lzeroinit(&upname);
-            if (set_upper_from_tok(p->alloc, &upname, t0) != LSTR_OK) {
-                return fail(p, IRXPARS_NOMEM);
-            }
-            kw = find_keyword(upname.pstr, upname.len);
-            Lfree(p->alloc, &upname);
-            if (kw != NULL) {
-                /* PROCEDURE is allowed only as first executable clause
-                 * in a subroutine; it checks procedure_allowed itself.
-                 * All other keywords clear the flag before executing. */
-                if (kw->kw_handler != kw_procedure)
-                    proc_allowed_clear(p);
-                advance_tok(p);
-                return kw->kw_handler(p);
-            }
+        Lstr upname;
+        const struct irx_keyword *kw;
+        Lzeroinit(&upname);
+        if (set_upper_from_tok(p->alloc, &upname, t0) != LSTR_OK) {
+            return fail(p, IRXPARS_NOMEM);
+        }
+        kw = find_keyword(upname.pstr, upname.len);
+        Lfree(p->alloc, &upname);
+        if (kw != NULL) {
+            /* PROCEDURE is allowed only as first executable clause
+             * in a subroutine; it checks procedure_allowed itself.
+             * All other keywords clear the flag before executing. */
+            if (kw->kw_handler != kw_procedure)
+                proc_allowed_clear(p);
+            advance_tok(p);
+            return kw->kw_handler(p);
         }
     }
 

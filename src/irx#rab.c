@@ -72,15 +72,13 @@ int irx_rab_obtain(struct irx_rab **rab_ptr)
     }
 
     /* Allocate new RAB */
-    {
-        void *storage = NULL;
-        int rc = irxstor(RXSMGET, (int)sizeof(struct irx_rab),
-                         &storage, NULL);
-        if (rc != 0) {
-            return 20;
-        }
-        rab = (struct irx_rab *)storage;
+    void *storage = NULL;
+    int rc = irxstor(RXSMGET, (int)sizeof(struct irx_rab),
+                     &storage, NULL);
+    if (rc != 0) {
+        return 20;
     }
+    rab = (struct irx_rab *)storage;
 
     /* Initialize RAB */
     memcpy(rab->rab_id, RAB_ID, 4);
@@ -126,10 +124,8 @@ int irx_rab_release(struct irx_rab *rab)
     *tcbuser_ptr = rab->rab_prev_tcbuser;
 
     /* Free RAB storage */
-    {
-        void *ptr = rab;
-        irxstor(RXSMFRE, (int)sizeof(struct irx_rab), &ptr, NULL);
-    }
+    void *ptr = rab;
+    irxstor(RXSMFRE, (int)sizeof(struct irx_rab), &ptr, NULL);
 
     return 0;
 }
