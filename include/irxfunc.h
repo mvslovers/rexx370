@@ -13,6 +13,7 @@
 #include "irx.h"
 #include "irxrab.h"
 #include "irxwkblk.h"
+#include "lstring.h"
 
 /* ================================================================== */
 /*  Phase 1: Foundation Services                                      */
@@ -108,6 +109,19 @@ int  irxmsgid(int function, char *prefix, struct envblock *envblock);
 /* ================================================================== */
 /*  Phase 2+: Stubs for forward reference                             */
 /* ================================================================== */
+
+/* IRXINOUT - Default I/O Replaceable Routine
+ * Handles RXFWRITE (SAY), RXFWRITERR, RXFTWRITE output.
+ * RXFREAD / RXFREADP are stubbed pending WP-33 (PULL / LINEIN).
+ *
+ * Parameters:
+ *   function - I/O function code (RXFWRITE, RXFREAD, etc.)
+ *   data     - String to write (RXFWRITE) or read buffer (RXFREAD)
+ *   envblock - The owning ENVBLOCK
+ *
+ * Returns: 0=OK, 20=error
+ */
+int  irxinout(int function, PLstr data, struct envblock *envblock);
 
 /* IRXEXEC - Execute a REXX exec */
 int  irxexec(struct irxexec_plist *plist);
