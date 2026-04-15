@@ -295,8 +295,73 @@ static int bif_length(struct irx_parser *p, int argc, PLstr *argv,
     return long_to_lstr(p->alloc, result, (long)argv[0]->len);
 }
 
+/* ------------------------------------------------------------------ */
+/*  ARG([n[,option]]) - argument count / value / existence (WP-17)   */
+/* ------------------------------------------------------------------ */
+
+static int bif_arg(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
+{
+    int n;
+    char nbuf[16];
+    int  nlen;
+
+    /* ARG() -> number of arguments. */
+    if (argc == 0) {
+        return long_to_lstr(p->alloc, result, (long)p->call_argc);
+    }
+
+    /* Empty index string is a syntax error. */
+    if (argv[0]->len == 0) return fail(p, IRXPARS_SYNTAX);
+
+    /* Get positional index n (1-based). */
+    nlen = (argv[0]->len < (int)sizeof(nbuf) - 1)
+           ? (int)argv[0]->len : (int)(sizeof(nbuf) - 1);
+    memcpy(nbuf, argv[0]->pstr, (size_t)nlen);
+    nbuf[nlen] = '\0';
+    n = atoi(nbuf);
+    if (n < 1) return fail(p, IRXPARS_SYNTAX);
+
+    if (argc == 1) {
+        /* ARG(n) -> value of argument n or "". */
+        if (n <= p->call_argc && p->call_arg_exists != NULL &&
+            p->call_arg_exists[n - 1] &&
+            p->call_args != NULL) {
+            int rc = Lstrcpy(p->alloc, result, &p->call_args[n - 1]);
+            return (rc == LSTR_OK) ? IRXPARS_OK : fail(p, IRXPARS_NOMEM);
+        }
+        return (lstr_set_bytes(p->alloc, result, "", 0) == LSTR_OK)
+               ? IRXPARS_OK : fail(p, IRXPARS_NOMEM);
+    }
+
+    /* argc == 2: 'E' (exists) or 'O' (omitted) option. */
+    if (argv[1]->len != 1) return fail(p, IRXPARS_SYNTAX);
+    {
+        int   flag;
+        int   exists;
+        unsigned char opt = argv[1]->pstr[0];
+        char  answer;
+
+        if (islower(opt)) opt = (unsigned char)toupper(opt);
+        exists = (n <= p->call_argc && p->call_arg_exists != NULL &&
+                  p->call_arg_exists[n - 1]) ? 1 : 0;
+
+        if (opt == 'E') {
+            flag = exists;
+        } else if (opt == 'O') {
+            flag = !exists;
+        } else {
+            return fail(p, IRXPARS_SYNTAX);
+        }
+
+        answer = flag ? '1' : '0';
+        return (lstr_set_bytes(p->alloc, result, &answer, 1) == LSTR_OK)
+               ? IRXPARS_OK : fail(p, IRXPARS_NOMEM);
+    }
+}
+
 static const struct irx_bif g_bif_table[] = {
-    { "LENGTH", 1, 1, bif_length }
+    { "LENGTH", 1, 1, bif_length },
+    { "ARG",    0, 2, bif_arg    }
 };
 static const int g_bif_count = (int)(sizeof(g_bif_table) /
                                      sizeof(g_bif_table[0]));
@@ -1201,14 +1266,20 @@ static int kw_otherwise(struct irx_parser *p)
 
 static int kw_call(struct irx_parser *p)
 {
-    char  label[CTRL_NAME_MAX];
-    int   label_len;
-    int   label_pos;
-    int   return_pos;
-    int   call_line;
+    char   label[CTRL_NAME_MAX];
+    int    label_len;
+    int    label_pos;
+    int    return_pos;
+    int    call_line;
     struct irx_exec_frame *f;
-    char  linebuf[32];
-    int   n;
+    char   linebuf[32];
+    int    n;
+    Lstr  *new_args   = NULL;
+    int   *new_exists = NULL;
+    int    argc       = 0;
+    int    after_comma = 0;
+    int    rc;
+    int    i;
 
     /* CALL must be followed by a label name (symbol). */
     if (cur_tok(p) == NULL || cur_tok(p)->tok_type != TOK_SYMBOL)
@@ -1218,7 +1289,70 @@ static int kw_call(struct irx_parser *p)
     call_line = cur_tok(p)->tok_line;
     advance_tok(p);
 
-    /* Arguments skipped — CALL argument passing is implemented in WP-17. */
+    /* Allocate argument arrays. */
+    new_args = (Lstr *)p->alloc->alloc(
+        (size_t)IRX_MAX_ARGS * sizeof(Lstr), p->alloc->ctx);
+    new_exists = (int *)p->alloc->alloc(
+        (size_t)IRX_MAX_ARGS * sizeof(int),  p->alloc->ctx);
+    if (new_args == NULL || new_exists == NULL) {
+        rc = fail(p, IRXPARS_NOMEM);
+        goto err;
+    }
+    memset(new_args,   0, (size_t)IRX_MAX_ARGS * sizeof(Lstr));
+    memset(new_exists, 0, (size_t)IRX_MAX_ARGS * sizeof(int));
+
+    /* Parse comma-separated arguments until clause end.
+     * An omitted argument is an empty slot between commas, or
+     * before the first comma, or after the last comma. */
+    if (!tok_ends_clause(cur_tok(p))) {
+        for (;;) {
+            if (argc >= IRX_MAX_ARGS) {
+                rc = fail(p, IRXPARS_SYNTAX);
+                goto err;
+            }
+            if (cur_tok(p) != NULL &&
+                cur_tok(p)->tok_type == TOK_COMMA) {
+                /* Omitted argument at this position. */
+                Lzeroinit(&new_args[argc]);
+                new_exists[argc] = 0;
+                argc++;
+                advance_tok(p);
+                after_comma = 1;
+                continue;
+            }
+            if (tok_ends_clause(cur_tok(p))) {
+                /* Trailing comma means one more omitted argument. */
+                if (after_comma) {
+                    if (argc >= IRX_MAX_ARGS) {
+                        rc = fail(p, IRXPARS_SYNTAX);
+                        goto err;
+                    }
+                    Lzeroinit(&new_args[argc]);
+                    new_exists[argc] = 0;
+                    argc++;
+                }
+                break;
+            }
+            /* Evaluate the expression for this argument position. */
+            Lzeroinit(&new_args[argc]);
+            rc = irx_pars_eval_expr(p, &new_args[argc]);
+            if (rc != IRXPARS_OK) {
+                /* eval may have partially allocated into new_args[argc]. */
+                Lfree(p->alloc, &new_args[argc]);
+                goto err;
+            }
+            new_exists[argc] = 1;
+            argc++;
+            after_comma = 0;
+            if (cur_tok(p) != NULL &&
+                cur_tok(p)->tok_type == TOK_COMMA) {
+                advance_tok(p);
+                after_comma = 1;
+                continue;
+            }
+            break;
+        }
+    }
     skip_to_clause_end(p);
 
     /* Where to return to (first token of next clause). */
@@ -1226,21 +1360,52 @@ static int kw_call(struct irx_parser *p)
 
     /* Look up the label. */
     label_pos = irx_ctrl_label_find(p, label, label_len);
-    if (label_pos < 0) return fail(p, IRXPARS_BADFUNC);
+    if (label_pos < 0) {
+        rc = fail(p, IRXPARS_BADFUNC);
+        goto err;
+    }
 
-    /* Push CALL frame. */
+    /* Push CALL frame, saving the current argument context. */
     f = irx_ctrl_frame_push(p, FRAME_CALL);
-    if (f == NULL) return fail(p, IRXPARS_NOMEM);
-    f->call_return_pos = return_pos;
-    f->call_line       = call_line;
+    if (f == NULL) {
+        rc = fail(p, IRXPARS_NOMEM);
+        goto err;
+    }
+    f->call_return_pos   = return_pos;
+    f->call_line         = call_line;
+    f->saved_vpool       = NULL;
+    f->saved_args        = p->call_args;
+    f->saved_arg_exists  = p->call_arg_exists;
+    f->saved_argc        = p->call_argc;
+    f->procedure_allowed = 1;
+    f->has_procedure     = 0;
+
+    /* Install the new argument context. */
+    p->call_args       = new_args;
+    p->call_arg_exists = new_exists;
+    p->call_argc       = argc;
 
     /* Set SIGL special variable. */
     n = sprintf(linebuf, "%d", call_line);
     set_var_str(p, "SIGL", 4, linebuf, n);
 
     /* Jump to label (past SYMBOL ':' tokens). */
-    p->tok_pos = label_pos + 2;  /* skip SYMBOL + COLON */
+    p->tok_pos = label_pos + 2;
     return IRXPARS_OK;
+
+err:
+    if (new_args != NULL) {
+        for (i = 0; i < argc; i++) Lfree(p->alloc, &new_args[i]);
+        p->alloc->dealloc(new_args,
+                          (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                          p->alloc->ctx);
+    }
+    if (new_exists != NULL) {
+        p->alloc->dealloc(new_exists,
+                          (size_t)IRX_MAX_ARGS * sizeof(int),
+                          p->alloc->ctx);
+    }
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1250,9 +1415,10 @@ static int kw_call(struct irx_parser *p)
 static int kw_return(struct irx_parser *p)
 {
     struct irx_exec_stack *es = (struct irx_exec_stack *)p->exec_stack;
-    Lstr result;
-    int  have_result = 0;
-    int  i;
+    struct irx_exec_frame *f;
+    Lstr   result;
+    int    have_result = 0;
+    int    i, j;
 
     Lzeroinit(&result);
 
@@ -1262,8 +1428,24 @@ static int kw_return(struct irx_parser *p)
         have_result = 1;
     }
 
+    /* Locate the nearest enclosing CALL frame. */
+    if (es == NULL) goto no_call_frame;
+
+    for (i = es->top - 1; i >= 0; i--) {
+        if (es->frames[i].frame_type == FRAME_CALL) break;
+    }
+    if (i < 0) goto no_call_frame;
+
+    f = &es->frames[i];
+
+    /* Restore the caller's variable pool if PROCEDURE was executed. */
+    if (f->has_procedure) {
+        vpool_destroy(p->vpool);   /* destroy child pool */
+        p->vpool = f->saved_vpool; /* restore caller's pool */
+    }
+
+    /* Set RESULT in the caller's variable pool (now restored). */
     if (have_result) {
-        /* Store in RESULT special variable. */
         Lstr key;
         Lzeroinit(&key);
         if (lstr_set_bytes(p->alloc, &key, "RESULT", 6) == LSTR_OK) {
@@ -1273,28 +1455,351 @@ static int kw_return(struct irx_parser *p)
     }
     Lfree(p->alloc, &result);
 
-    /* Unwind stack to find the CALL frame. */
-    if (es == NULL) {
-        /* No CALL frame: treat as EXIT 0. */
-        p->exit_requested = 1;
-        p->exit_rc = 0;
-        return IRXPARS_OK;
+    /* Restore the caller's argument context. */
+    if (p->call_args != NULL) {
+        for (j = 0; j < p->call_argc; j++)
+            Lfree(p->alloc, &p->call_args[j]);
+        p->alloc->dealloc(p->call_args,
+                          (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                          p->alloc->ctx);
     }
+    if (p->call_arg_exists != NULL) {
+        p->alloc->dealloc(p->call_arg_exists,
+                          (size_t)IRX_MAX_ARGS * sizeof(int),
+                          p->alloc->ctx);
+    }
+    p->call_args       = f->saved_args;
+    p->call_arg_exists = f->saved_arg_exists;
+    p->call_argc       = f->saved_argc;
 
+    p->tok_pos = f->call_return_pos;
+    es->top    = i;   /* pop everything up to and including CALL frame */
+    return IRXPARS_OK;
+
+no_call_frame:
+    /* No CALL frame on stack: set RESULT at top level, treat as EXIT 0. */
+    if (have_result) {
+        Lstr key;
+        Lzeroinit(&key);
+        if (lstr_set_bytes(p->alloc, &key, "RESULT", 6) == LSTR_OK) {
+            vpool_set(p->vpool, &key, &result);
+            Lfree(p->alloc, &key);
+        }
+    }
+    Lfree(p->alloc, &result);
+    p->exit_requested = 1;
+    p->exit_rc = 0;
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  PROCEDURE [EXPOSE var ...]  (WP-17)                               */
+/* ------------------------------------------------------------------ */
+
+static int kw_procedure(struct irx_parser *p)
+{
+    struct irx_exec_stack  *es = (struct irx_exec_stack *)p->exec_stack;
+    struct irx_exec_frame  *f;
+    struct irx_vpool       *child;
+    const struct irx_token *t;
+    char   kw[8];
+    int    kw_len;
+    int    i;
+
+    /* Find the nearest enclosing CALL frame. */
+    if (es == NULL) return fail(p, IRXPARS_SYNTAX);
     for (i = es->top - 1; i >= 0; i--) {
         if (es->frames[i].frame_type == FRAME_CALL) break;
     }
+    if (i < 0) return fail(p, IRXPARS_SYNTAX);
 
-    if (i < 0) {
-        /* No CALL frame on stack: treat as EXIT. */
-        p->exit_requested = 1;
-        p->exit_rc = 0;
-        return IRXPARS_OK;
+    f = &es->frames[i];
+    if (!f->procedure_allowed) return fail(p, IRXPARS_SYNTAX);
+
+    /* Mark PROCEDURE as executed for this CALL frame. */
+    f->procedure_allowed = 0;
+    f->has_procedure     = 1;
+
+    /* Create an isolated child variable pool. */
+    child = vpool_create(p->alloc, p->vpool);
+    if (child == NULL) return fail(p, IRXPARS_NOMEM);
+
+    /* Save caller's pool and switch to child pool. */
+    f->saved_vpool = p->vpool;
+    p->vpool       = child;
+
+    /* Parse optional EXPOSE keyword and variable list. */
+    t = cur_tok(p);
+    if (t != NULL && !tok_ends_clause(t) && t->tok_type == TOK_SYMBOL &&
+        t->tok_length == 6) {
+        kw_len = sym_to_upper(t, kw, (int)sizeof(kw));
+        if (kw_len == 6 && memcmp(kw, "EXPOSE", 6) == 0) {
+            advance_tok(p);   /* consume EXPOSE */
+
+            /* Parse each name in the expose list. */
+            while (!tok_ends_clause(cur_tok(p))) {
+                Lstr   ename;
+                int    rc;
+                size_t el;
+
+                t = cur_tok(p);
+                if (t == NULL) break;
+
+                /* Indirect expose: (varname) — look up varname in the
+                 * caller's pool, split its value by whitespace, expose
+                 * each resulting name (or stem if it ends with '.'). */
+                if (t->tok_type == TOK_LPAREN) {
+                    Lstr   iname;
+                    Lstr   ival;
+                    size_t ipos;
+                    size_t ilen;
+
+                    advance_tok(p);               /* consume ( */
+                    t = cur_tok(p);
+                    if (t == NULL || t->tok_type != TOK_SYMBOL)
+                        return fail(p, IRXPARS_SYNTAX);
+
+                    Lzeroinit(&iname);
+                    if (set_upper_from_tok(p->alloc, &iname, t) != LSTR_OK) {
+                        Lfree(p->alloc, &iname);
+                        return fail(p, IRXPARS_NOMEM);
+                    }
+                    advance_tok(p);               /* consume varname */
+
+                    t = cur_tok(p);
+                    if (t == NULL || t->tok_type != TOK_RPAREN) {
+                        Lfree(p->alloc, &iname);
+                        return fail(p, IRXPARS_SYNTAX);
+                    }
+                    advance_tok(p);               /* consume ) */
+
+                    /* Look up in the caller's pool (f->saved_vpool). */
+                    Lzeroinit(&ival);
+                    vpool_get(f->saved_vpool, &iname, &ival);
+                    Lfree(p->alloc, &iname);
+
+                    /* Split ival by whitespace and expose each word. */
+                    ilen = ival.len;
+                    ipos = 0;
+                    while (ipos < ilen) {
+                        size_t wstart;
+                        size_t wend;
+
+                        while (ipos < ilen &&
+                               isspace((unsigned char)ival.pstr[ipos]))
+                            ipos++;
+                        wstart = ipos;
+                        while (ipos < ilen &&
+                               !isspace((unsigned char)ival.pstr[ipos]))
+                            ipos++;
+                        wend = ipos;
+                        if (wend == wstart) break;
+
+                        Lzeroinit(&ename);
+                        if (Lfx(p->alloc, &ename,
+                                wend - wstart) != LSTR_OK) {
+                            Lfree(p->alloc, &ival);
+                            return fail(p, IRXPARS_NOMEM);
+                        }
+                        memcpy(ename.pstr, ival.pstr + wstart,
+                               wend - wstart);
+                        ename.len  = wend - wstart;
+                        ename.type = LSTRING_TY;
+                        upper_bytes(ename.pstr, ename.len);
+
+                        el = ename.len;
+                        if (el > 0 && ename.pstr[el - 1] == '.')
+                            vpool_expose_stem(child, &ename);
+                        else
+                            vpool_expose_var(child, &ename);
+                        Lfree(p->alloc, &ename);
+                    }
+                    Lfree(p->alloc, &ival);
+                    continue;
+                }
+
+                if (t->tok_type != TOK_SYMBOL) break;
+
+                Lzeroinit(&ename);
+                rc = set_upper_from_tok(p->alloc, &ename, t);
+                if (rc != LSTR_OK) {
+                    Lfree(p->alloc, &ename);
+                    return fail(p, IRXPARS_NOMEM);
+                }
+                advance_tok(p);
+
+                /* Names ending with '.' are stem names. */
+                el = ename.len;
+                if (el > 0 && ename.pstr[el - 1] == '.') {
+                    vpool_expose_stem(child, &ename);
+                } else {
+                    vpool_expose_var(child, &ename);
+                }
+                Lfree(p->alloc, &ename);
+            }
+        }
     }
 
-    p->tok_pos = es->frames[i].call_return_pos;
-    es->top    = i;  /* pop everything up to and including CALL frame */
+    skip_to_clause_end(p);
     return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  ARG [var ...]  (WP-17)                                            */
+/*                                                                    */
+/*  Simplified PARSE UPPER ARG: splits call_args[0] by words and     */
+/*  assigns (uppercased) to the listed variables. The last variable   */
+/*  receives the remaining words joined with single spaces.           */
+/* ------------------------------------------------------------------ */
+
+/* Assign words from src[0..srclen-1] (starting at *pos_inout) to
+ * vars[0..nvar-1], uppercased. The last variable gets the remaining text
+ * trailing-stripped. Updates *pos_inout to reflect consumed input. */
+/* Get pointer to the i-th variable name slot in the flat heap buffer. */
+#define ARG_VAR(vars, i) ((vars) + (i) * CTRL_NAME_MAX)
+
+static int arg_assign_words(struct irx_parser *p,
+                             const unsigned char *src, size_t srclen,
+                             size_t *pos_inout,
+                             char *vars, int *var_lens,
+                             int nvar)
+{
+    int    i;
+    size_t pos = *pos_inout;
+
+    for (i = 0; i < nvar; i++) {
+        Lstr   val;
+        Lstr   key;
+        size_t wstart;
+        size_t wend;
+        int    rc;
+
+        Lzeroinit(&val);
+        Lzeroinit(&key);
+
+        /* Skip leading whitespace. */
+        while (pos < srclen && isspace((unsigned char)src[pos])) pos++;
+        wstart = pos;
+
+        if (i == nvar - 1) {
+            /* Last var: rest of string, trailing-stripped. */
+            wend = srclen;
+            while (wend > wstart && isspace((unsigned char)src[wend - 1]))
+                wend--;
+        } else {
+            /* Non-last var: next non-space run. */
+            while (pos < srclen && !isspace((unsigned char)src[pos])) pos++;
+            wend = pos;
+        }
+
+        if (wend > wstart) {
+            size_t vlen = wend - wstart;
+            if (Lfx(p->alloc, &val, vlen) != LSTR_OK)
+                return fail(p, IRXPARS_NOMEM);
+            memcpy(val.pstr, src + wstart, vlen);
+            val.len  = vlen;
+            val.type = LSTRING_TY;
+            upper_bytes(val.pstr, vlen);
+        }
+
+        rc = lstr_set_bytes(p->alloc, &key, ARG_VAR(vars, i),
+                            (size_t)var_lens[i]);
+        if (rc != LSTR_OK) {
+            Lfree(p->alloc, &val);
+            return fail(p, IRXPARS_NOMEM);
+        }
+        vpool_set(p->vpool, &key, &val);
+        Lfree(p->alloc, &key);
+        Lfree(p->alloc, &val);
+    }
+
+    *pos_inout = pos;
+    return IRXPARS_OK;
+}
+
+static int kw_arg(struct irx_parser *p)
+{
+    /* ARG [template [, template ...]]
+     * Each comma advances to the next argument position.
+     * Each template assigns words from that argument to variables.
+     *
+     * Variable name storage is heap-allocated (IRX_MAX_ARGS *
+     * CTRL_NAME_MAX bytes) to keep the parser stack frame small
+     * on MVS 24-bit targets. */
+    char   *vars;
+    int    *var_lens;
+    int    nvar;
+    int    arg_idx = 0;
+    int    hit_comma;
+    int    rc     = IRXPARS_OK;
+    size_t pos;
+    const unsigned char *src;
+    size_t srclen;
+    size_t vars_size     = (size_t)IRX_MAX_ARGS * CTRL_NAME_MAX;
+    size_t var_lens_size = (size_t)IRX_MAX_ARGS * sizeof(int);
+
+    vars     = (char *)p->alloc->alloc(vars_size, p->alloc->ctx);
+    var_lens = (int  *)p->alloc->alloc(var_lens_size, p->alloc->ctx);
+    if (vars == NULL || var_lens == NULL) {
+        if (vars != NULL)
+            p->alloc->dealloc(vars, vars_size, p->alloc->ctx);
+        if (var_lens != NULL)
+            p->alloc->dealloc(var_lens, var_lens_size, p->alloc->ctx);
+        return fail(p, IRXPARS_NOMEM);
+    }
+
+    while (!tok_ends_clause(cur_tok(p))) {
+        const struct irx_token *t;
+
+        /* Collect variable names until comma or clause end. */
+        nvar = 0;
+        hit_comma = 0;
+        while (!tok_ends_clause(cur_tok(p))) {
+            t = cur_tok(p);
+            if (t == NULL) break;
+            if (t->tok_type == TOK_COMMA) {
+                advance_tok(p);
+                hit_comma = 1;
+                break;
+            }
+            if (t->tok_type != TOK_SYMBOL) {
+                skip_to_clause_end(p);
+                goto done;
+            }
+            if (nvar < IRX_MAX_ARGS) {
+                var_lens[nvar] = sym_to_upper(t, ARG_VAR(vars, nvar),
+                                              CTRL_NAME_MAX);
+                nvar++;
+            }
+            advance_tok(p);
+        }
+
+        /* Assign words from the current argument to the collected vars. */
+        src    = NULL;
+        srclen = 0;
+        pos    = 0;
+        if (arg_idx < p->call_argc && p->call_arg_exists != NULL &&
+            p->call_arg_exists[arg_idx] && p->call_args != NULL &&
+            p->call_args[arg_idx].pstr != NULL) {
+            src    = p->call_args[arg_idx].pstr;
+            srclen = p->call_args[arg_idx].len;
+        }
+
+        if (nvar > 0) {
+            rc = arg_assign_words(p, src, srclen, &pos,
+                                  vars, var_lens, nvar);
+            if (rc != IRXPARS_OK) goto done;
+        }
+
+        arg_idx++;
+
+        if (!hit_comma) break;   /* no comma: done */
+    }
+
+done:
+    p->alloc->dealloc(vars,     vars_size,     p->alloc->ctx);
+    p->alloc->dealloc(var_lens, var_lens_size, p->alloc->ctx);
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1350,6 +1855,8 @@ static const struct irx_keyword g_keyword_table[] = {
     { "CALL",      kw_call      },
     { "RETURN",    kw_return    },
     { "SIGNAL",    kw_signal    },
+    { "PROCEDURE", kw_procedure },
+    { "ARG",       kw_arg       },
     { NULL,        NULL         }
 };
 
@@ -1521,8 +2028,6 @@ static int lookup_variable(struct irx_parser *p,
 /*  parser has already consumed the SYMBOL; it is the caller's job    */
 /*  to detect the pattern. Arguments are comma-separated expressions. */
 /* ------------------------------------------------------------------ */
-
-#define IRX_MAX_ARGS 16
 
 static int parse_function_call(struct irx_parser *p,
                                const struct irx_token *name_tok,
@@ -1920,15 +2425,23 @@ static int parse_concat(struct irx_parser *p, PLstr out)
              * ELSE, WHEN, DO, END, etc.) cannot start a concatenated
              * term — it is a clause-level delimiter, not an operand. */
             if (t0->tok_type == TOK_SYMBOL) {
-                char kbuf[32];
-                int  kn = (int)t0->tok_length;
-                if (kn < (int)sizeof(kbuf)) {
-                    memcpy(kbuf, t0->tok_text, (size_t)kn);
-                    kbuf[kn] = '\0';
-                    upper_bytes((unsigned char *)kbuf, (size_t)kn);
-                    if (find_keyword((unsigned char *)kbuf,
-                                     (size_t)kn) != NULL) {
-                        break; /* keyword: stop concatenation */
+                /* If the symbol is immediately followed by '(' it is a
+                 * function call, not a keyword instruction — do not stop. */
+                const struct irx_token *tnxt = peek_tok(p, 1);
+                int is_func = (tnxt != NULL &&
+                               tnxt->tok_type == TOK_LPAREN &&
+                               toks_adjacent(t0, tnxt));
+                if (!is_func) {
+                    char kbuf[32];
+                    int  kn = (int)t0->tok_length;
+                    if (kn < (int)sizeof(kbuf)) {
+                        memcpy(kbuf, t0->tok_text, (size_t)kn);
+                        kbuf[kn] = '\0';
+                        upper_bytes((unsigned char *)kbuf, (size_t)kn);
+                        if (find_keyword((unsigned char *)kbuf,
+                                         (size_t)kn) != NULL) {
+                            break; /* keyword: stop concatenation */
+                        }
                     }
                 }
             }
@@ -2245,6 +2758,15 @@ static int exec_command(struct irx_parser *p)
 /*  Clause classification                                             */
 /* ------------------------------------------------------------------ */
 
+/* Clear the procedure_allowed flag on the topmost CALL frame.
+ * Called before any executable clause other than PROCEDURE. */
+static void proc_allowed_clear(struct irx_parser *p)
+{
+    struct irx_exec_frame *f = irx_ctrl_frame_top(p);
+    if (f != NULL && f->frame_type == FRAME_CALL)
+        f->procedure_allowed = 0;
+}
+
 static int is_assignment_here(struct irx_parser *p)
 {
     const struct irx_token *t0 = peek_tok(p, 0);
@@ -2279,6 +2801,7 @@ static int exec_clause(struct irx_parser *p)
 
     /* Rule 1: assignment. */
     if (is_assignment_here(p)) {
+        proc_allowed_clear(p);
         return exec_assignment(p);
     }
 
@@ -2288,7 +2811,8 @@ static int exec_clause(struct irx_parser *p)
         if (t1 != NULL && t1->tok_type == TOK_SEMICOLON &&
             t1->tok_length == 1 && t1->tok_text[0] == ':') {
             /* Label declaration: record in exec_stack->last_label so
-             * the immediately following DO can associate it. */
+             * the immediately following DO can associate it.
+             * Labels do NOT clear procedure_allowed. */
             {
                 struct irx_exec_stack *es =
                     (struct irx_exec_stack *)p->exec_stack;
@@ -2313,6 +2837,11 @@ static int exec_clause(struct irx_parser *p)
             kw = find_keyword(upname.pstr, upname.len);
             Lfree(p->alloc, &upname);
             if (kw != NULL) {
+                /* PROCEDURE is allowed only as first executable clause
+                 * in a subroutine; it checks procedure_allowed itself.
+                 * All other keywords clear the flag before executing. */
+                if (kw->kw_handler != kw_procedure)
+                    proc_allowed_clear(p);
                 advance_tok(p);
                 return kw->kw_handler(p);
             }
@@ -2320,6 +2849,7 @@ static int exec_clause(struct irx_parser *p)
     }
 
     /* Rule 4: command. */
+    proc_allowed_clear(p);
     return exec_command(p);
 }
 
@@ -2359,6 +2889,23 @@ void irx_pars_cleanup(struct irx_parser *p)
     if (p == NULL) return;
     irx_ctrl_cleanup(p);
     Lfree(p->alloc, &p->result);
+
+    /* Free call_args if any remain (WP-17). */
+    if (p->alloc != NULL && p->call_args != NULL) {
+        int i;
+        for (i = 0; i < p->call_argc; i++)
+            Lfree(p->alloc, &p->call_args[i]);
+        p->alloc->dealloc(p->call_args,
+                          (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                          p->alloc->ctx);
+        p->call_args = NULL;
+    }
+    if (p->alloc != NULL && p->call_arg_exists != NULL) {
+        p->alloc->dealloc(p->call_arg_exists,
+                          (size_t)IRX_MAX_ARGS * sizeof(int),
+                          p->alloc->ctx);
+        p->call_arg_exists = NULL;
+    }
 }
 
 int irx_pars_eval_expr(struct irx_parser *p, PLstr out)

@@ -12,13 +12,15 @@
 #ifndef __IRXCTRL_H__
 #define __IRXCTRL_H__
 
+#include "lstring.h"
 #include "lstralloc.h"
 
 /* ================================================================== */
-/*  Forward declaration                                               */
+/*  Forward declarations                                              */
 /* ================================================================== */
 
 struct irx_parser;
+struct irx_vpool;   /* used by FRAME_CALL for PROCEDURE EXPOSE (WP-17) */
 
 /* ================================================================== */
 /*  Frame type codes                                                  */
@@ -94,6 +96,14 @@ struct irx_exec_frame {
     /* --- FRAME_CALL fields --------------------------------------- */
     int  call_return_pos;   /* tok_pos to resume after RETURN         */
     int  call_line;         /* source line of the CALL (-> SIGL)      */
+
+    /* WP-17: PROCEDURE EXPOSE */
+    struct irx_vpool *saved_vpool;     /* caller's vpool before PROCEDURE   */
+    Lstr             *saved_args;      /* caller's call_args array           */
+    int              *saved_arg_exists;/* caller's call_arg_exists array     */
+    int               saved_argc;      /* caller's call_argc                 */
+    int               procedure_allowed; /* 1 = PROCEDURE may follow next    */
+    int               has_procedure;   /* 1 = PROCEDURE was executed         */
 
     /* --- FRAME_SELECT fields ------------------------------------- */
     int  select_matched;    /* 1 once a WHEN branch has been taken    */

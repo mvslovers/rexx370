@@ -28,6 +28,13 @@
 #include "lstralloc.h"
 
 /* ================================================================== */
+/*  Constants                                                         */
+/* ================================================================== */
+
+/* Maximum number of arguments in a CALL or function call. */
+#define IRX_MAX_ARGS 16
+
+/* ================================================================== */
 /*  Return codes                                                      */
 /* ================================================================== */
 
@@ -62,6 +69,15 @@ struct irx_parser {
 
     int                  exit_requested; /* set by EXIT / RETURN      */
     int                  exit_rc;        /* RC passed to EXIT          */
+
+    /* WP-17: PROCEDURE EXPOSE — current subroutine argument context.
+     * call_args[0..call_argc-1] are the argument values; call_arg_exists
+     * is a parallel array where 1 = argument was passed, 0 = omitted.
+     * Both arrays are heap-allocated (IRX_MAX_ARGS elements each).
+     * NULL when no CALL is active (top-level or no args passed). */
+    Lstr  *call_args;       /* current subroutine argument values      */
+    int   *call_arg_exists; /* 1=passed, 0=omitted (per argument)      */
+    int    call_argc;       /* number of argument positions            */
 };
 
 /* ================================================================== */

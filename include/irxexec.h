@@ -18,6 +18,9 @@
  *
  *   source     - REXX source text (need not be NUL-terminated)
  *   source_len - length of source in bytes
+ *   args       - argument string for the program (ARG / PARSE ARG),
+ *                or NULL if no argument is provided
+ *   args_len   - length of args in bytes (0 if args is NULL)
  *   rc_out     - receives the EXIT return code (0 if no EXIT clause)
  *                May be NULL if the caller does not need the RC.
  *   envblock   - pre-existing Language Processor Environment, or NULL
@@ -25,7 +28,7 @@
  *
  * Pipeline:
  *   irxinit -> irx_lstr_init -> irx_tokn_run -> vpool_create
- *   -> irx_pars_init -> irx_ctrl_init -> irx_ctrl_label_scan
+ *   -> irx_pars_init -> irx_ctrl_label_scan
  *   -> irx_pars_run -> cleanup -> irxterm (if own_env)
  *
  * Returns:
@@ -35,6 +38,7 @@
  *   IRXPARS_* parser / runtime error (20-25)
  */
 int irx_exec_run(const char *source, int source_len,
+                 const char *args, int args_len,
                  int *rc_out, struct envblock *envblock);
 
 #endif /* __IRXEXEC_H__ */

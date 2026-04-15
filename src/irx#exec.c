@@ -22,6 +22,7 @@
 #include "irxctrl.h"
 
 int irx_exec_run(const char *source, int source_len,
+                 const char *args, int args_len,
                  int *rc_out, struct envblock *envblock)
 {
     int                   own_env   = 0;
@@ -60,10 +61,44 @@ int irx_exec_run(const char *source, int source_len,
     rc = irx_pars_init(&parser, tokens, tok_count, vpool, alloc, envblock);
     if (rc != 0) goto cleanup;
 
-    /* 6. Control flow init + label scan (WP-15) --------------------- */
-    rc = irx_ctrl_init(&parser);
-    if (rc != 0) goto cleanup;
+    /* 5b. Top-level argument setup (WP-17) -------------------------- */
+    if (args != NULL && args_len > 0) {
+        Lstr *la;
+        int  *le;
+        la = (Lstr *)alloc->alloc(
+            (size_t)IRX_MAX_ARGS * sizeof(Lstr), alloc->ctx);
+        le = (int  *)alloc->alloc(
+            (size_t)IRX_MAX_ARGS * sizeof(int),  alloc->ctx);
+        if (la == NULL || le == NULL) {
+            if (la != NULL)
+                alloc->dealloc(la, (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                               alloc->ctx);
+            if (le != NULL)
+                alloc->dealloc(le, (size_t)IRX_MAX_ARGS * sizeof(int),
+                               alloc->ctx);
+            rc = 20;
+            goto cleanup;
+        }
+        memset(la, 0, (size_t)IRX_MAX_ARGS * sizeof(Lstr));
+        memset(le, 0, (size_t)IRX_MAX_ARGS * sizeof(int));
+        if (Lfx(alloc, &la[0], (size_t)args_len) != LSTR_OK) {
+            alloc->dealloc(la, (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                           alloc->ctx);
+            alloc->dealloc(le, (size_t)IRX_MAX_ARGS * sizeof(int),
+                           alloc->ctx);
+            rc = 20;
+            goto cleanup;
+        }
+        memcpy(la[0].pstr, args, (size_t)args_len);
+        la[0].len  = (size_t)args_len;
+        la[0].type = LSTRING_TY;
+        le[0]                = 1;
+        parser.call_args       = la;
+        parser.call_arg_exists = le;
+        parser.call_argc       = 1;
+    }
 
+    /* 6. Label scan ------------------------------------------------- */
     rc = irx_ctrl_label_scan(&parser);
     if (rc != 0) goto cleanup;
 
