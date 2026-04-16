@@ -343,6 +343,12 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     -o test/test_hello test/test_hello.c \
     $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC
 ./test/test_hello
+
+# PARSE instruction (WP-16) — 68/68
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_parse test/test_parse.c \
+    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC
+./test/test_parse
 ```
 
 ## Work packages
@@ -353,8 +359,8 @@ and acceptance criteria.
 
 Current status:
 - Phase 1 (WP-01 through WP-05): complete
-- Phase 2 (WP-10 through WP-15, WP-18): complete
-- Next: WP-16 (PARSE instruction)
+- Phase 2 (WP-10 through WP-16, WP-18): complete
+- Next: WP-17 (PROCEDURE EXPOSE)
 
 ## Knowledge sources
 

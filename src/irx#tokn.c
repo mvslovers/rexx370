@@ -714,8 +714,7 @@ static int tokenize(struct tok_ctx *ctx)
             continue;
         }
 
-        if (is_symbol_start(c) || isdigit(c) ||
-            (c == '.' && isdigit(peek(ctx, 1))))
+        if (is_symbol_start(c) || isdigit(c) || c == '.')
         {
             if (scan_symbol_or_number(ctx) != 0)
             {

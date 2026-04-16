@@ -2372,6 +2372,862 @@ static int kw_signal(struct irx_parser *p)
 }
 
 /* ------------------------------------------------------------------ */
+/*  PARSE instruction (WP-16)                                         */
+/*                                                                    */
+/*  PARSE [UPPER] source [template [, template ...]]                  */
+/*                                                                    */
+/*  Sources handled in Phase 2:                                       */
+/*    ARG     — call_args[i], one per comma-separated template        */
+/*    VAR n   — current value of variable n                           */
+/*    VALUE expr WITH — evaluate expr, parse the result               */
+/*    SOURCE  — "MVS COMMAND ?" or "MVS SUBROUTINE ?"                 */
+/*    VERSION — REXX370 interpreter identification string              */
+/*    NUMERIC — current NUMERIC DIGITS / FUZZ / FORM settings         */
+/*  PULL / LINEIN / EXTERNAL → SYNTAX error (Phase 4).               */
+/*                                                                    */
+/*  Ref: SC28-1883-0, Chapter 8 (PARSE instruction)                  */
+/* ------------------------------------------------------------------ */
+
+/* Version string returned by PARSE VERSION. */
+#define REXX370_PARSE_VERSION "REXX370 0.1.0 16 Apr 2026"
+
+/* Maximum template variables per segment (reuses IRX_MAX_ARGS). */
+#define PARSE_MAX_VARS IRX_MAX_ARGS
+
+/* Accessor for the i-th variable name slot in the flat name buffer. */
+#define PARSE_VAR(names, i) ((names) + (size_t)(i) * CTRL_NAME_MAX)
+
+/* Extract the integer value of a TOK_NUMBER token's text. */
+static long parse_tok_num(const struct irx_token *t)
+{
+    char buf[32];
+    size_t n = t->tok_length;
+
+    if (n >= sizeof(buf))
+    {
+        n = sizeof(buf) - 1;
+    }
+    memcpy(buf, t->tok_text, n);
+    buf[n] = '\0';
+    return strtol(buf, NULL, 10);
+}
+
+/* ------------------------------------------------------------------
+ * Assign a word-split segment src[spos..epos) to the pending variable
+ * list vars[0..nvar).
+ *
+ * The last non-dot item ("last_real") gets the raw remainder from the
+ * final whitespace-skip to epos (trailing blanks preserved).  All
+ * other non-dot items receive one whitespace-delimited word.  Dot
+ * placeholders consume one word silently.
+ *
+ * If epos <= spos, or src is NULL, every variable receives "".
+ * ------------------------------------------------------------------ */
+static int parse_assign_segment(struct irx_parser *p,
+                                const unsigned char *src,
+                                size_t spos, size_t epos,
+                                char *var_names, const int *var_lens,
+                                const int *var_dots, int nvar)
+{
+    size_t pos;
+    int i;
+    int last_real;
+
+    if (nvar == 0)
+    {
+        return IRXPARS_OK;
+    }
+
+    /* Clamp reversed or empty segments. */
+    if (src == NULL || epos < spos)
+    {
+        epos = spos;
+    }
+
+    pos = spos;
+
+    /* last_real: the last item is non-dot → it gets the raw remainder. */
+    last_real = (!var_dots[nvar - 1]) ? nvar - 1 : -1;
+
+    for (i = 0; i < nvar; i++)
+    {
+        Lstr val;
+        Lstr key;
+        size_t wstart;
+        size_t wend;
+        int rc;
+
+        Lzeroinit(&val);
+        Lzeroinit(&key);
+
+        /* Skip leading whitespace. */
+        while (pos < epos && isspace((unsigned char)src[pos]))
+        {
+            pos++;
+        }
+
+        if (var_dots[i])
+        {
+            /* Dot placeholder: skip one word, no assignment. */
+            while (pos < epos && !isspace((unsigned char)src[pos]))
+            {
+                pos++;
+            }
+            continue;
+        }
+
+        if (i == last_real)
+        {
+            /* Last real variable: raw rest to epos, trailing blanks kept. */
+            wstart = pos;
+            wend   = epos;
+            pos    = epos;
+        }
+        else
+        {
+            /* Non-last: one whitespace-delimited word. */
+            wstart = pos;
+            while (pos < epos && !isspace((unsigned char)src[pos]))
+            {
+                pos++;
+            }
+            wend = pos;
+        }
+
+        if (wend > wstart)
+        {
+            size_t vlen = wend - wstart;
+
+            if (Lfx(p->alloc, &val, vlen) != LSTR_OK)
+            {
+                return fail(p, IRXPARS_NOMEM);
+            }
+            memcpy(val.pstr, src + wstart, vlen);
+            val.len  = vlen;
+            val.type = LSTRING_TY;
+        }
+
+        rc = lstr_set_bytes(p->alloc, &key,
+                            PARSE_VAR(var_names, i),
+                            (size_t)var_lens[i]);
+        if (rc != LSTR_OK)
+        {
+            Lfree(p->alloc, &val);
+            return fail(p, IRXPARS_NOMEM);
+        }
+
+        vpool_set(p->vpool, &key, &val);
+        Lfree(p->alloc, &key);
+        Lfree(p->alloc, &val);
+    }
+
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------
+ * Scan from position `from` for the first standalone WITH token at
+ * paren depth 0 that is not an assignment target.
+ * Returns the token index, or -1 if not found before EOC/EOF.
+ * ------------------------------------------------------------------ */
+static int parse_find_with(struct irx_parser *p, int from)
+{
+    int depth = 0;
+    int i;
+
+    for (i = from; i < p->tok_count; i++)
+    {
+        const struct irx_token *t  = &p->tokens[i];
+        const struct irx_token *tn;
+        const struct irx_token *tn2;
+
+        if (tok_ends_clause(t))
+        {
+            break;
+        }
+        if (t->tok_type == TOK_LPAREN)
+        {
+            depth++;
+            continue;
+        }
+        if (t->tok_type == TOK_RPAREN)
+        {
+            if (depth > 0)
+            {
+                depth--;
+            }
+            continue;
+        }
+        if (depth != 0 || !sym_matches(t, "WITH"))
+        {
+            continue;
+        }
+        /* Exclude WITH = (but not WITH ==): that would be assignment. */
+        tn  = (i + 1 < p->tok_count) ? &p->tokens[i + 1] : NULL;
+        tn2 = (i + 2 < p->tok_count) ? &p->tokens[i + 2] : NULL;
+        if (tok_is_op_char(tn, TOK_COMPARISON, '=') &&
+            !tok_is_op_char(tn2, TOK_COMPARISON, '='))
+        {
+            continue;
+        }
+        return i;
+    }
+    return -1;
+}
+
+/* ------------------------------------------------------------------
+ * Apply one PARSE template against src[0..srclen).
+ *
+ * Processes tokens at p->tok_pos.  Stops at TOK_COMMA, EOC, or EOF.
+ * On return p->tok_pos is past all consumed template tokens.
+ * If a comma terminated the template, p->tok_pos is advanced past
+ * the comma and *hit_comma_out is 1.  Otherwise *hit_comma_out is 0.
+ *
+ * If src is NULL, all variables in the template receive "".
+ * ------------------------------------------------------------------ */
+static int parse_apply_template(struct irx_parser *p,
+                                const unsigned char *src, size_t srclen,
+                                int *hit_comma_out)
+{
+    size_t names_size = (size_t)PARSE_MAX_VARS * CTRL_NAME_MAX;
+    size_t lens_size  = (size_t)PARSE_MAX_VARS * sizeof(int);
+    size_t dots_size  = (size_t)PARSE_MAX_VARS * sizeof(int);
+    char *var_names   = (char *)p->alloc->alloc(names_size, p->alloc->ctx);
+    int *var_lens     = (int *)p->alloc->alloc(lens_size, p->alloc->ctx);
+    int *var_dots     = (int *)p->alloc->alloc(dots_size, p->alloc->ctx);
+    int nvar          = 0;
+    size_t scan_pos   = 0;
+    int rc            = IRXPARS_OK;
+
+    *hit_comma_out = 0;
+
+    if (var_names == NULL || var_lens == NULL || var_dots == NULL)
+    {
+        if (var_names != NULL)
+        {
+            p->alloc->dealloc(var_names, names_size, p->alloc->ctx);
+        }
+        if (var_lens != NULL)
+        {
+            p->alloc->dealloc(var_lens, lens_size, p->alloc->ctx);
+        }
+        if (var_dots != NULL)
+        {
+            p->alloc->dealloc(var_dots, dots_size, p->alloc->ctx);
+        }
+        return fail(p, IRXPARS_NOMEM);
+    }
+
+    while (!tok_ends_clause(cur_tok(p)))
+    {
+        const struct irx_token *t = cur_tok(p);
+
+        if (t == NULL)
+        {
+            break;
+        }
+
+        /* Comma: end of this template. */
+        if (t->tok_type == TOK_COMMA)
+        {
+            advance_tok(p);
+            *hit_comma_out = 1;
+            break;
+        }
+
+        /* Variable pattern: ( symbol ) */
+        if (t->tok_type == TOK_LPAREN)
+        {
+            const struct irx_token *tsym = peek_tok(p, 1);
+            const struct irx_token *trp  = peek_tok(p, 2);
+
+            if (tsym != NULL && tsym->tok_type == TOK_SYMBOL &&
+                !(tsym->tok_flags & TOKF_CONSTANT) &&
+                trp  != NULL && trp->tok_type == TOK_RPAREN)
+            {
+                Lstr pkey;
+                Lstr pval;
+                size_t plen;
+                int found;
+                size_t si;
+                size_t seg_end;
+                size_t new_scan;
+
+                Lzeroinit(&pkey);
+                Lzeroinit(&pval);
+
+                rc = set_upper_from_tok(p->alloc, &pkey, tsym);
+                if (rc != LSTR_OK)
+                {
+                    rc = fail(p, IRXPARS_NOMEM);
+                    goto done;
+                }
+
+                /* Fetch the variable's value; use as search pattern. */
+                if (vpool_get(p->vpool, &pkey, &pval) != VPOOL_OK)
+                {
+                    Lzeroinit(&pval); /* not found: empty pattern */
+                }
+                Lfree(p->alloc, &pkey);
+
+                advance_tok(p); /* ( */
+                advance_tok(p); /* sym */
+                advance_tok(p); /* ) */
+
+                plen = pval.len; /* save before possible Lfree */
+                if (plen == 0 || src == NULL)
+                {
+                    Lfree(p->alloc, &pval);
+                    /* Empty pattern: split at current position. */
+                    rc = parse_assign_segment(p, src, scan_pos, scan_pos,
+                                             var_names, var_lens, var_dots,
+                                             nvar);
+                    nvar = 0;
+                    if (rc != IRXPARS_OK)
+                    {
+                        goto done;
+                    }
+                    continue;
+                }
+
+                found = -1;
+                for (si = scan_pos; si + plen <= srclen; si++)
+                {
+                    if (memcmp(src + si, pval.pstr, plen) == 0)
+                    {
+                        found = (int)si;
+                        break;
+                    }
+                }
+                Lfree(p->alloc, &pval);
+
+                if (found >= 0)
+                {
+                    seg_end  = (size_t)found;
+                    new_scan = (size_t)found + plen;
+                }
+                else
+                {
+                    seg_end  = srclen;
+                    new_scan = srclen;
+                }
+
+                rc = parse_assign_segment(p, src, scan_pos, seg_end,
+                                         var_names, var_lens, var_dots, nvar);
+                nvar     = 0;
+                scan_pos = new_scan;
+                if (rc != IRXPARS_OK)
+                {
+                    goto done;
+                }
+                continue;
+            }
+            rc = fail(p, IRXPARS_SYNTAX);
+            goto done;
+        }
+
+        /* Relative position: +n or -n */
+        if (t->tok_type == TOK_OPERATOR && t->tok_length == 1 &&
+            (t->tok_text[0] == '+' || t->tok_text[0] == '-'))
+        {
+            const struct irx_token *tnum = peek_tok(p, 1);
+
+            if (tnum != NULL && tnum->tok_type == TOK_NUMBER)
+            {
+                long n = parse_tok_num(tnum);
+                size_t new_scan;
+                size_t seg_end;
+
+                if (t->tok_text[0] == '+')
+                {
+                    new_scan = scan_pos + (size_t)n;
+                    if (new_scan > srclen)
+                    {
+                        new_scan = srclen;
+                    }
+                    seg_end = new_scan;
+                }
+                else
+                {
+                    /* Backward: preceding vars get empty, cursor retreats. */
+                    new_scan = ((size_t)n <= scan_pos) ? scan_pos - (size_t)n
+                                                       : 0;
+                    seg_end  = scan_pos;
+                }
+
+                advance_tok(p); /* + or - */
+                advance_tok(p); /* number */
+
+                rc = parse_assign_segment(p, src, scan_pos, seg_end,
+                                         var_names, var_lens, var_dots, nvar);
+                nvar     = 0;
+                scan_pos = new_scan;
+                if (rc != IRXPARS_OK)
+                {
+                    goto done;
+                }
+                continue;
+            }
+            rc = fail(p, IRXPARS_SYNTAX);
+            goto done;
+        }
+
+        /* Absolute position: bare integer (TOK_NUMBER) */
+        if (t->tok_type == TOK_NUMBER)
+        {
+            long col    = parse_tok_num(t);
+            size_t npos = (col >= 1) ? (size_t)(col - 1) : 0;
+            size_t seg_end;
+
+            if (npos > srclen)
+            {
+                npos = srclen;
+            }
+            seg_end = (npos > scan_pos) ? npos : scan_pos;
+
+            advance_tok(p);
+
+            rc = parse_assign_segment(p, src, scan_pos, seg_end,
+                                     var_names, var_lens, var_dots, nvar);
+            nvar     = 0;
+            scan_pos = npos;
+            if (rc != IRXPARS_OK)
+            {
+                goto done;
+            }
+            continue;
+        }
+
+        /* Absolute position: =n */
+        if (tok_is_op_char(t, TOK_COMPARISON, '='))
+        {
+            const struct irx_token *tnum = peek_tok(p, 1);
+
+            if (tnum != NULL && tnum->tok_type == TOK_NUMBER)
+            {
+                long col    = parse_tok_num(tnum);
+                size_t npos = (col >= 1) ? (size_t)(col - 1) : 0;
+                size_t seg_end;
+
+                if (npos > srclen)
+                {
+                    npos = srclen;
+                }
+                seg_end = (npos > scan_pos) ? npos : scan_pos;
+
+                advance_tok(p); /* = */
+                advance_tok(p); /* number */
+
+                rc = parse_assign_segment(p, src, scan_pos, seg_end,
+                                         var_names, var_lens, var_dots, nvar);
+                nvar     = 0;
+                scan_pos = npos;
+                if (rc != IRXPARS_OK)
+                {
+                    goto done;
+                }
+                continue;
+            }
+            rc = fail(p, IRXPARS_SYNTAX);
+            goto done;
+        }
+
+        /* String literal pattern: TOK_STRING */
+        if (t->tok_type == TOK_STRING)
+        {
+            Lstr pat;
+            size_t plen;
+            int found;
+            size_t si;
+            size_t seg_end;
+            size_t new_scan;
+
+            Lzeroinit(&pat);
+            rc = lstr_set_bytes(p->alloc, &pat, t->tok_text, t->tok_length);
+            if (rc != LSTR_OK)
+            {
+                rc = fail(p, IRXPARS_NOMEM);
+                goto done;
+            }
+            if (t->tok_flags & TOKF_QUOTE_DBL)
+            {
+                dedouble_string(&pat);
+            }
+            advance_tok(p);
+
+            plen = pat.len; /* save before Lfree */
+            if (plen == 0 || src == NULL)
+            {
+                Lfree(p->alloc, &pat);
+                continue; /* empty pattern: no split */
+            }
+
+            found = -1;
+            for (si = scan_pos; si + plen <= srclen; si++)
+            {
+                if (memcmp(src + si, pat.pstr, plen) == 0)
+                {
+                    found = (int)si;
+                    break;
+                }
+            }
+            Lfree(p->alloc, &pat);
+
+            if (found >= 0)
+            {
+                seg_end  = (size_t)found;
+                new_scan = (size_t)found + plen;
+            }
+            else
+            {
+                seg_end  = srclen;
+                new_scan = srclen;
+            }
+
+            rc = parse_assign_segment(p, src, scan_pos, seg_end,
+                                     var_names, var_lens, var_dots, nvar);
+            nvar     = 0;
+            scan_pos = new_scan;
+            if (rc != IRXPARS_OK)
+            {
+                goto done;
+            }
+            continue;
+        }
+
+        /* Variable or dot placeholder: TOK_SYMBOL */
+        if (t->tok_type == TOK_SYMBOL)
+        {
+            if (t->tok_length == 1 && t->tok_text[0] == '.')
+            {
+                /* Dot placeholder (TOKF_CONSTANT is set for '.', that's OK). */
+                if (nvar < PARSE_MAX_VARS)
+                {
+                    var_dots[nvar] = 1;
+                    var_lens[nvar] = 0;
+                    nvar++;
+                }
+            }
+            else if (!(t->tok_flags & TOKF_CONSTANT))
+            {
+                /* Regular variable name (not digit/dot constant). */
+                if (nvar < PARSE_MAX_VARS)
+                {
+                    var_lens[nvar] = sym_to_upper(
+                        t, PARSE_VAR(var_names, nvar), CTRL_NAME_MAX);
+                    var_dots[nvar] = 0;
+                    nvar++;
+                }
+            }
+            /* TOKF_CONSTANT symbols are data constants, not targets. Skip. */
+            advance_tok(p);
+            continue;
+        }
+
+        /* Unrecognised token in template: syntax error. */
+        rc = fail(p, IRXPARS_SYNTAX);
+        goto done;
+    }
+
+    /* Final segment: remaining pending vars against [scan_pos, srclen). */
+    rc = parse_assign_segment(p, src, scan_pos, srclen,
+                             var_names, var_lens, var_dots, nvar);
+
+done:
+    p->alloc->dealloc(var_names, names_size, p->alloc->ctx);
+    p->alloc->dealloc(var_lens,  lens_size,  p->alloc->ctx);
+    p->alloc->dealloc(var_dots,  dots_size,  p->alloc->ctx);
+    return rc;
+}
+
+static int kw_parse(struct irx_parser *p)
+{
+    int upper     = 0;
+    int is_arg    = 0;
+    int arg_idx   = 0;
+    int hit_comma = 0;
+    int rc        = IRXPARS_OK;
+    Lstr source_str; /* built source for non-ARG sources   */
+    Lstr upper_copy; /* uppercase working copy when needed */
+    const struct irx_token *sk;
+
+    Lzeroinit(&source_str);
+    Lzeroinit(&upper_copy);
+
+    /* UPPER modifier. */
+    if (sym_matches(cur_tok(p), "UPPER"))
+    {
+        upper = 1;
+        advance_tok(p);
+    }
+
+    /* Source keyword. */
+    sk = cur_tok(p);
+    if (sk == NULL || sk->tok_type != TOK_SYMBOL)
+    {
+        skip_to_clause_end(p);
+        return fail(p, IRXPARS_SYNTAX);
+    }
+
+    if (sym_matches(sk, "ARG"))
+    {
+        is_arg = 1;
+        advance_tok(p);
+    }
+    else if (sym_matches(sk, "VAR"))
+    {
+        const struct irx_token *vn;
+        Lstr key;
+
+        advance_tok(p);
+        vn = cur_tok(p);
+        if (vn == NULL || vn->tok_type != TOK_SYMBOL ||
+            (vn->tok_flags & TOKF_CONSTANT))
+        {
+            skip_to_clause_end(p);
+            return fail(p, IRXPARS_SYNTAX);
+        }
+        Lzeroinit(&key);
+        rc = set_upper_from_tok(p->alloc, &key, vn);
+        advance_tok(p);
+        if (rc != LSTR_OK)
+        {
+            return fail(p, IRXPARS_NOMEM);
+        }
+        /* If the variable is not set, source_str stays empty. */
+        vpool_get(p->vpool, &key, &source_str);
+        Lfree(p->alloc, &key);
+        rc = IRXPARS_OK;
+    }
+    else if (sym_matches(sk, "VALUE"))
+    {
+        int with_pos;
+        int saved_count;
+
+        advance_tok(p);
+
+        with_pos = parse_find_with(p, p->tok_pos);
+        if (with_pos < 0)
+        {
+            skip_to_clause_end(p);
+            return fail(p, IRXPARS_SYNTAX);
+        }
+
+        if (p->tok_pos >= with_pos)
+        {
+            /* Empty expression: source is "". */
+            p->tok_pos = with_pos + 1;
+        }
+        else
+        {
+            saved_count  = p->tok_count;
+            p->tok_count = with_pos;
+            rc = irx_pars_eval_expr(p, &source_str);
+            p->tok_count = saved_count;
+            if (rc != IRXPARS_OK)
+            {
+                Lfree(p->alloc, &source_str);
+                return rc;
+            }
+            p->tok_pos = with_pos + 1;
+        }
+    }
+    else if (sym_matches(sk, "SOURCE"))
+    {
+        struct irx_exec_stack *es;
+        int in_call = 0;
+        const char *calltype;
+        char buf[32];
+        int blen;
+
+        advance_tok(p);
+
+        es = (struct irx_exec_stack *)p->exec_stack;
+        if (es != NULL)
+        {
+            int fi;
+            for (fi = es->top - 1; fi >= 0; fi--)
+            {
+                if (es->frames[fi].frame_type == FRAME_CALL)
+                {
+                    in_call = 1;
+                    break;
+                }
+            }
+        }
+
+        calltype = in_call ? "SUBROUTINE" : "COMMAND";
+        {
+            int off = 0;
+            memcpy(buf, "MVS ", 4);
+            off += 4;
+            memcpy(buf + off, calltype, strlen(calltype));
+            off += (int)strlen(calltype);
+            memcpy(buf + off, " ?", 2);
+            off += 2;
+            blen = off;
+        }
+        rc = lstr_set_bytes(p->alloc, &source_str, buf, (size_t)blen);
+        if (rc != LSTR_OK)
+        {
+            return fail(p, IRXPARS_NOMEM);
+        }
+        rc = IRXPARS_OK;
+    }
+    else if (sym_matches(sk, "VERSION"))
+    {
+        const char *vs = REXX370_PARSE_VERSION;
+
+        advance_tok(p);
+        rc = lstr_set_bytes(p->alloc, &source_str, vs, strlen(vs));
+        if (rc != LSTR_OK)
+        {
+            return fail(p, IRXPARS_NOMEM);
+        }
+        rc = IRXPARS_OK;
+    }
+    else if (sym_matches(sk, "NUMERIC"))
+    {
+        int digits = NUMERIC_DIGITS_DEFAULT;
+        int fuzz   = NUMERIC_FUZZ_DEFAULT;
+        int form   = NUMFORM_SCIENTIFIC;
+        char buf[64];
+        int blen;
+
+        advance_tok(p);
+
+        if (p->envblock != NULL &&
+            p->envblock->envblock_userfield != NULL)
+        {
+            struct irx_wkblk_int *wkbi =
+                (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+            digits = wkbi->wkbi_digits;
+            fuzz   = wkbi->wkbi_fuzz;
+            form   = wkbi->wkbi_form;
+        }
+
+        blen = sprintf(buf, "%d %d %s",
+                       digits, fuzz,
+                       (form == NUMFORM_ENGINEERING) ? "ENGINEERING"
+                                                     : "SCIENTIFIC");
+        if (blen < 0)
+        {
+            blen = 0;
+        }
+        rc = lstr_set_bytes(p->alloc, &source_str, buf, (size_t)blen);
+        if (rc != LSTR_OK)
+        {
+            return fail(p, IRXPARS_NOMEM);
+        }
+        rc = IRXPARS_OK;
+    }
+    else if (sym_matches(sk, "PULL")    ||
+             sym_matches(sk, "LINEIN")  ||
+             sym_matches(sk, "EXTERNAL"))
+    {
+        /* Phase 4: data stack / stream I/O not yet implemented. */
+        skip_to_clause_end(p);
+        return fail(p, IRXPARS_SYNTAX);
+    }
+    else
+    {
+        skip_to_clause_end(p);
+        return fail(p, IRXPARS_SYNTAX);
+    }
+
+    if (rc != IRXPARS_OK)
+    {
+        Lfree(p->alloc, &source_str);
+        return rc;
+    }
+
+    /* Uppercase the source once for non-ARG PARSE UPPER. */
+    if (!is_arg && upper && source_str.pstr != NULL && source_str.len > 0)
+    {
+        rc = Lfx(p->alloc, &upper_copy, source_str.len);
+        if (rc != LSTR_OK)
+        {
+            Lfree(p->alloc, &source_str);
+            return fail(p, IRXPARS_NOMEM);
+        }
+        memcpy(upper_copy.pstr, source_str.pstr, source_str.len);
+        upper_bytes(upper_copy.pstr, source_str.len);
+        upper_copy.len  = source_str.len;
+        upper_copy.type = LSTRING_TY;
+    }
+
+    /* Process comma-separated templates. */
+    do
+    {
+        const unsigned char *use_src = NULL;
+        size_t use_len               = 0;
+
+        if (is_arg)
+        {
+            const unsigned char *raw_src = NULL;
+            size_t raw_len               = 0;
+
+            if (arg_idx < p->call_argc &&
+                p->call_arg_exists != NULL &&
+                p->call_arg_exists[arg_idx] &&
+                p->call_args != NULL &&
+                p->call_args[arg_idx].pstr != NULL)
+            {
+                raw_src = p->call_args[arg_idx].pstr;
+                raw_len = p->call_args[arg_idx].len;
+            }
+            arg_idx++;
+
+            if (upper && raw_src != NULL && raw_len > 0)
+            {
+                /* Uppercase this argument for the current template only. */
+                Lfree(p->alloc, &upper_copy);
+                Lzeroinit(&upper_copy);
+                rc = Lfx(p->alloc, &upper_copy, raw_len);
+                if (rc != LSTR_OK)
+                {
+                    rc = fail(p, IRXPARS_NOMEM);
+                    break;
+                }
+                memcpy(upper_copy.pstr, raw_src, raw_len);
+                upper_bytes(upper_copy.pstr, raw_len);
+                upper_copy.len  = raw_len;
+                upper_copy.type = LSTRING_TY;
+                use_src = upper_copy.pstr;
+                use_len = upper_copy.len;
+            }
+            else
+            {
+                use_src = raw_src;
+                use_len = raw_len;
+            }
+        }
+        else
+        {
+            if (upper_copy.pstr != NULL)
+            {
+                use_src = upper_copy.pstr;
+                use_len = upper_copy.len;
+            }
+            else
+            {
+                use_src = source_str.pstr;
+                use_len = source_str.len;
+            }
+        }
+
+        rc = parse_apply_template(p, use_src, use_len, &hit_comma);
+        if (rc != IRXPARS_OK)
+        {
+            break;
+        }
+    } while (hit_comma);
+
+    Lfree(p->alloc, &source_str);
+    Lfree(p->alloc, &upper_copy);
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Keyword table (WP-13 registers no handlers)                       */
 /*                                                                    */
 /*  WP-14 adds SAY. WP-15 adds DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL. */
@@ -2398,6 +3254,7 @@ static const struct irx_keyword g_keyword_table[] = {
     {"SIGNAL", kw_signal},
     {"PROCEDURE", kw_procedure},
     {"ARG", kw_arg},
+    {"PARSE", kw_parse},
     {NULL, NULL}};
 
 static const struct irx_keyword *find_keyword(const unsigned char *name,
