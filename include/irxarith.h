@@ -43,6 +43,10 @@ enum irx_arith_opcode
 
 /* ================================================================== */
 /*  Public entry points                                               */
+/*                                                                    */
+/*  asm() aliases are required because irx_arith_op and               */
+/*  irx_arith_compare share the first 8 characters ("irx_arit") and   */
+/*  would collide under c2asm370's 8-character identifier truncation. */
 /* ================================================================== */
 
 /* Perform a binary arithmetic operation and write the result.
@@ -62,7 +66,7 @@ enum irx_arith_opcode
 int irx_arith_op(struct envblock *env,
                  PLstr a, PLstr b,
                  enum irx_arith_opcode op,
-                 PLstr result);
+                 PLstr result) asm("IRXARIOP");
 
 /* Compare two REXX numbers with NUMERIC FUZZ applied.
  *
@@ -77,6 +81,6 @@ int irx_arith_op(struct envblock *env,
  */
 int irx_arith_compare(struct envblock *env,
                       PLstr a, PLstr b,
-                      int *cmp_out);
+                      int *cmp_out) asm("IRXARICM");
 
 #endif /* IRXARITH_H */
