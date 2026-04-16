@@ -2804,7 +2804,16 @@ static int parse_apply_template(struct irx_parser *p,
             continue;
         }
 
-        /* Absolute position: =n (identical retreat semantics to bare n) */
+        /* Absolute position: =n (identical retreat semantics to bare n)
+         *
+         * tok_is_op_char requires tok_length == 1, so a 2-char token
+         * (e.g. the second '=' of '==') would not match here.
+         * Additionally, the tokenizer emits one token per operator
+         * character (irx#tokn.c §scan_operator), so '==' always arrives
+         * as two separate 1-char TOK_COMPARISON tokens.  If the first '='
+         * matches but peek_tok(p,1) is not TOK_NUMBER (as it would be for
+         * the second '=' of '=='), the inner if fails and IRXPARS_SYNTAX
+         * is raised — '==5' cannot silently become '=5'.               */
         if (tok_is_op_char(t, TOK_COMPARISON, '='))
         {
             const struct irx_token *tnum = peek_tok(p, 1);

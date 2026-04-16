@@ -344,7 +344,7 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC
 ./test/test_hello
 
-# PARSE instruction (WP-16) — 68/68
+# PARSE instruction (WP-16) — 74/74
 gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     -o test/test_parse test/test_parse.c \
     $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC

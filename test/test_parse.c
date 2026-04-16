@@ -663,6 +663,34 @@ static void test_pa18_absolute_backward(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  AC#19: '==' in a template is not the =n absolute-position form    */
+/*                                                                     */
+/*  The tokenizer emits one token per operator character               */
+/*  (irx#tokn.c §scan_operator), so '==5' arrives as three tokens:    */
+/*  '=' '=' '5'.  tok_is_op_char requires tok_length == 1; the first  */
+/*  '=' matches but peek_tok(1) is another '=' (not TOK_NUMBER), so   */
+/*  IRXPARS_SYNTAX is raised rather than silently treating it as =5.  */
+/* ------------------------------------------------------------------ */
+
+static void test_pa19_eq_eq_not_absolute_position(void)
+{
+    int exit_rc = -1;
+    int rc;
+
+    printf("\n--- PA#19: '==' is not the =n absolute-position form ---\n");
+
+    rc = run_src(
+        "/* REXX */\n"
+        "x = 'ABCDEFGHIJ'\n"
+        "parse var x a ==5 b\n"
+        "exit 0\n",
+        &exit_rc);
+
+    /* '==5' must raise SYNTAX (cannot be treated as '=5'). */
+    CHECK(rc != 0, "'==5' in template raises SYNTAX, not treated as '=5'");
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -688,6 +716,7 @@ int main(void)
     test_pa16_literal_not_found();
     test_pa17_no_global_state();
     test_pa18_absolute_backward();
+    test_pa19_eq_eq_not_absolute_position();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
