@@ -22,8 +22,8 @@ Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3
 | WP-13 | Parser + evaluator (IRX#PARS) | 2 | DONE (38/38) — PR #8 |
 | WP-14 | SAY + basic I/O routine (IRX#IO) | 2 | DONE (27/27) — PR #10 |
 | WP-15 | DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL | 2 | DONE (62/62) — PR #12 |
-| WP-16 | PARSE instruction | 2 | DONE (68/68) — PR #21 |
-| WP-17 | PROCEDURE EXPOSE | 2 | OPEN |
+| WP-16 | PARSE instruction | 2 | DONE (68/68) — PR #22 |
+| WP-17 | PROCEDURE EXPOSE | 2 | DONE (53/53) — PR #16 |
 | WP-18 | Hello World end-to-end (IRX#EXEC) | 2 | DONE (16/16) — PR #14 |
 | WP-20 | Arithmetic engine (IRXARITH) | 3 | OPEN |
 | WP-21 | Built-in string functions | 3 | OPEN |

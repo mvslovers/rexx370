@@ -626,6 +626,43 @@ static void test_pa17_no_global_state(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  AC#18: absolute backward position retreats cursor                  */
+/*                                                                     */
+/*  Ref: SC28-1883-0 §8 — when n < current scan position the pending  */
+/*  variable receives an empty segment and the cursor retreats to n.  */
+/* ------------------------------------------------------------------ */
+
+static void test_pa18_absolute_backward(void)
+{
+    int exit_rc = -1;
+    int rc;
+
+    printf("\n--- PA#18: PARSE VAR absolute backward position ---\n");
+
+    rc = run_src(
+        "/* REXX */\n"
+        "x = 'ABCDEFGHIJKLMNOP'\n"
+        "parse var x a 10 b 5 c\n"
+        "say 'a=' || a\n"
+        "say 'b=' || b\n"
+        "say 'c=' || c\n"
+        "exit 0\n",
+        &exit_rc);
+
+    CHECK(rc == 0, "irx_exec_run returns 0");
+    CHECK(exit_rc == 0, "exit code 0");
+    /* 1-based positions, 0-based internally:
+     *   scan starts at 0.
+     *   '10' (forward): a = [0..9) = "ABCDEFGHI", scan -> 9.
+     *   '5'  (backward, 5-1=4 < 9): b = empty (seg_end = scan_pos),
+     *         scan retreats to 4.
+     *   c = remainder from 4 = "EFGHIJKLMNOP". */
+    CHECK(output_contains("a=ABCDEFGHI"), "a = 'ABCDEFGHI'");
+    CHECK(output_contains("b="), "b = '' (empty — backward retreat)");
+    CHECK(output_contains("c=EFGHIJKLMNOP"), "c = 'EFGHIJKLMNOP'");
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -650,6 +687,7 @@ int main(void)
     test_pa15_last_var_trailing_blanks();
     test_pa16_literal_not_found();
     test_pa17_no_global_state();
+    test_pa18_absolute_backward();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);

@@ -359,8 +359,8 @@ and acceptance criteria.
 
 Current status:
 - Phase 1 (WP-01 through WP-05): complete
-- Phase 2 (WP-10 through WP-16, WP-18): complete
-- Next: WP-17 (PROCEDURE EXPOSE)
+- Phase 2 (WP-10 through WP-18): complete
+- Next: WP-20 (Arithmetic engine)
 
 ## Knowledge sources
 

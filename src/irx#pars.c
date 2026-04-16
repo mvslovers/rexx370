@@ -2771,7 +2771,12 @@ static int parse_apply_template(struct irx_parser *p,
             goto done;
         }
 
-        /* Absolute position: bare integer (TOK_NUMBER) */
+        /* Absolute position: bare integer (TOK_NUMBER)
+         *
+         * Ref: SC28-1883-0 §8 (PARSE instruction) — column positions are
+         * 1-based.  When n < scan_pos (backward), the pending variables
+         * receive an empty segment and the cursor retreats to n.  Same
+         * retreat rule applies to the =n form below.                    */
         if (t->tok_type == TOK_NUMBER)
         {
             long col    = parse_tok_num(t);
@@ -2782,6 +2787,8 @@ static int parse_apply_template(struct irx_parser *p,
             {
                 npos = srclen;
             }
+            /* When npos < scan_pos: seg_end == scan_pos → empty segment,
+             * cursor retreats.  When npos >= scan_pos: normal forward. */
             seg_end = (npos > scan_pos) ? npos : scan_pos;
 
             advance_tok(p);
@@ -2789,7 +2796,7 @@ static int parse_apply_template(struct irx_parser *p,
             rc = parse_assign_segment(p, src, scan_pos, seg_end,
                                      var_names, var_lens, var_dots, nvar);
             nvar     = 0;
-            scan_pos = npos;
+            scan_pos = npos; /* unconditional: handles both forward and retreat */
             if (rc != IRXPARS_OK)
             {
                 goto done;
@@ -2797,7 +2804,7 @@ static int parse_apply_template(struct irx_parser *p,
             continue;
         }
 
-        /* Absolute position: =n */
+        /* Absolute position: =n (identical retreat semantics to bare n) */
         if (tok_is_op_char(t, TOK_COMPARISON, '='))
         {
             const struct irx_token *tnum = peek_tok(p, 1);
@@ -2820,7 +2827,7 @@ static int parse_apply_template(struct irx_parser *p,
                 rc = parse_assign_segment(p, src, scan_pos, seg_end,
                                          var_names, var_lens, var_dots, nvar);
                 nvar     = 0;
-                scan_pos = npos;
+                scan_pos = npos; /* unconditional retreat/forward */
                 if (rc != IRXPARS_OK)
                 {
                     goto done;
@@ -2906,6 +2913,10 @@ static int parse_apply_template(struct irx_parser *p,
                     var_lens[nvar] = 0;
                     nvar++;
                 }
+                /* Phase 2 cap: PARSE_MAX_VARS (= IRX_MAX_ARGS = 16) template
+                 * items per segment.  IBM REXX has no such limit.  Items
+                 * beyond the cap are silently dropped.  A future improvement
+                 * should raise IRXPARS_SYNTAX instead of truncating. */
             }
             else if (!(t->tok_flags & TOKF_CONSTANT))
             {
@@ -2917,6 +2928,7 @@ static int parse_apply_template(struct irx_parser *p,
                     var_dots[nvar] = 0;
                     nvar++;
                 }
+                /* (same Phase 2 cap — see dot-placeholder note above) */
             }
             /* TOKF_CONSTANT symbols are data constants, not targets. Skip. */
             advance_tok(p);
@@ -3056,16 +3068,14 @@ static int kw_parse(struct irx_parser *p)
         }
 
         calltype = in_call ? "SUBROUTINE" : "COMMAND";
-        {
-            int off = 0;
-            memcpy(buf, "MVS ", 4);
-            off += 4;
-            memcpy(buf + off, calltype, strlen(calltype));
-            off += (int)strlen(calltype);
-            memcpy(buf + off, " ?", 2);
-            off += 2;
-            blen = off;
-        }
+        int off  = 0;
+        memcpy(buf, "MVS ", 4);
+        off += 4;
+        memcpy(buf + off, calltype, strlen(calltype));
+        off += (int)strlen(calltype);
+        memcpy(buf + off, " ?", 2);
+        off += 2;
+        blen = off;
         rc = lstr_set_bytes(p->alloc, &source_str, buf, (size_t)blen);
         if (rc != LSTR_OK)
         {
