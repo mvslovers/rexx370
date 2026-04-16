@@ -18,6 +18,7 @@
 #define IRXWKBLK_H
 
 #include "irx.h"
+#include "irxcond.h"
 
 /* ================================================================== */
 /*  NUMERIC FORM values                                               */
@@ -144,7 +145,10 @@ struct irx_wkblk_int
      * that need the concrete type must include <lstring.h>.          */
     void *wkbi_lstr_alloc;
 
-    int _reserved[3]; /* reserved for future use        */
+    /* --- Condition tracking (WP-20) --- */
+    struct irx_condition_info *wkbi_last_condition; /* last raised condition */
+
+    int _reserved[2]; /* reserved for future use        */
 };
 
 #define WKBLK_INT_ID "WKBI"
@@ -157,6 +161,6 @@ struct irx_wkblk_int
 /* Default NUMERIC settings */
 #define NUMERIC_DIGITS_DEFAULT 9
 #define NUMERIC_FUZZ_DEFAULT   0
-#define NUMERIC_DIGITS_MAX     50 /* MVS 3.8j practical limit          */
+#define NUMERIC_DIGITS_MAX     1000 /* SC28-1883-0 §9 max; WP-20        */
 
 #endif /* IRXWKBLK_H */

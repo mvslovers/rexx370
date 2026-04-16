@@ -1,0 +1,617 @@
+# REXX/370 Architecture Design
+
+**Project:** REXX/370 — Interface-compatible REXX interpreter for MVS 3.8j
+**Compatibility:** TSO/E Version 2 REXX (SC28-1883-0, December 1988)
+**Target platform:** MVS 3.8j / Hercules / MVS/CE
+**Version:** 0.1.1-DRAFT
+**Date:** 16 April 2026
+
+---
+
+# 1. Summary
+
+## 1.1 Project goal
+
+Implementation of a REXX language interpreter for MVS 3.8j that is **interface-compatible** with the TSO/E Version 2 REXX specification:
+
+- Identical control block layouts (ENVBLOCK, PARMBLOCK, EXECBLK, INSTBLK, EVALBLOCK, SHVBLOCK)
+- Compatible programming service entry points (IRXxxxx routines)
+- Compatible replaceable routine interfaces (Exec Load, I/O, Host Command, Data Stack, Storage, User ID, Message ID)
+- Compatible exit routine interfaces (Init/Term, Exec Init/Term, IRXEXEC exit, Attention Handling)
+- Full SAA Procedures Language compliance
+
+## 1.2 Scope and constraints
+
+**MVS 3.8j reality:**
+
+- No TSO/E V2 — we have MVS/TSO (TSO Release ~4–5)
+- No ISPF (unless separately installed)
+- No MVS/ESA features (no 31-bit, no data spaces)
+- 24-bit addressing only (AMODE 24, RMODE 24)
+- EBCDIC code page 037/1047
+
+| Feature | Status | Note |
+|---|---|---|
+| REXX language (SAA CPI subset) | Full | Chapters 2–9 |
+| Built-in functions (chapter 4) | Full | All SAA functions |
+| TSO/E External Functions | Partial | Adapted to MVS 3.8j |
+| REXX commands (chapter 10) | Full | EXECIO, MAKEBUF, etc. |
+| Programming Services (chapter 12) | Full | IRXJCL–IRXRLT |
+| Language Processor Environments | Full | Chapter 14 |
+| Replaceable Routines (chapter 16) | Full | 7 routines |
+| Host Cmd Environments | TSO+MVS+LINK | No ATTACH on 3.8j |
+| ISPEXEC / ISREDIT | Deferred | Requires ISPF |
+| Debug commands | Full | TS, TE, HI, HT, RT |
+| DBCS support | Deferred | Appendix B |
+
+## 1.3 Implementation language
+
+**Primary:** C — for the interpreter core, tokenizer, parser, evaluator, and all phase-2+ modules.
+**Secondary:** HLASM — for control block DSECTs, SVC interfaces, and platform-specific entry points where direct system service access is required.
+
+---
+
+# 2. Architecture overview
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│                   REXX/370 Interpreter                   │
+├──────────────────────────────────────────────────────────┤
+│  IRXINIT / IRXEXEC / IRXTERM (API layer)                 │
+├──────────────────────────────────────────────────────────┤
+│  Language Processor Environment (LPE)                    │
+│  ENVBLOCK · PARMBLOCK · Work Block Extension             │
+│  REXX Vector of External Entry Points                    │
+├──────────────────────────────────────────────────────────┤
+│  Interpreter core                                        │
+│  Tokenizer · Parser · Evaluator                          │
+│  Variable Pool · Stack Manager · Arithmetic engine       │
+├──────────────────────────────────────────────────────────┤
+│  Service layer                                           │
+│  IRXEXCOM · IRXSUBCM · IRXIC · IRXRLT                    │
+│  Built-in Functions · TSO/E External Functions           │
+├──────────────────────────────────────────────────────────┤
+│  Replaceable Routines                                    │
+│  Exec Load · I/O · Host Cmd · Stack · Storage            │
+│  User ID · Message ID                                    │
+├──────────────────────────────────────────────────────────┤
+│  MVS 3.8j system interface                               │
+│  GETMAIN/FREEMAIN · OPEN/CLOSE/GET/PUT · BLDL/LOAD       │
+│  LINK · WTO/WTOR · STIMER · TGET/TPUT · ENQ/DEQ          │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
+# 3. Control block definitions
+
+All control blocks must be byte-exact with the TSO/E V2 REXX layouts.
+
+## 3.1 Environment Block (ENVBLOCK)
+
+Anchor for a Language Processor Environment. Ref: chapter 14, p. 323.
+
+| Offset | Length | Field | Description |
+|---|---|---|---|
+| +00 | 4 | `ENVBLOCK_ID` | Eye-catcher: 'ENVB' |
+| +04 | 4 | `ENVBLOCK_LENGTH` | Block length |
+| +08 | 4 | `ENVBLOCK_VERSION` | Version number |
+| +0C | 4 | `ENVBLOCK_PARMBLOCK` | Pointer to PARMBLOCK |
+| +10 | 4 | `ENVBLOCK_WKBLKEXT` | Pointer to Work Block Extension |
+| +14 | 4 | `ENVBLOCK_IRXEXTE` | Pointer to REXX Vector of External Entry Points |
+| +18 | 4 | `ENVBLOCK_NEXT` | Pointer to next ENVBLOCK |
+| +1C | 4 | `ENVBLOCK_PREV` | Pointer to previous ENVBLOCK |
+| +20 | 4 | `ENVBLOCK_USERFIELD` | User field (for exits) |
+
+```hlasm
+ENVBLOCK DSECT
+ENVBID   DS    CL4          Eye-catcher 'ENVB'
+ENVBLEN  DS    F            Length of ENVBLOCK
+ENVBVER  DS    F            Version number
+ENVBPARM DS    A            -> PARMBLOCK
+ENVBWKEX DS    A            -> Work Block Extension
+ENVBIRXE DS    A            -> REXX External Entry Point Vector
+ENVBNEXT DS    A            -> Next ENVBLOCK in chain
+ENVBPREV DS    A            -> Previous ENVBLOCK in chain
+ENVBUSER DS    A            User field
+ENVBSIZE EQU   *-ENVBLOCK   Size of ENVBLOCK
+```
+
+## 3.2 Parameter Block (PARMBLOCK)
+
+Parameters of the Language Processor Environment. Ref: chapter 14, p. 324.
+
+| Offset | Length | Field | Description |
+|---|---|---|---|
+| +00 | 4 | `PARM_ID` | Eye-catcher: 'PARM' |
+| +04 | 4 | `PARM_LENGTH` | Block length |
+| +08 | 4 | `PARM_VERSION` | Version number |
+| +0C | 4 | `PARM_FLAGS` | Flags |
+| +10 | 4 | `PARM_MASKS` | Masks |
+| +14 | 8 | `PARM_MODNAMET` | Module Name Table name |
+| +1C | 8 | `PARM_HOSTENV` | Default host command env |
+| +24 | 8 | `PARM_DSNLOAD` | Load DD-name |
+| +2C | 4 | `PARM_FUNCPKG` | Pointer to Function Package Table |
+| +30 | 4 | `PARM_HOSTCMD` | Pointer to Host Cmd Env Table |
+| +34 | 4 | `PARM_MODN_PTR` | Pointer to Module Name Table |
+| +38 | 4 | `PARM_NUMENVS` | Max. environments |
+
+## 3.3 Exec Block (EXECBLK)
+
+Identification of the exec to be executed. Ref: chapter 12, p. 220.
+
+| Offset | Length | Field | Description |
+|---|---|---|---|
+| +00 | 8 | `EXECBLK_APTS` | Eye-catcher: 'IRXEXECB' |
+| +08 | 4 | `EXECBLK_LENGTH` | Length |
+| +10 | 8 | `EXECBLK_MEMBER` | Member name |
+| +18 | 8 | `EXECBLK_DDNAME` | DD-name |
+| +20 | 8 | `EXECBLK_SUBCOM` | Initial host cmd env |
+| +28 | 4 | `EXECBLK_DSNPTR` | Pointer to DSN |
+| +2C | 4 | `EXECBLK_DSNLEN` | DSN length |
+
+## 3.4 In-Storage Control Block (INSTBLK)
+
+REXX exec as in-storage block. Ref: chapter 12, p. 222.
+
+| Offset | Length | Field | Description |
+|---|---|---|---|
+| +00 | 8 | `INSTBLK_ACRONYM` | Eye-catcher: 'IRXINSTB' |
+| +08 | 4 | `INSTBLK_LENGTH` | Header length (=128) |
+| +10 | 4 | `INSTBLK_STESSION` | Pointer to exec image |
+| +14 | 4 | `INSTBLK_STESSION_LEN` | Length of exec image |
+| +18 | 8 | `INSTBLK_MEMBER` | Member name |
+| +20 | 8 | `INSTBLK_DDNAME` | DD-name |
+| +70 | 4 | `INSTBLK_NUMREC` | Number of records |
+| +74 | 4 | `INSTBLK_RECORD_TBL` | Pointer to record table |
+
+## 3.5 Evaluation Block (EVALBLOCK)
+
+Result return from IRXEXEC. Ref: chapter 12, p. 225.
+
+| Offset | Length | Field | Description |
+|---|---|---|---|
+| +00 | 4 | `EVALBLOCK_EVPAD1` | Reserved |
+| +04 | 4 | `EVALBLOCK_EVSIZE` | Total size (doublewords) |
+| +08 | 4 | `EVALBLOCK_EVLEN` | Length of data in EVDATA |
+| +0C | 4 | `EVALBLOCK_EVPAD2` | Reserved |
+| +10 | var | `EVALBLOCK_EVDATA` | Result data |
+
+> **Note:** EVLEN = X'80000000' means "no result".
+
+## 3.6 Shared Variable Block (SHVBLOCK)
+
+Variable access via IRXEXCOM. Ref: chapter 12, p. 241.
+
+| Offset | Length | Field | Description |
+|---|---|---|---|
+| +00 | 4 | `SHVNEXT` | Next SHVBLOCK (or 0) |
+| +04 | 4 | `SHVUSER` | User field |
+| +08 | 4 | `SHVCODE` | Function code |
+| +0C | 1 | `SHVRET` | Return code flags |
+| +10 | 4 | `SHVNAMA` | Pointer to variable name |
+| +14 | 4 | `SHVNAML` | Name buffer length |
+| +18 | 4 | `SHVVALA` | Pointer to value buffer |
+| +1C | 4 | `SHVVALL` | Value buffer length |
+| +20 | 4 | `SHVNAMELEN` | Actual name length |
+| +24 | 4 | `SHVVALELEN` | Actual value length |
+
+**SHVCODE function codes:** S=Set, F=Fetch, D=Drop, s=SymSet, f=SymFetch, d=SymDrop, N=Next, P=Private.
+
+## 3.7 Work Block Extension
+
+Runtime data of the environment. Ref: chapter 14, p. 326.
+
+| Offset | Field | Description |
+|---|---|---|
+| +00 | `WKBK_ID` | Eye-catcher |
+| +08 | `WKBK_ENVBLOCK` | Back-pointer to ENVBLOCK |
+| +0C | `WKBK_DATASTACK` | Data stack anchor |
+| +10 | `WKBK_TRACEFLG` | TRACE setting |
+| +14 | `WKBK_NUMDIGITS` | NUMERIC DIGITS |
+| +18 | `WKBK_NUMFUZZ` | NUMERIC FUZZ |
+| +1C | `WKBK_NUMFORM` | NUMERIC FORM |
+| +28 | `WKBK_VARPOOL` | Variable pool |
+
+## 3.8 REXX Vector of External Entry Points
+
+Function pointer table for all replaceable routines. Ref: chapter 14, p. 328.
+
+| Offset | Field | Target |
+|---|---|---|
+| +00 | `IRXEXECV_EXEC` | IRXEXEC |
+| +04 | `IRXEXECV_EXCOM` | IRXEXCOM |
+| +08 | `IRXEXECV_SAY` | SAY routine |
+| +0C | `IRXEXECV_TRACE` | TRACE routine |
+| +10 | `IRXEXECV_PULL` | PULL routine |
+| +14 | `IRXEXECV_LOAD` | Exec Load |
+| +18 | `IRXEXECV_IO` | I/O routine |
+| +1C | `IRXEXECV_HOSTCMD` | Host Cmd routine |
+| +20 | `IRXEXECV_STACK` | Data Stack |
+| +24 | `IRXEXECV_STORAGE` | Storage Mgmt |
+| +28 | `IRXEXECV_USERID` | User ID |
+| +2C | `IRXEXECV_MSGID` | Message ID |
+| +30 | `IRXEXECV_SUBCOM` | IRXSUBCM |
+| +34 | `IRXEXECV_IC` | IRXIC |
+| +38 | `IRXEXECV_RLT` | IRXRLT |
+| +3C | `IRXEXECV_INIT` | IRXINIT |
+| +40 | `IRXEXECV_TERM` | IRXTERM |
+
+---
+
+# 4. Programming Services (IRXxxxx)
+
+## 4.1 IRXJCL — batch execution
+
+Parses EXEC PARM, initializes non-TSO environment via IRXINIT, calls IRXEXEC, cleans up with IRXTERM.
+
+```jcl
+//REXX     EXEC PGM=IRXJCL,PARM='exec_name parm1 parm2'
+//SYSEXEC  DD   DSN=MY.REXX.EXEC,DISP=SHR
+//SYSTSPRT DD   SYSOUT=*
+//SYSTSIN  DD   DUMMY
+```
+
+## 4.2 IRXEXEC — execute an exec
+
+Main interface. Parameters: EXECBLK_PTR, ARGLIST_PTR, FLAGS, INSTBLK_PTR, CPPL_PTR, EVALBLK_PTR, WKAREA_PTR, USERFIELD_PTR, ENVBLOCK_PTR.
+
+**Return codes:** 0=OK, 4=RC>=1, 20=not found, 28=env not found, 32=invalid plist, -3=host cmd not found.
+
+## 4.3 IRXEXCOM — variable access
+
+Walks the SHVBLOCK chain, performs Set/Fetch/Drop/Next on the variable pool.
+
+## 4.4 IRXSUBCM — subcommand table
+
+ADD, DELETE, QUERY, UPDATE for host command environments.
+
+## 4.5 IRXIC — trace and execution control
+
+Controls TRACE and execution status. Used by TS/TE/HI/HT/RT.
+
+## 4.6 IRXRLT — retrieve result
+
+Functions: GETRLTE, GETRL, GETBLOCK.
+
+---
+
+# 5. Replaceable Routines
+
+## 5.1 Exec Load Routine
+
+1. BLDL from SYSEXEC/SYSPROC
+2. Read via BSAM/QSAM
+3. Build INSTBLK record table
+4. Free with FREEMAIN
+
+**Search order:** SYSEXEC → SYSPROC (with REXX identifier) → ALTLIB (future).
+
+## 5.2 I/O Routine
+
+Functions: RXFWRITE (SAY), RXFREAD (PULL), RXFREADP (stack+terminal), RXFTWRITE (trace), RXFWRITERR, RXFOPEN, RXFCLOSE, RXFREAD_DS, RXFWRITE_DS.
+
+MVS 3.8j: TGET/TPUT (TSO) or WTO/WTOR (batch). EXECIO via QSAM.
+
+## 5.3 Host Command Environment Routine
+
+| Environment | Implementation |
+|---|---|
+| TSO | Build CPPL, IKJPARS |
+| MVS | REXX commands + exec invocation |
+| LINK | SVC 6 |
+| ATTACH | SVC 42 (restricted) |
+
+See chapter 8 for host command integration details.
+
+## 5.4 Data Stack Routine
+
+PUSH/QUEUE/PULL, MAKEBUF/DROPBUF, NEWSTACK/DELSTACK, QBUF/QELEM/QSTACK. Nested doubly-linked lists.
+
+## 5.5 Storage Management
+
+GETMAIN R / FREEMAIN R, subpool 0.
+
+## 5.6 User ID
+
+TSO: PSCBUSER. Non-TSO: ACEE/JCT.
+
+## 5.7 Message ID
+
+Standard prefix: 'IRX'.
+
+---
+
+# 6. Language Processor Environments
+
+## 6.1 Environment anchor (TCB-based)
+
+```text
+TCB -> TCBUSER -> REXX Anchor Block (RAB) -> first ENVBLOCK
+```
+
+## 6.2 Environment types
+
+| Type | TSO-integrated | Address space |
+|---|---|---|
+| TSO/E integrated | Yes (TSOFL=1) | TSO foreground/background |
+| Non-TSO/E | No (TSOFL=0) | Batch, started tasks |
+| ISPF integrated | Yes + ISPF flags | ISPF environment (future) |
+
+## 6.3 Initialization (IRXINIT)
+
+1. Parameter validation
+2. Allocate ENVBLOCK via storage management routine
+3. Allocate and fill PARMBLOCK (from parameters module or in-storage parameter list)
+4. Allocate Work Block Extension
+5. Build REXX Vector of External Entry Points (load Module Name Table, resolve each replaceable routine via BLDL/LOAD, store addresses in the vector)
+6. Initialize Host Command Environment Table (default entries: TSO, MVS, LINK, ATTACH)
+7. Initialize Function Package Table
+8. Insert ENVBLOCK into environment chain (RAB)
+9. Call initialization exit (if defined)
+10. Return ENVBLOCK pointer to caller
+
+---
+
+# 7. Interpreter core
+
+## 7.1 Execution model
+
+Load exec → tokenize (single pass) → execute clause by clause → return result via EVALBLOCK.
+
+## 7.2 Variable pool
+
+Hash table for O(1) access. Compound variables resolved via derived names. PROCEDURE/EXPOSE for scoping.
+
+## 7.3 Arithmetic engine (IRXARITH)
+
+Module IRXARITH implements the full REXX arithmetic per SC28-1883-0 §9. All arithmetic operations and all non-strict numeric comparisons go exclusively through this engine — the parser/evaluator calls it, but knows neither the number representation nor the rounding rules itself.
+
+### 7.3.1 Number representation
+
+Character BCD: one digit per byte (`'0'`–`'9'`), sign and exponent as separate fields in the number struct. Software-implemented in C. Consequence: arbitrary precision (memory-limited only), identical behavior on Linux cross-compile and Hercules/MVS, hardware packed decimal instructions are not used.
+
+### 7.3.2 NUMERIC settings
+
+- **DIGITS** — default 9, maximum 1,000. Values > 1,000 → SYNTAX condition. The spec maximum would be 999,999,999; the practical cap covers all realistic use cases.
+- **FUZZ** — default 0. Affects non-strict comparisons (`=`, `\=`, `<`, `>`, `<=`, `>=`), but not `==` or `\==`. Must be smaller than DIGITS.
+- **FORM** — default SCIENTIFIC, alternative ENGINEERING. Affects only the string representation of numbers in exponential notation, not the internal arithmetic.
+
+All three values live in the Work Block Extension (`wkbk_numdigits`, `wkbk_numfuzz`, `wkbk_numform`) and are read by IRXARITH from the wkblk on each operation.
+
+### 7.3.3 Interfaces
+
+- `irx_arith_op(a, b, opcode, result, wk)` — all binary and unary arithmetic operations (ADD, SUB, MUL, DIV, INTDIV, MOD, POWER, NEGATE, PLUS) through a single entry point with opcode dispatch.
+- `irx_arith_compare(a, b, wk, result)` — non-strict comparisons with FUZZ handling. Strict comparisons (`==`, `\==`) stay in the parser as exact string compare.
+- `irx_number_to_lstr(n, out, wk)` — central number-to-string conversion. Chooses internally between fixed-point and exponential notation per §9.4 and applies FORM when exponential.
+
+Internal format helpers are built with an explicit parameter profile so that the later `FORMAT()` BIF (WP-21/22) can reuse them directly.
+
+### 7.3.4 Error handling
+
+Errors are reported in a `wkbi_last_condition` slot in the Work Block Extension (code, subcode, description, valid). Error codes are collected as constants in `include/irxcond.h` per SC28-1883-0:
+
+- **26.11** — Numeric overflow/underflow (exponent after operation > 999,999,999)
+- **41.1** — Bad arithmetic conversion (non-numeric operand)
+- **42.3** — Arithmetic overflow; divide by zero
+
+Per SC28-1883-0 §9.4.5, a deliberate asymmetry applies: exponent overflow → SYNTAX 26.11, exponent underflow → result = 0 (no error).
+
+The parser propagates errors upward and terminates the exec with the corresponding RC. The full condition trap infrastructure (SIGNAL ON / CALL ON, CONDITION BIF) will be built in WP-61 on top of this reporting mechanism.
+
+### 7.3.5 Optimizations
+
+All operations use the BCD path exclusively — no fast paths for integer or IEEE float. Potential optimizations (integer fast path, packed decimal for DIGITS ≤ 31) are tracked in the Optimization Candidates catalog (Notion) and will be pursued only based on profiling data.
+
+### 7.3.6 Spec references
+
+SC28-1883-0 §9 (Numbers and Arithmetic), §7.5.4 (NUMERIC DIGITS), §7.5.5 (NUMERIC FUZZ), §7.5.6 (NUMERIC FORM), §9.4.5 (Exponent overflow), §9.6 (String comparison). Implementation: WP-20.
+
+## 7.4 Parsing engine
+
+PARSE sources: ARG, PULL, EXTERNAL, SOURCE, VALUE, VAR, VERSION, NUMERIC.
+
+---
+
+# 8. Host command integration
+
+## 8.1 TSO host command environment
+
+On MVS 3.8j (with MVS/TSO), we must interface with TSO command processors. This requires building a CPPL (Command Processor Parameter List) with pointers to CBUF, UPT, PSCB, and ECT. The command string is passed as CPPL; the return code is set in the special variable RC.
+
+## 8.2 MVS host command environment
+
+The MVS environment handles REXX commands (EXECIO, MAKEBUF, etc.) and exec invocations. Return code -3 is returned when the command is not found.
+
+## 8.3 LINK host command environment
+
+Parses the command string, builds the parameter list, executes SVC 6 (LINK) to the module. System abends are converted into negative decimal numbers, user abends into positive decimal numbers, and both are placed in RC.
+
+---
+
+# 9. REXX commands (chapter 10)
+
+## 9.1 EXECIO
+
+The most complex REXX command. Performs sequential I/O on MVS datasets. Syntax: `EXECIO lines DISKR/DISKW/DISKRU ddname [linenum] [(options]`. Implementation on MVS 3.8j via QSAM or BSAM, with data transfer between dataset and the REXX data stack or STEM variables.
+
+## 9.2 Stack commands
+
+MAKEBUF, DROPBUF, NEWSTACK, DELSTACK, QBUF, QELEM, QSTACK — all implemented via the Data Stack replaceable routine.
+
+## 9.3 Debug commands
+
+| Command | Description |
+|---|---|
+| TS | Trace Start — enable interactive tracing |
+| TE | Trace End — disable interactive tracing |
+| HI | Halt Interpretation — set HALT condition |
+| HT | Halt Typing — suppress terminal output |
+| RT | Resume Typing — resume terminal output |
+
+These are implemented as immediate commands — they can be entered at the terminal while a REXX exec is running (via attention handling).
+
+---
+
+# 10. Built-in functions
+
+## 10.1 SAA CPI functions (mandatory)
+
+All SAA Procedures Language functions must be implemented: ABBREV, ABS, ADDRESS, ARG, BITAND, BITOR, BITXOR, CENTER/CENTRE, COMPARE, CONDITION, COPIES, C2D, C2X, DATATYPE, DATE, DELSTR, DELWORD, DIGITS, D2C, D2X, ERRORTEXT, EXTERNALS, FIND, FORM, FORMAT, FUZZ, INDEX, INSERT, JUSTIFY, LASTPOS, LEFT, LENGTH, LINESIZE, MAX, MIN, OVERLAY, POS, QUEUED, RANDOM, REVERSE, RIGHT, SIGN, SOURCELINE, SPACE, STRIP, SUBSTR, SUBWORD, SYMBOL, TIME, TRACE, TRANSLATE, TRUNC, USERID, VALUE, VERIFY, WORD, WORDINDEX, WORDLENGTH, WORDPOS, WORDS, XRANGE, X2C, X2D.
+
+## 10.2 TSO/E External Functions
+
+| Function | MVS 3.8j status | Note |
+|---|---|---|
+| LISTDSI | Partial | DSCB readable from VTOC, no SMS |
+| MSG | Full | Control TSO message display |
+| OUTTRAP | Full | Capture command output into stem |
+| PROMPT | Full | Control prompting mode |
+| STORAGE | Full | Read/write virtual storage (APF!) |
+| SYSDSN | Full | Check dataset existence via LOCATE/OBTAIN |
+| SYSVAR | Partial | Many SYSVAR variables are TSO/E V2-specific |
+
+## 10.3 Function search order
+
+1. Internal functions (labels within the exec) — skipped if the function name is quoted
+2. Built-in functions
+3. Function packages: (a) user package, (b) local package, (c) system package
+4. External functions: (a) SYSEXEC DD, (b) SYSPROC DD (with REXX identifier check), (c) load library (BLDL)
+
+---
+
+# 11. Conditions and condition traps
+
+| Condition | Trigger |
+|---|---|
+| ERROR | Host command returns non-zero RC |
+| FAILURE | Host command fails (RC < 0 or abend) |
+| HALT | External halt request (HI command, attention) |
+| NOVALUE | Reference to an uninitialized variable (SIGNAL ON NOVALUE) |
+| SYNTAX | Language syntax error during execution |
+
+**SIGNAL ON:** transfers control to a label (like GOTO). Any active DO/SELECT structures are terminated.
+**CALL ON:** calls a label as a subroutine. Surrounding structures remain intact.
+
+The condition reporting infrastructure (wkbi_last_condition slot, error codes in include/irxcond.h) is established as part of WP-20 (see section 7.3.4). The full trap handler mechanism comes in WP-61.
+
+---
+
+# 12. Module structure (~200 KB total)
+
+| Module | Description | Phase |
+|---|---|---|
+| IRXJCL | Batch entry | 5 |
+| IRXINIT | Env init | 1 |
+| IRXTERM | Env term | 1 |
+| IRXEXEC | Main interpreter (40K) | 2 |
+| IRXEXCOM | Variable access | 5 |
+| IRXSUBCM | Subcmd table | 5 |
+| IRXIC | Trace control | 5 |
+| IRXRLT | Result retrieval | 5 |
+| IRXLOAD | Exec load | 1 |
+| IRXIO | I/O | 2 |
+| IRXHCMD | Host command | 4 |
+| IRXSTK | Data stack | 4 |
+| IRXSTOR | Storage mgmt | 1 |
+| IRXUID | User ID | 1 |
+| IRXMSGID | Message ID | 1 |
+| IRXTOKN | Tokenizer | 2 |
+| IRXPARS | Parser/evaluator (20K) | 2 |
+| IRXARITH | Arithmetic (12K) | 3 |
+| IRXBIF | Built-in fns (30K) | 3 |
+| IRXEFN | TSO/E ext fns | 7 |
+| IRXCMD | REXX commands | 4 |
+| IRXMSG | Messages | 7 |
+
+---
+
+# 13. Implementation milestones
+
+## Phase 1: foundation
+
+- [x] Control block DSECTs
+- [x] IRXINIT / IRXTERM
+- [x] Storage management
+- [x] Environment chain management
+
+## Phase 2: interpreter core
+
+- [x] Tokenizer + parser + evaluator
+- [x] Variable pool, PARSE
+- [x] DO/IF/SELECT, CALL/RETURN, EXIT, SIGNAL
+- [x] PROCEDURE (EXPOSE)
+- [x] "Hello World" runs end-to-end
+
+## Phase 3: arithmetic and functions
+
+- [ ] Arbitrary-precision arithmetic
+- [ ] All built-in functions
+- [ ] INTERPRET
+
+## Phase 4: I/O and commands
+
+- [ ] EXECIO, data stack
+- [ ] Host command environments
+
+## Phase 5: Programming Services
+
+- [ ] IRXEXEC, IRXJCL, IRXEXCOM, IRXSUBCM, IRXRLT, IRXIC
+
+## Phase 6: customizing and exits
+
+- [ ] Replaceable routine installation
+- [ ] Module Name / Function Package tables
+- [ ] Exit routines
+
+## Phase 7: polish
+
+- [ ] TSO/E External Functions
+- [ ] Condition traps, TRACE, debug
+- [ ] Compliance testsuite
+
+---
+
+# 14. Design decisions
+
+## 14.1 Open
+
+1. **Storage subpool:** Subpool 0 vs. dedicated (78). STORAGE() function requires APF.
+2. **Exec caching:** LRU cache per environment recommended.
+3. **REXX identifier:** First record `/*...REXX...*/` → REXX exec.
+4. **Reentrancy:** All modules RENT. Working storage only via GETMAIN.
+
+## 14.2 Resolved
+
+- **C as implementation language (Phase 2+):** Confirmed by completed Phase 2 (16 April 2026). The entire interpreter chain is implemented in C. Decision confirmed as part of the WP-20 discussion (point B1). The original option "Phase 1–2 HLASM only, evaluate from Phase 3" was already not taken in Phase 1.
+- **24-bit memory handling for arithmetic:** Through the `NUMERIC DIGITS` cap of 1,000 (see section 7.3), the arithmetic engine's memory footprint stays in the kilobyte range even with multiple concurrent intermediate results. Overlay not required. Decided as part of the WP-20 discussion (point B2).
+
+---
+
+# 15. Test strategy
+
+| Category | Description | Estimated count |
+|---|---|---|
+| Language conformance | SAA CPI compliance tests | 500+ |
+| Built-in functions | Each function, edge cases | 300+ |
+| Control blocks | Layout verification | 50+ |
+| Service interfaces | IRXEXEC, IRXEXCOM, etc. | 100+ |
+| EXECIO | I/O operations | 80+ |
+| Data stack | Stack operations | 50+ |
+| Host commands | TSO, MVS, LINK environments | 50+ |
+| Stress tests | Large programs, deep nesting | 30+ |
+| Compatibility | IBM REXX testsuites (if available) | varies |
+
+Once the interpreter reaches a basic functional level, REXX testsuites can be written in REXX itself. The IBM REXX Validation Suite (if available via CBT Tape) would be the gold standard for conformance tests.
+
+---
+
+# 16. References
+
+- SC28-1883-0: TSO/E V2 REXX Reference (Dec. 1988) — **primary specification**
+- SC28-1882: TSO/E V2 REXX User's Guide
+- SC26-4358: SAA CPI Procedures Language Reference
+- GC28-1871: TSO/E V2 Programming Guide
+- GC28-0683: MVS/370 Data Management Services Guide
+- GC28-0684: MVS/370 System Programming Library: Supervisor
+- Mike Cowlishaw: "The REXX Language" (2nd edition)
