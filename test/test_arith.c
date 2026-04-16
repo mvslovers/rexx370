@@ -425,6 +425,162 @@ static void test_ar30_numeric_form_scientific(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  AR#31–33: NUMERIC FUZZ                                            */
+/* ------------------------------------------------------------------ */
+
+static void test_ar31_fuzz_equal(void)
+{
+    check_say("AR#31: FUZZ comparison treats near-equal as equal",
+              "numeric digits 5\n"
+              "numeric fuzz 2\n"
+              "if 1.23456 = 1.23455 then\n"
+              "  say 'equal'\n"
+              "else\n"
+              "  say 'notequal'\n"
+              "exit 0\n",
+              "equal", 0);
+}
+
+static void test_ar32_strict_ignores_fuzz(void)
+{
+    check_say("AR#32: strict == ignores FUZZ",
+              "numeric digits 5\n"
+              "numeric fuzz 2\n"
+              "if 1.23456 == 1.23455 then\n"
+              "  say 'equal'\n"
+              "else\n"
+              "  say 'notequal'\n"
+              "exit 0\n",
+              "notequal", 0);
+}
+
+static void test_ar33_fuzz_ge_digits(void)
+{
+    int exit_rc = -1;
+    int rc;
+    printf("\n--- AR#33: FUZZ >= DIGITS raises SYNTAX ---\n");
+    rc = run_with_mock(
+        "numeric digits 5\n"
+        "numeric fuzz 9\n"
+        "say 'shouldnotreach'\n"
+        "exit 0\n",
+        &exit_rc);
+    CHECK(rc != 0, "FUZZ >= DIGITS raises SYNTAX");
+}
+
+/* ------------------------------------------------------------------ */
+/*  AR#34: NUMERIC FORM ENGINEERING                                    */
+/* ------------------------------------------------------------------ */
+
+static void test_ar34_engineering(void)
+{
+    /* DIGITS 3 forces 1234567 into exponential range (adj_exp=6 > 3) */
+    check_say("AR#34a: engineering, exponent already multiple of 3",
+              "numeric digits 3\n"
+              "numeric form engineering\n"
+              "say 1234567 + 0\n"
+              "exit 0\n",
+              "1.23E+6", 0);
+    check_say("AR#34b: engineering, exponent adjusted to multiple of 3",
+              "numeric digits 3\n"
+              "numeric form engineering\n"
+              "say 123456 + 0\n"
+              "exit 0\n",
+              "123E+3", 0);
+}
+
+/* ------------------------------------------------------------------ */
+/*  AR#35: Half-up rounding at boundary                               */
+/* ------------------------------------------------------------------ */
+
+static void test_ar35_rounding(void)
+{
+    check_say("AR#35a: round-half-up at exact midpoint",
+              "numeric digits 3\n"
+              "say 1.005 * 1\n"
+              "exit 0\n",
+              "1.01", 0);
+    check_say("AR#35b: round-half-up with carry propagation",
+              "numeric digits 1\n"
+              "say 9.5 * 1\n"
+              "exit 0\n",
+              "10", 0);
+}
+
+/* ------------------------------------------------------------------ */
+/*  AR#36: Power exponent overflow (validates Fix 2)                  */
+/* ------------------------------------------------------------------ */
+
+static void test_ar36_power_overflow(void)
+{
+    int exit_rc = -1;
+    int rc;
+    printf("\n--- AR#36: power exponent overflow ---\n");
+    rc = run_with_mock(
+        "say 2 ** 10000000\n"
+        "exit 0\n",
+        &exit_rc);
+    CHECK(rc != 0, "|10000000| * 9 > 9999999 raises SYNTAX");
+}
+
+/* ------------------------------------------------------------------ */
+/*  AR#37: Negative remainder and integer division                    */
+/* ------------------------------------------------------------------ */
+
+static void test_ar37_negative_rem_intdiv(void)
+{
+    /* SC28-1883-0 §9.5.5: remainder has same sign as dividend,
+     * integer division truncates toward zero. */
+    check_say("AR#37a: -7 // 3 = -1",
+              "say -7 // 3\n"
+              "exit 0\n",
+              "-1", 0);
+    check_say("AR#37b: -10 % 3 = -3",
+              "say -10 % 3\n"
+              "exit 0\n",
+              "-3", 0);
+    check_say("AR#37c: 7 // -3 = 1",
+              "say 7 // -3\n"
+              "exit 0\n",
+              "1", 0);
+    check_say("AR#37d: -7 // -3 = -1",
+              "say -7 // -3\n"
+              "exit 0\n",
+              "-1", 0);
+}
+
+/* ------------------------------------------------------------------ */
+/*  AR#38: Large-exponent power                                       */
+/* ------------------------------------------------------------------ */
+
+static void test_ar38_large_power(void)
+{
+    check_say("AR#38: 2**100 at DIGITS 50",
+              "numeric digits 50\n"
+              "say 2 ** 100\n"
+              "exit 0\n",
+              "1267650600228229401496703205376", 0);
+}
+
+/* ------------------------------------------------------------------ */
+/*  AR#39: Fixed-point boundary regression (Fix 3)                    */
+/* ------------------------------------------------------------------ */
+
+static void test_ar39_fixed_point_boundary(void)
+{
+    /* adj_exp = -5: must be fixed-point */
+    check_say("AR#39a: adj_exp=-5 is fixed-point",
+              "say 0.00001 + 0\n"
+              "exit 0\n",
+              "0.00001", 0);
+    /* adj_exp = -6: must be exponential */
+    check_say("AR#39b: adj_exp=-6 is exponential",
+              "say 0.000001 + 0\n"
+              "exit 0\n",
+              "1E-6", 0);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -462,6 +618,15 @@ int main(void)
     test_ar28_negative_result();
     test_ar29_remainder_neg();
     test_ar30_numeric_form_scientific();
+    test_ar31_fuzz_equal();
+    test_ar32_strict_ignores_fuzz();
+    test_ar33_fuzz_ge_digits();
+    test_ar34_engineering();
+    test_ar35_rounding();
+    test_ar36_power_overflow();
+    test_ar37_negative_rem_intdiv();
+    test_ar38_large_power();
+    test_ar39_fixed_point_boundary();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);

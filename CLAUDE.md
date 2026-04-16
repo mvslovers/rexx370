@@ -349,6 +349,12 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     -o test/test_parse test/test_parse.c \
     $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC
 ./test/test_parse
+
+# Arithmetic engine (WP-20) — 128/128
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_arith test/test_arith.c \
+    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
+./test/test_arith
 ```
 
 ## Work packages
@@ -360,7 +366,7 @@ and acceptance criteria.
 Current status:
 - Phase 1 (WP-01 through WP-05): complete
 - Phase 2 (WP-10 through WP-18): complete
-- Next: WP-20 (Arithmetic engine)
+- Phase 3 in progress: WP-20 (Arithmetic engine — 128/128)
 
 ## Knowledge sources
 

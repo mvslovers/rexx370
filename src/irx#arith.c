@@ -7,10 +7,13 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
+#include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "irx.h"
 #include "irxarith.h"
+#include "irxcond.h"
 #include "irxfunc.h"
 #include "irxlstr.h"
 #include "irxpars.h"
@@ -105,6 +108,53 @@ static void get_numeric(struct envblock *env,
         *digits = wk->wkbi_digits;
         *fuzz = wk->wkbi_fuzz;
         *form = wk->wkbi_form;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Raise a SYNTAX condition via wkbi_last_condition.                 */
+/* ------------------------------------------------------------------ */
+
+static void irx_arith_raise(struct envblock *env, int code, int subcode,
+                            const char *desc)
+{
+    struct irx_wkblk_int *wk;
+    struct irx_condition_info *ci;
+
+    if (env == NULL || env->envblock_userfield == NULL)
+    {
+        return;
+    }
+    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    ci = wk->wkbi_last_condition;
+    if (ci == NULL)
+    {
+        void *p = NULL;
+        if (irxstor(RXSMGET, (int)sizeof(struct irx_condition_info),
+                    &p, env) != 0)
+        {
+            return;
+        }
+        ci = (struct irx_condition_info *)p;
+        memset(ci, 0, sizeof(*ci));
+        wk->wkbi_last_condition = ci;
+    }
+    ci->valid = 1;
+    ci->code = code;
+    ci->subcode = subcode;
+    if (desc != NULL)
+    {
+        int dlen = (int)strlen(desc);
+        if (dlen >= (int)sizeof(ci->desc))
+        {
+            dlen = (int)sizeof(ci->desc) - 1;
+        }
+        memcpy(ci->desc, desc, (size_t)dlen);
+        ci->desc[dlen] = '\0';
+    }
+    else
+    {
+        ci->desc[0] = '\0';
     }
 }
 
@@ -307,7 +357,9 @@ static int num_from_str(struct envblock *env,
 /* ------------------------------------------------------------------ */
 /*  Format struct irx_number to a char buffer.                        */
 /*  Returns the number of characters written (not including NUL).    */
-/*  buf must have at least (digits + 20) bytes.                      */
+/*  buf must have at least (dig + 32) bytes where dig is the digit   */
+/*  length of the input number. Callers are responsible for providing */
+/*  a sufficient buffer.                                              */
 /* ------------------------------------------------------------------ */
 
 static int num_format(const struct irx_number *n, int dig, int form,
@@ -336,8 +388,8 @@ static int num_format(const struct irx_number *n, int dig, int form,
         buf[pos++] = '-';
     }
 
-    /* Fixed-point range: -6 <= adj_exp <= dig-1 */
-    if (adj_exp >= -6 && adj_exp <= dig - 1)
+    /* SC28-1883-0 §9.4: fixed-point when -5 <= adj_exp <= digits */
+    if (adj_exp >= IRX_FIXED_POINT_MIN_EXP && adj_exp <= dig)
     {
         if (adj_exp >= 0)
         {
@@ -401,7 +453,7 @@ static int num_format(const struct irx_number *n, int dig, int form,
 
         if (form == NUMFORM_ENGINEERING)
         {
-            int rem = ((adj_exp % 3) + 3) % 3;
+            int rem = ((adj_exp % IRX_ENG_EXP_MULTIPLE) + IRX_ENG_EXP_MULTIPLE) % IRX_ENG_EXP_MULTIPLE;
             dbefore = rem + 1;
             edisplay = adj_exp - rem;
         }
@@ -1272,10 +1324,9 @@ int irx_arith_op(struct envblock *env,
         }
         case ARITH_POWER:
         {
-            /* Exponent must be a non-negative integer */
             long exp_val = 0;
-            int neg_exp = 0;
             int qi;
+            int overflow = 0;
 
             if (nb.sign)
             {
@@ -1283,10 +1334,8 @@ int irx_arith_op(struct envblock *env,
                 num_free(env, &nb);
                 return IRXPARS_SYNTAX;
             }
-            /* Verify nb is an integer (exp >= 0 or all fractional digits 0) */
             if (nb.exp < 0)
             {
-                /* Check fractional digits are all zero */
                 int frac_start = nb.len + nb.exp;
                 for (qi = frac_start; qi < nb.len; qi++)
                 {
@@ -1298,19 +1347,42 @@ int irx_arith_op(struct envblock *env,
                     }
                 }
             }
-            for (qi = 0; qi < nb.len && (nb.exp < 0 ? qi < nb.len + nb.exp : 1); qi++)
+            for (qi = 0; !overflow && qi < nb.len && (nb.exp < 0 ? qi < nb.len + nb.exp : 1); qi++)
             {
-                exp_val = exp_val * 10 + (long)nb.digits[qi];
-            }
-            if (nb.exp > 0)
-            {
-                int e;
-                for (e = 0; e < nb.exp; e++)
+                if (exp_val > LONG_MAX / 10)
                 {
-                    exp_val *= 10;
+                    overflow = 1;
+                }
+                else
+                {
+                    exp_val = exp_val * 10 + (long)nb.digits[qi];
                 }
             }
-            (void)neg_exp;
+            if (!overflow && nb.exp > 0)
+            {
+                int e;
+                for (e = 0; !overflow && e < nb.exp; e++)
+                {
+                    if (exp_val > LONG_MAX / 10)
+                    {
+                        overflow = 1;
+                    }
+                    else
+                    {
+                        exp_val *= 10;
+                    }
+                }
+            }
+
+            /* SC28-1883-0 §9.5.4: |exponent| × DIGITS ≤ 9,999,999 */
+            if (overflow || labs(exp_val) > 9999999 / digits)
+            {
+                irx_arith_raise(env, SYNTAX_OVERFLOW, 0,
+                                "power exponent overflow");
+                num_free(env, &na);
+                num_free(env, &nb);
+                return IRXPARS_SYNTAX;
+            }
 
             ret = num_power(env, &na, exp_val, digits, &nr);
             break;

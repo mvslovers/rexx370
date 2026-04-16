@@ -25,7 +25,7 @@ Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3
 | WP-16 | PARSE instruction | 2 | DONE (74/74) — PR #22 |
 | WP-17 | PROCEDURE EXPOSE | 2 | DONE (53/53) — PR #16 |
 | WP-18 | Hello World end-to-end (IRX#EXEC) | 2 | DONE (16/16) — PR #14 |
-| WP-20 | Arithmetic engine (IRXARITH) | 3 | OPEN |
+| WP-20 | Arithmetic engine (IRXARITH) | 3 | DONE (128/128) — PR #24 |
 | WP-21 | Built-in string functions | 3 | OPEN |
 | WP-22 | Built-in misc functions | 3 | OPEN |
 | WP-23 | INTERPRET instruction | 3 | OPEN |

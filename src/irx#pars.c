@@ -3028,11 +3028,15 @@ static int kw_numeric(struct irx_parser *p)
             Lfree(p->alloc, &val);
             return rc2;
         }
-        if (!lstr_to_long(&val, &n) || n < 0)
         {
-            Lfree(p->alloc, &val);
-            skip_to_clause_end(p);
-            return fail(p, IRXPARS_SYNTAX);
+            int cur_digits = (wk != NULL) ? wk->wkbi_digits
+                                          : NUMERIC_DIGITS_DEFAULT;
+            if (!lstr_to_long(&val, &n) || n < 0 || n >= cur_digits)
+            {
+                Lfree(p->alloc, &val);
+                skip_to_clause_end(p);
+                return fail(p, IRXPARS_SYNTAX);
+            }
         }
         Lfree(p->alloc, &val);
         if (wk != NULL)
