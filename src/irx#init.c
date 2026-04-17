@@ -228,6 +228,9 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
     wk->wkbi_sigl = 0;
     wk->wkbi_rc = 0;
 
+    /* RANDOM seed starts at zero; callers may set it via RANDOM(,,seed). */
+    wk->wkbi_random_seed = 0;
+
     /* All pointer fields are already NULL from irxstor zero-fill */
 
     *wk_out = wk;

@@ -18,11 +18,11 @@ struct envblock; /* forward decl to avoid circular include */
 /*  SYNTAX error primary codes (SC28-1883-0 Appendix E)               */
 /* ================================================================== */
 
-#define SYNTAX_BAD_OPERAND  24 /* arithmetic operand not a number  */
-#define SYNTAX_OVERFLOW     26 /* overflow / underflow             */
-#define SYNTAX_EXP_OVERFLOW 41 /* result exponent too large        */
-#define SYNTAX_DIVZERO      42 /* divide by zero                   */
-#define SYNTAX_BAD_CALL     40 /* incorrect call to routine        */
+#define SYNTAX_BAD_OPERAND 24 /* arithmetic operand not a number  */
+#define SYNTAX_OVERFLOW    26 /* overflow / underflow             */
+#define SYNTAX_BAD_CALL    40 /* incorrect call to routine        */
+#define SYNTAX_BAD_ARITH   41 /* bad arithmetic conversion         */
+#define SYNTAX_DIVZERO     42 /* divide by zero                   */
 
 /* ================================================================== */
 /*  SYNTAX 40.x subcodes — incorrect call to routine                  */
@@ -44,6 +44,14 @@ struct envblock; /* forward decl to avoid circular include */
 #define ERR40_OPTION_INVALID  23 /* argument N option not in allowed  */
 /* reserved for WP-21b misc BIFs (raised by TRANSLATE-style table check) */
 #define ERR40_PAIRED_LENGTH 29 /* translate table lengths mismatch  */
+
+/* ================================================================== */
+/*  SYNTAX 41.x subcodes — bad arithmetic conversion                  */
+/*  Raised when an operand of an arithmetic BIF is not a valid REXX   */
+/*  number.                                                           */
+/* ================================================================== */
+
+#define ERR41_NONNUMERIC 1 /* argument is not a valid REXX number */
 
 /* ================================================================== */
 /*  Condition Information block                                       */

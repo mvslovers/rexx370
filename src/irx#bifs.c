@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxarith.h"
 #include "irxbif.h"
 #include "irxbifs.h"
 #include "irxcond.h"
@@ -996,6 +997,365 @@ static int bif_find(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
+/*  Phase G — Numeric BIFs (WP-21b Phase C)                           */
+/*                                                                    */
+/*  All seven BIFs delegate to IRXARITH primitives (irx_arith_op,     */
+/*  irx_arith_compare, irx_arith_trunc, irx_arith_format,             */
+/*  irx_arith_to_digits). Non-numeric operands raise SYNTAX 41.1      */
+/*  (bad arithmetic conversion); argument-shape errors raise 40.x     */
+/*  via the irx#bif.c helpers.                                        */
+/* ================================================================== */
+
+static void raise_nonnumeric(struct irx_parser *p, const char *bif_name)
+{
+    char desc[64];
+    size_t nlen = strlen(bif_name);
+    const char *suffix = ": argument is not a valid number";
+    size_t slen = strlen(suffix);
+    if (nlen + slen >= sizeof(desc))
+    {
+        nlen = sizeof(desc) - slen - 1;
+    }
+    memcpy(desc, bif_name, nlen);
+    memcpy(desc + nlen, suffix, slen);
+    desc[nlen + slen] = '\0';
+    irx_cond_raise(p->envblock, SYNTAX_BAD_ARITH, ERR41_NONNUMERIC, desc);
+}
+
+/* Return normalized argv[i] (sign preserved) in out. Non-numeric
+ * operand → SYNTAX 41.1. Uses ADD with 0 to invoke the standard
+ * number formatter without changing the value. */
+static int normalize_preserve(struct irx_parser *p, PLstr in, PLstr out,
+                              const char *bif_name)
+{
+    unsigned char zero_byte = (unsigned char)'0';
+    Lstr zero;
+    zero.pstr = &zero_byte;
+    zero.len = 1;
+    zero.maxlen = 1;
+    zero.type = LSTRING_TY;
+
+    int rc = irx_arith_op(p->envblock, in, &zero, ARITH_ADD, out);
+    if (rc == IRXPARS_SYNTAX)
+    {
+        raise_nonnumeric(p, bif_name);
+    }
+    return rc;
+}
+
+static int bif_max_min(struct irx_parser *p, int argc, PLstr *argv,
+                       PLstr result, int want_max, const char *bif_name)
+{
+    if (argc < 1)
+    {
+        char desc[32];
+        memcpy(desc, bif_name, strlen(bif_name) + 1);
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_TOO_FEW_ARGS,
+                       desc);
+        return IRXPARS_SYNTAX;
+    }
+
+    /* Every positional argument must be present; REXX forbids omitted
+     * operands to MAX/MIN. */
+    int i;
+    for (i = 0; i < argc; i++)
+    {
+        if (argv[i] == NULL || argv[i]->len == 0)
+        {
+            char desc[64];
+            size_t nlen = strlen(bif_name);
+            memcpy(desc, bif_name, nlen);
+            memcpy(desc + nlen, ": argument omitted",
+                   sizeof(": argument omitted"));
+            irx_cond_raise(p->envblock, SYNTAX_BAD_CALL,
+                           ERR40_TOO_FEW_ARGS, desc);
+            return IRXPARS_SYNTAX;
+        }
+    }
+
+    int winner = 0;
+    for (i = 1; i < argc; i++)
+    {
+        int cmp = 0;
+        int rc = irx_arith_compare(p->envblock, argv[winner], argv[i],
+                                   &cmp);
+        if (rc == IRXPARS_SYNTAX)
+        {
+            raise_nonnumeric(p, bif_name);
+            return rc;
+        }
+        if (rc != IRXPARS_OK)
+        {
+            return rc;
+        }
+        if ((want_max && cmp < 0) || (!want_max && cmp > 0))
+        {
+            winner = i;
+        }
+    }
+
+    /* Single-arg fast path needs its own validation: the compare loop
+     * above never runs when argc == 1. Use normalize_preserve so the
+     * returned value also obeys NUMERIC DIGITS / FORM. */
+    return normalize_preserve(p, argv[winner], result, bif_name);
+}
+
+static int bif_max(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    return bif_max_min(p, argc, argv, result, 1, "MAX");
+}
+
+static int bif_min(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    return bif_max_min(p, argc, argv, result, 0, "MIN");
+}
+
+static int bif_abs(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    (void)argc;
+    int rc = irx_arith_op(p->envblock, argv[0], NULL, ARITH_ABS, result);
+    if (rc == IRXPARS_SYNTAX)
+    {
+        raise_nonnumeric(p, "ABS");
+    }
+    return rc;
+}
+
+static int bif_sign(struct irx_parser *p, int argc, PLstr *argv,
+                    PLstr result)
+{
+    (void)argc;
+    unsigned char zero_byte = (unsigned char)'0';
+    Lstr zero;
+    zero.pstr = &zero_byte;
+    zero.len = 1;
+    zero.maxlen = 1;
+    zero.type = LSTRING_TY;
+
+    int cmp = 0;
+    int rc = irx_arith_compare(p->envblock, argv[0], &zero, &cmp);
+    if (rc == IRXPARS_SYNTAX)
+    {
+        raise_nonnumeric(p, "SIGN");
+        return rc;
+    }
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+
+    long v = (cmp < 0) ? -1L : (cmp > 0 ? 1L : 0L);
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, v));
+}
+
+/* Reject integer arguments exceeding NUMERIC DIGITS_MAX before the
+ * arithmetic layer collapses them into a generic SYNTAX. Surfaces the
+ * failure as 40.4 (ERR40_ARG_LENGTH) per SC28-1883-0 §18 error-code
+ * hygiene. */
+static int bif_require_digits_range(struct irx_parser *p, long v,
+                                    const char *bif_name,
+                                    const char *arg_name)
+{
+    char desc[96];
+    if (v <= NUMERIC_DIGITS_MAX)
+    {
+        return IRXPARS_OK;
+    }
+    int n = sprintf(desc, "%s: %s exceeds NUMERIC DIGITS max (%d)",
+                    bif_name, arg_name, NUMERIC_DIGITS_MAX);
+    (void)n;
+    irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_ARG_LENGTH, desc);
+    return IRXPARS_SYNTAX;
+}
+
+static int bif_trunc(struct irx_parser *p, int argc, PLstr *argv,
+                     PLstr result)
+{
+    long decimals = 0;
+    int rc = irx_bif_opt_whole(p, argc, argv, 1, "TRUNC", 0, &decimals);
+    if (rc != 0)
+    {
+        return rc;
+    }
+    rc = bif_require_digits_range(p, decimals, "TRUNC", "decimals");
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+    rc = irx_arith_trunc(p->envblock, argv[0], decimals, result);
+    if (rc == IRXPARS_SYNTAX)
+    {
+        /* Out-of-range decimals was rejected above, so the remaining
+         * failure path is a non-numeric input operand. */
+        raise_nonnumeric(p, "TRUNC");
+    }
+    return rc;
+}
+
+static int bif_format(struct irx_parser *p, int argc, PLstr *argv,
+                      PLstr result)
+{
+    long before = IRX_FORMAT_OMIT;
+    long after = IRX_FORMAT_OMIT;
+    long expp = IRX_FORMAT_OMIT;
+    long expt = IRX_FORMAT_OMIT;
+
+    /* opt_whole rejects negative user input via whole_nonneg and leaves
+     * `out` at the default (IRX_FORMAT_OMIT) when the argument is
+     * absent or empty, so the OMIT sentinel can never escape from a
+     * negative caller value. */
+    int rc = irx_bif_opt_whole(p, argc, argv, 1, "FORMAT",
+                               IRX_FORMAT_OMIT, &before);
+    if (rc != 0)
+    {
+        return rc;
+    }
+    rc = irx_bif_opt_whole(p, argc, argv, 2, "FORMAT",
+                           IRX_FORMAT_OMIT, &after);
+    if (rc != 0)
+    {
+        return rc;
+    }
+    rc = irx_bif_opt_whole(p, argc, argv, 3, "FORMAT",
+                           IRX_FORMAT_OMIT, &expp);
+    if (rc != 0)
+    {
+        return rc;
+    }
+    rc = irx_bif_opt_whole(p, argc, argv, 4, "FORMAT",
+                           IRX_FORMAT_OMIT, &expt);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    /* Guard each integer arg so out-of-range values surface as 40.4
+     * rather than a generic 41.1 when the arithmetic layer refuses
+     * them. IRX_FORMAT_OMIT (-1) is below the threshold and passes. */
+    if ((rc = bif_require_digits_range(p, before, "FORMAT", "before")) !=
+            IRXPARS_OK ||
+        (rc = bif_require_digits_range(p, after, "FORMAT", "after")) !=
+            IRXPARS_OK ||
+        (rc = bif_require_digits_range(p, expp, "FORMAT", "expp")) !=
+            IRXPARS_OK ||
+        (rc = bif_require_digits_range(p, expt, "FORMAT", "expt")) !=
+            IRXPARS_OK)
+    {
+        return rc;
+    }
+
+    rc = irx_arith_format(p->envblock, argv[0], before, after, expp, expt,
+                          result);
+    if (rc == IRXPARS_SYNTAX)
+    {
+        raise_nonnumeric(p, "FORMAT");
+    }
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  RANDOM([min][,[max][,[seed]]])                                    */
+/*                                                                    */
+/*  Simple 32-bit linear congruential generator seeded in the work    */
+/*  block (wkbi_random_seed). Constants taken from the Numerical      */
+/*  Recipes / glibc LCG (multiplier 1103515245, increment 12345).     */
+/* ------------------------------------------------------------------ */
+
+#define RANDOM_DEFAULT_MIN  0L
+#define RANDOM_DEFAULT_MAX  999L
+#define RANDOM_MAX_RANGE    100000L
+#define RANDOM_LCG_MULT     1103515245U
+#define RANDOM_LCG_INC      12345U
+#define RANDOM_LCG_OUT_SHFT 16
+#define RANDOM_LCG_OUT_MASK 0x7FFFU
+
+static unsigned int lcg_next(unsigned int state)
+{
+    return state * RANDOM_LCG_MULT + RANDOM_LCG_INC;
+}
+
+static int bif_random(struct irx_parser *p, int argc, PLstr *argv,
+                      PLstr result)
+{
+    long min_val = RANDOM_DEFAULT_MIN;
+    long max_val = RANDOM_DEFAULT_MAX;
+    int have_seed = 0;
+    long seed_val = 0;
+
+    if (argc >= 1 && argv[0] != NULL && argv[0]->len > 0)
+    {
+        int rc = irx_bif_whole_nonneg(p, argv, 0, "RANDOM", &min_val);
+        if (rc != 0)
+        {
+            return rc;
+        }
+    }
+    if (argc >= 2 && argv[1] != NULL && argv[1]->len > 0)
+    {
+        int rc = irx_bif_whole_nonneg(p, argv, 1, "RANDOM", &max_val);
+        if (rc != 0)
+        {
+            return rc;
+        }
+    }
+    if (argc >= 3 && argv[2] != NULL && argv[2]->len > 0)
+    {
+        int rc = irx_bif_whole_nonneg(p, argv, 2, "RANDOM", &seed_val);
+        if (rc != 0)
+        {
+            return rc;
+        }
+        have_seed = 1;
+    }
+
+    if (max_val < min_val)
+    {
+        char desc[] = "RANDOM: max must be >= min";
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_NONNEG_WHOLE,
+                       desc);
+        return IRXPARS_SYNTAX;
+    }
+    if (max_val - min_val > RANDOM_MAX_RANGE)
+    {
+        char desc[] = "RANDOM: range exceeds 100000";
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_ARG_LENGTH,
+                       desc);
+        return IRXPARS_SYNTAX;
+    }
+
+    struct irx_wkblk_int *wk = NULL;
+    if (p->envblock != NULL && p->envblock->envblock_userfield != NULL)
+    {
+        wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+    }
+
+    if (have_seed)
+    {
+        if (wk != NULL)
+        {
+            wk->wkbi_random_seed = (unsigned int)seed_val;
+        }
+        /* SC28-1883-0: seeding returns '0' without consuming a value. */
+        return translate_lstr_rc(long_to_lstr(p->alloc, result, 0L));
+    }
+
+    unsigned int state = (wk != NULL) ? wk->wkbi_random_seed : 0U;
+    state = lcg_next(state);
+    if (wk != NULL)
+    {
+        wk->wkbi_random_seed = state;
+    }
+
+    long range = max_val - min_val + 1;
+    unsigned int raw = (state >> RANDOM_LCG_OUT_SHFT) & RANDOM_LCG_OUT_MASK;
+    long value = min_val + (long)(raw % (unsigned long)range);
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, value));
+}
+
+/* ================================================================== */
 /*  Registration                                                      */
 /* ================================================================== */
 
@@ -1035,6 +1395,14 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"ABBREV", 2, 3, bif_abbrev},
     {"XRANGE", 0, 2, bif_xrange},
     {"FIND", 2, 2, bif_find},
+    /* Phase G — Numeric BIFs (WP-21b Phase C) */
+    {"MAX", 1, IRX_MAX_ARGS, bif_max},
+    {"MIN", 1, IRX_MAX_ARGS, bif_min},
+    {"ABS", 1, 1, bif_abs},
+    {"SIGN", 1, 1, bif_sign},
+    {"TRUNC", 1, 2, bif_trunc},
+    {"FORMAT", 1, 5, bif_format},
+    {"RANDOM", 0, 3, bif_random},
     /* Sentinel */
     {"", 0, 0, NULL}};
 
