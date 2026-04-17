@@ -112,53 +112,6 @@ static void get_numeric(struct envblock *env,
 }
 
 /* ------------------------------------------------------------------ */
-/*  Raise a SYNTAX condition via wkbi_last_condition.                 */
-/* ------------------------------------------------------------------ */
-
-static void irx_arith_raise(struct envblock *env, int code, int subcode,
-                            const char *desc)
-{
-    struct irx_wkblk_int *wk;
-    struct irx_condition_info *ci;
-
-    if (env == NULL || env->envblock_userfield == NULL)
-    {
-        return;
-    }
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
-    ci = wk->wkbi_last_condition;
-    if (ci == NULL)
-    {
-        void *p = NULL;
-        if (irxstor(RXSMGET, (int)sizeof(struct irx_condition_info),
-                    &p, env) != 0)
-        {
-            return;
-        }
-        ci = (struct irx_condition_info *)p;
-        memset(ci, 0, sizeof(*ci));
-        wk->wkbi_last_condition = ci;
-    }
-    ci->valid = 1;
-    ci->code = code;
-    ci->subcode = subcode;
-    if (desc != NULL)
-    {
-        int dlen = (int)strlen(desc);
-        if (dlen >= (int)sizeof(ci->desc))
-        {
-            dlen = (int)sizeof(ci->desc) - 1;
-        }
-        memcpy(ci->desc, desc, (size_t)dlen);
-        ci->desc[dlen] = '\0';
-    }
-    else
-    {
-        ci->desc[0] = '\0';
-    }
-}
-
-/* ------------------------------------------------------------------ */
 /*  Normalization helpers                                             */
 /* ------------------------------------------------------------------ */
 
@@ -1377,8 +1330,8 @@ int irx_arith_op(struct envblock *env,
             /* SC28-1883-0 §9.5.4: |exponent| × DIGITS ≤ 9,999,999 */
             if (overflow || labs(exp_val) > 9999999 / digits)
             {
-                irx_arith_raise(env, SYNTAX_OVERFLOW, 0,
-                                "power exponent overflow");
+                irx_cond_raise(env, SYNTAX_OVERFLOW, 0,
+                               "power exponent overflow");
                 num_free(env, &na);
                 num_free(env, &nb);
                 return IRXPARS_SYNTAX;

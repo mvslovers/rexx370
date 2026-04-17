@@ -21,6 +21,7 @@
 
 #include "irx.h"
 #include "irxarith.h"
+#include "irxbif.h"
 #include "irxctrl.h"
 #include "irxlstr.h"
 #include "irxpars.h"
@@ -391,18 +392,10 @@ static int compare_normal(struct envblock *env, PLstr a, PLstr b)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Built-in functions                                                */
-/* ------------------------------------------------------------------ */
-
-static int bif_length(struct irx_parser *p, int argc, PLstr *argv,
-                      PLstr result)
-{
-    (void)argc;
-    return long_to_lstr(p->alloc, result, (long)argv[0]->len);
-}
-
-/* ------------------------------------------------------------------ */
 /*  ARG([n[,option]]) - argument count / value / existence (WP-17)   */
+/*                                                                    */
+/*  Stays in the parser because it reads p->call_args / call_argc     */
+/*  directly; other BIFs (LENGTH, SUBSTR, ...) live in irx#bifs.c.    */
 /* ------------------------------------------------------------------ */
 
 static int bif_arg(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
@@ -488,25 +481,33 @@ static int bif_arg(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
                : fail(p, IRXPARS_NOMEM);
 }
 
-static const struct irx_bif g_bif_table[] = {
-    {"LENGTH", 1, 1, bif_length},
-    {"ARG", 0, 2, bif_arg}};
-static const int g_bif_count = (int)(sizeof(g_bif_table) /
-                                     sizeof(g_bif_table[0]));
+/* ------------------------------------------------------------------ */
+/*  Registry wiring                                                   */
+/*                                                                    */
+/*  irx_pars_register_core_bifs() is called from irxinit() once the   */
+/*  per-environment BIF registry has been allocated. It adds the      */
+/*  parser-internal built-ins; everything else (string BIFs, ...)     */
+/*  registers from its own module.                                    */
+/* ------------------------------------------------------------------ */
 
-static const struct irx_bif *find_bif(const unsigned char *name, size_t len)
+int irx_pars_register_core_bifs(struct envblock *env,
+                                struct irx_bif_registry *reg)
 {
-    int i;
-    for (i = 0; i < g_bif_count; i++)
+    return irx_bif_register(env, reg, "ARG", 0, 2, bif_arg);
+}
+
+/* Fetch the registry hanging off the parser's environment. */
+static struct irx_bif_registry *get_bif_registry(struct irx_parser *p)
+{
+    struct irx_wkblk_int *wk;
+
+    if (p == NULL || p->envblock == NULL ||
+        p->envblock->envblock_userfield == NULL)
     {
-        const char *bn = g_bif_table[i].bif_name;
-        size_t bl = strlen(bn);
-        if (bl == len && memcmp(bn, name, len) == 0)
-        {
-            return &g_bif_table[i];
-        }
+        return NULL;
     }
-    return NULL;
+    wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+    return (struct irx_bif_registry *)wk->wkbi_bif_registry;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3625,7 +3626,8 @@ static int parse_function_call(struct irx_parser *p,
     int argc = 0;
     int i;
     int rc;
-    const struct irx_bif *bif;
+    const struct irx_bif_entry *bif;
+    struct irx_bif_registry *registry;
     Lstr upname;
 
     for (i = 0; i < IRX_MAX_ARGS; i++)
@@ -3680,19 +3682,20 @@ static int parse_function_call(struct irx_parser *p,
         goto done;
     }
 
-    bif = find_bif(upname.pstr, upname.len);
+    registry = get_bif_registry(p);
+    bif = irx_bif_find(registry, upname.pstr, upname.len);
     if (bif == NULL)
     {
         rc = fail(p, IRXPARS_BADFUNC);
         goto done;
     }
-    if (argc < bif->bif_min_args || argc > bif->bif_max_args)
+    if (argc < bif->min_args || argc > bif->max_args)
     {
         rc = fail(p, IRXPARS_SYNTAX);
         goto done;
     }
 
-    rc = bif->bif_handler(p, argc, argptrs, out);
+    rc = bif->handler(p, argc, argptrs, out);
 
 done:
     Lfree(p->alloc, &upname);
