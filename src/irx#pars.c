@@ -3639,12 +3639,25 @@ static int parse_function_call(struct irx_parser *p,
                 rc = fail(p, IRXPARS_SYNTAX);
                 goto done;
             }
-            rc = parse_or(p, &argvals[argc]);
-            if (rc != IRXPARS_OK)
+            /* Omitted argument: a comma or closing paren in a slot
+             * where an expression is expected yields an empty Lstr.
+             * argvals[argc] is already Lzeroinit so argc++ is enough. */
+            const struct irx_token *slot_tok = cur_tok(p);
+            if (slot_tok != NULL &&
+                (slot_tok->tok_type == TOK_COMMA ||
+                 slot_tok->tok_type == TOK_RPAREN))
             {
-                goto done;
+                argc++;
             }
-            argc++;
+            else
+            {
+                rc = parse_or(p, &argvals[argc]);
+                if (rc != IRXPARS_OK)
+                {
+                    goto done;
+                }
+                argc++;
+            }
 
             if (cur_tok(p) != NULL && cur_tok(p)->tok_type == TOK_COMMA)
             {

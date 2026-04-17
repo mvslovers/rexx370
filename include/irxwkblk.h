@@ -154,11 +154,13 @@ struct irx_wkblk_int
      * environment creation. See <irxbif.h>.                          */
     void *wkbi_bif_registry;
 
-    /* Originally 2 reserved word-slots; WP-21a consumed one for
-     * wkbi_bif_registry (above). One slot remaining for future use;
-     * enlarge the array (and re-check any layout-sensitive callers)
-     * when a new WP needs another slot.                              */
-    int _reserved[1];
+    /* --- RANDOM seed (WP-21b Phase C) ------------------------------ */
+    /* Per-environment 32-bit LCG state used by the RANDOM() BIF.
+     * Zero-initialized on env creation; RANDOM(,,seed) sets it      */
+    /* explicitly. Consumed the last reserved word-slot documented    */
+    /* alongside wkbi_bif_registry above; add a new _reserved[] array */
+    /* when a future WP needs another word.                           */
+    unsigned int wkbi_random_seed;
 };
 
 #define WKBLK_INT_ID "WKBI"

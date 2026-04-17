@@ -468,14 +468,324 @@ static void test_find_phrase_cap(void)
     free(buf);
 }
 
+/* ================================================================== */
+/*  Phase C — Numeric BIFs (WP-21b #31)                               */
+/*  AC-C1..AC-C7 from the issue body.                                 */
+/* ================================================================== */
+
+static void test_phase_c_numeric(void)
+{
+    printf("\n--- Phase C: numeric BIFs (MAX/MIN/ABS/SIGN/TRUNC/FORMAT/RANDOM) ---\n");
+    /* AC-C1 */
+    EXPECT_OK("MAX(1,2,3)", "3", "AC-C1 MAX triple");
+    EXPECT_OK("MIN(-1,0,1)", "-1", "AC-C1 MIN triple");
+    EXPECT_OK("MAX(7)", "7", "MAX single arg");
+    EXPECT_OK("MIN(5,5,5)", "5", "MIN all equal");
+    EXPECT_OK("MAX(-3,-1,-2)", "-1", "MAX of negatives");
+    EXPECT_OK("MIN('1.5','1.4','1.6')", "1.4", "MIN of decimals");
+
+    /* AC-C2 */
+    EXPECT_OK("ABS(-5.5)", "5.5", "AC-C2 ABS negative decimal");
+    EXPECT_OK("ABS(0)", "0", "ABS zero");
+    EXPECT_OK("ABS(42)", "42", "ABS positive");
+    EXPECT_OK("ABS('-0')", "0", "ABS minus zero");
+
+    /* AC-C3 */
+    EXPECT_OK("SIGN(-3)", "-1", "AC-C3 SIGN negative");
+    EXPECT_OK("SIGN(0)", "0", "AC-C3 SIGN zero");
+    EXPECT_OK("SIGN('4.2')", "1", "AC-C3 SIGN positive decimal");
+    EXPECT_OK("SIGN('-0.0')", "0", "SIGN minus zero");
+    EXPECT_OK("SIGN('+7')", "1", "SIGN explicit plus");
+
+    /* AC-C4 */
+    EXPECT_OK("TRUNC('12.345',2)", "12.34", "AC-C4 TRUNC two decimals");
+    EXPECT_OK("TRUNC('12.345')", "12", "AC-C4 TRUNC default zero decimals");
+    EXPECT_OK("TRUNC('-0.9')", "0", "TRUNC rounds toward zero");
+    EXPECT_OK("TRUNC('12',3)", "12.000", "TRUNC pads trailing zeros");
+
+    /* AC-C5 */
+    EXPECT_OK("FORMAT('123.45',6,2)", "   123.45", "AC-C5 FORMAT before/after");
+    EXPECT_OK("FORMAT('5')", "5", "FORMAT defaults");
+    EXPECT_OK("FORMAT('5',4)", "   5", "FORMAT pad integer part");
+    EXPECT_OK("FORMAT('1.2',,3)", "1.200", "FORMAT fractional pad");
+
+    /* AC-C6 — seeded RANDOM is reproducible across two calls. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "AC-C6 fixture_open");
+        }
+        else
+        {
+            int rc = run_src(&fx, "x = RANDOM(,,12345)\n");
+            CHECK(rc == IRXPARS_OK, "AC-C6 RANDOM(,,seed) returns OK");
+            CHECK(var_eq(&fx, "X", "0"),
+                  "AC-C6 RANDOM(,,seed) result is '0'");
+            rc = run_src(&fx, "y = RANDOM(1,10)\n");
+            CHECK(rc == IRXPARS_OK, "AC-C6 RANDOM(1,10) OK after seed");
+
+            Lstr key;
+            Lstr val;
+            Lzeroinit(&key);
+            Lzeroinit(&val);
+            Lscpy(fx.alloc, &key, "Y");
+            int vpool_rc = vpool_get(fx.pool, &key, &val);
+            int in_range = 0;
+            if (vpool_rc == VPOOL_OK && val.len > 0)
+            {
+                long n = 0;
+                size_t i;
+                int parse_ok = 1;
+                for (i = 0; i < val.len; i++)
+                {
+                    unsigned char c = val.pstr[i];
+                    if (c < (unsigned char)'0' || c > (unsigned char)'9')
+                    {
+                        parse_ok = 0;
+                        break;
+                    }
+                    n = n * 10 + (c - (unsigned char)'0');
+                }
+                in_range = parse_ok && (n >= 1 && n <= 10);
+            }
+            CHECK(in_range, "AC-C6 RANDOM(1,10) result in [1,10]");
+            Lfree(fx.alloc, &key);
+            Lfree(fx.alloc, &val);
+            fixture_close(&fx);
+        }
+    }
+
+    /* Seeded RANDOM is deterministic: same seed → same sequence across
+     * two independent environments. Sequential fixture open/close so
+     * that a late fixture_open failure never leaves an un-paired
+     * fixture_close or a skipped Lfree. */
+    {
+        struct fixture fa;
+        struct fixture fb;
+        if (fixture_open(&fa) != 0)
+        {
+            CHECK(0, "RANDOM repro: fixture_open(fa)");
+        }
+        else if (fixture_open(&fb) != 0)
+        {
+            fixture_close(&fa);
+            CHECK(0, "RANDOM repro: fixture_open(fb)");
+        }
+        else
+        {
+            /* max-min must be <= 100000 per RANDOM spec. */
+            run_src(&fa,
+                    "r = RANDOM(,,42)\n"
+                    "x = RANDOM(0,100000)\n");
+            run_src(&fb,
+                    "r = RANDOM(,,42)\n"
+                    "x = RANDOM(0,100000)\n");
+
+            Lstr key;
+            Lstr va;
+            Lstr vb;
+            Lzeroinit(&key);
+            Lzeroinit(&va);
+            Lzeroinit(&vb);
+            Lscpy(fa.alloc, &key, "X");
+            vpool_get(fa.pool, &key, &va);
+            vpool_get(fb.pool, &key, &vb);
+            int ok = (va.len == vb.len) && (va.len > 0) &&
+                     (memcmp(va.pstr, vb.pstr, va.len) == 0);
+            Lfree(fa.alloc, &key);
+            Lfree(fa.alloc, &va);
+            Lfree(fb.alloc, &vb);
+            fixture_close(&fa);
+            fixture_close(&fb);
+            CHECK(ok, "RANDOM reproducible across seeded envs");
+        }
+    }
+
+    /* Regression for the 15-bit output bug fixed by the two-step LCG.
+     * A 15-bit LCG output would cap RANDOM(0, 100000) at 32767, so any
+     * run of samples would stay well below 50000. With a 30-bit output
+     * the sample distribution covers the full range. 100 draws from a
+     * fixed seed is enough: the probability of 100 consecutive values
+     * all below 50001 is (50001/100001)^100 ≈ 7.9e-31, which is zero
+     * for practical purposes and makes the test a hard regression
+     * guard rather than a flaky statistical check. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "RANDOM wide-range: fixture_open");
+        }
+        else
+        {
+            run_src(&fx, "r = RANDOM(,,1)\n");
+            int saw_high = 0;
+            int k;
+            for (k = 0; k < 100 && !saw_high; k++)
+            {
+                run_src(&fx, "x = RANDOM(0,100000)\n");
+                Lstr key;
+                Lstr val;
+                Lzeroinit(&key);
+                Lzeroinit(&val);
+                Lscpy(fx.alloc, &key, "X");
+                if (vpool_get(fx.pool, &key, &val) == VPOOL_OK &&
+                    val.len > 0)
+                {
+                    long n = 0;
+                    size_t i;
+                    int parse_ok = 1;
+                    for (i = 0; i < val.len; i++)
+                    {
+                        unsigned char c = val.pstr[i];
+                        if (c < (unsigned char)'0' ||
+                            c > (unsigned char)'9')
+                        {
+                            parse_ok = 0;
+                            break;
+                        }
+                        n = n * 10 + (c - (unsigned char)'0');
+                    }
+                    if (parse_ok && n > 50000)
+                    {
+                        saw_high = 1;
+                    }
+                }
+                Lfree(fx.alloc, &key);
+                Lfree(fx.alloc, &val);
+            }
+            CHECK(saw_high,
+                  "RANDOM(0,100000) reaches values > 50000 "
+                  "(guards 15-bit truncation)");
+            fixture_close(&fx);
+        }
+    }
+}
+
+/* AC-C7: MAX/MIN with a non-numeric operand raises SYNTAX 41.1. */
+static void test_phase_c_nonnumeric(void)
+{
+    printf("\n--- Phase C: AC-C7 non-numeric operand ---\n");
+    run_expect_fail("x = MAX('abc',1)\n", SYNTAX_BAD_ARITH,
+                    ERR41_NONNUMERIC, "AC-C7 MAX non-numeric first arg");
+    run_expect_fail("x = MAX(1,'abc')\n", SYNTAX_BAD_ARITH,
+                    ERR41_NONNUMERIC, "MAX non-numeric second arg");
+    run_expect_fail("x = MIN('x')\n", SYNTAX_BAD_ARITH,
+                    ERR41_NONNUMERIC, "MIN non-numeric single arg");
+    run_expect_fail("x = ABS('abc')\n", SYNTAX_BAD_ARITH,
+                    ERR41_NONNUMERIC, "ABS non-numeric");
+    run_expect_fail("x = SIGN('xyz')\n", SYNTAX_BAD_ARITH,
+                    ERR41_NONNUMERIC, "SIGN non-numeric");
+    run_expect_fail("x = TRUNC('abc')\n", SYNTAX_BAD_ARITH,
+                    ERR41_NONNUMERIC, "TRUNC non-numeric value");
+    run_expect_fail("x = FORMAT('abc')\n", SYNTAX_BAD_ARITH,
+                    ERR41_NONNUMERIC, "FORMAT non-numeric value");
+
+    /* Bad whole-number parameters still surface as SYNTAX 40.x. */
+    run_expect_fail("x = TRUNC('12.3','bad')\n", SYNTAX_BAD_CALL,
+                    ERR40_NONNEG_WHOLE, "TRUNC bad decimals arg");
+    run_expect_fail("x = FORMAT('12.3',,'bad')\n", SYNTAX_BAD_CALL,
+                    ERR40_NONNEG_WHOLE, "FORMAT bad after arg");
+    run_expect_fail("x = RANDOM(5,2)\n", SYNTAX_BAD_CALL,
+                    ERR40_NONNEG_WHOLE, "RANDOM max < min");
+    run_expect_fail("x = RANDOM(0,200000)\n", SYNTAX_BAD_CALL,
+                    ERR40_ARG_LENGTH, "RANDOM range too large");
+
+    /* TRUNC / FORMAT: integer arg exceeding NUMERIC DIGITS_MAX (1000)
+     * surfaces as 40.4, not 41.1. Hygiene check for the error-code
+     * split between argument-shape and bad-arithmetic failures. */
+    run_expect_fail("x = TRUNC('1.5',5000)\n", SYNTAX_BAD_CALL,
+                    ERR40_ARG_LENGTH, "TRUNC decimals > DIGITS_MAX");
+    run_expect_fail("x = FORMAT('1.5',,5000)\n", SYNTAX_BAD_CALL,
+                    ERR40_ARG_LENGTH, "FORMAT after > DIGITS_MAX");
+}
+
+/* Boundary / edge-case coverage requested in review #9. */
+static void test_phase_c_edges(void)
+{
+    printf("\n--- Phase C: boundary and edge cases ---\n");
+
+    /* SIGN accepts whitespace and exponential notation. */
+    EXPECT_OK("SIGN('0.0E5')", "0", "SIGN exponential zero");
+    EXPECT_OK("SIGN('   0   ')", "0", "SIGN whitespace around zero");
+    EXPECT_OK("SIGN(' 42 ')", "1", "SIGN whitespace around value");
+
+    /* FORMAT exponential output uses expp-zero-padded exponent. */
+    EXPECT_OK("FORMAT('1E10',,,3,6)", "1E+010",
+              "FORMAT explicit exponential");
+
+    /* RANDOM(0,0) collapses to a single value. */
+    EXPECT_OK("RANDOM(0,0)", "0", "RANDOM zero-width range");
+
+    /* RANDOM(min) default max=999; result must land in [5,999]. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "RANDOM(min): fixture_open");
+        }
+        else
+        {
+            int rc = run_src(&fx, "r = RANDOM(,,7)\nx = RANDOM(5)\n");
+            CHECK(rc == IRXPARS_OK, "RANDOM(5) with seed OK");
+            Lstr key;
+            Lstr val;
+            Lzeroinit(&key);
+            Lzeroinit(&val);
+            Lscpy(fx.alloc, &key, "X");
+            int in_range = 0;
+            if (vpool_get(fx.pool, &key, &val) == VPOOL_OK && val.len > 0)
+            {
+                long n = 0;
+                size_t i;
+                int parse_ok = 1;
+                for (i = 0; i < val.len; i++)
+                {
+                    unsigned char c = val.pstr[i];
+                    if (c < (unsigned char)'0' || c > (unsigned char)'9')
+                    {
+                        parse_ok = 0;
+                        break;
+                    }
+                    n = n * 10 + (c - (unsigned char)'0');
+                }
+                in_range = parse_ok && (n >= 5 && n <= 999);
+            }
+            CHECK(in_range, "RANDOM(5) result in [5,999]");
+            Lfree(fx.alloc, &key);
+            Lfree(fx.alloc, &val);
+            fixture_close(&fx);
+        }
+    }
+
+    /* MAX/MIN at exactly IRX_MAX_ARGS (16) — dispatcher accepts. */
+    EXPECT_OK("MAX(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)", "16",
+              "MAX at IRX_MAX_ARGS boundary");
+    EXPECT_OK("MIN(16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1)", "1",
+              "MIN at IRX_MAX_ARGS boundary");
+
+    /* MAX() — dispatcher rejects argc < min_args before the BIF runs;
+     * no condition is raised so want_code=0 asserts "failure with no
+     * condition set". */
+    run_expect_fail("x = MAX()\n", 0, 0,
+                    "MAX() rejected by dispatcher min_args");
+
+    /* One argument over IRX_MAX_ARGS — parser refuses. */
+    run_expect_fail("x = MAX(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17)\n",
+                    0, 0, "MAX(17 args) rejected by parser");
+}
+
 int main(void)
 {
-    printf("=== WP-21a: String BIFs ===\n");
+    printf("=== WP-21a + WP-21b Phase C: BIFs ===\n");
     test_phase_b();
     test_phase_c();
     test_phase_d();
     test_phase_e();
     test_phase_f();
+    test_phase_c_numeric();
+    test_phase_c_nonnumeric();
+    test_phase_c_edges();
     test_error_paths();
     test_find_phrase_cap();
 
