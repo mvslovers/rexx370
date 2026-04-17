@@ -38,13 +38,18 @@
 /*  Return codes                                                      */
 /* ================================================================== */
 
-#define IRXPARS_OK      0
-#define IRXPARS_SYNTAX  20 /* generic SYNTAX error               */
-#define IRXPARS_NOMEM   21 /* allocator failure                  */
-#define IRXPARS_NOVALUE 22 /* uninitialised variable (NOVALUE)   */
-#define IRXPARS_DIVZERO 23 /* division by zero                   */
-#define IRXPARS_BADFUNC 24 /* unknown function in call           */
-#define IRXPARS_BADARG  25 /* bad argument to parser entry       */
+#define IRXPARS_OK       0
+#define IRXPARS_SYNTAX   20 /* generic SYNTAX error               */
+#define IRXPARS_NOMEM    21 /* allocator failure                  */
+#define IRXPARS_NOVALUE  22 /* uninitialised variable (NOVALUE)   */
+#define IRXPARS_DIVZERO  23 /* division by zero                   */
+#define IRXPARS_BADFUNC  24 /* unknown function in call           */
+#define IRXPARS_BADARG   25 /* bad argument to parser entry       */
+/* Note: value 26 coincides with SYNTAX_OVERFLOW in irxcond.h but the
+ * two live in unrelated namespaces (parser return code vs. REXX
+ * condition subcode). */
+#define IRXPARS_OVERFLOW 26 /* scratch buffer too small or value  */
+                            /* exceeds representable range         */
 
 /* ================================================================== */
 /*  Parser context                                                    */
