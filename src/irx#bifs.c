@@ -1095,7 +1095,18 @@ static int bif_max_min(struct irx_parser *p, int argc, PLstr *argv,
 
     /* Single-arg fast path needs its own validation: the compare loop
      * above never runs when argc == 1. Use normalize_preserve so the
-     * returned value also obeys NUMERIC DIGITS / FORM. */
+     * returned value also obeys NUMERIC DIGITS / FORM.
+     *
+     * Performance note: this ARITH_ADD(0) is a second BCD pass after
+     * the compare loop already validated every operand. MAX/MIN is not
+     * a hot path in typical REXX workloads, and the normalization pass
+     * is what makes the result honour the active NUMERIC DIGITS / FORM
+     * settings — irx_arith_compare writes only a -1/0/+1 verdict, never
+     * a formatted Lstr. If profiling ever flags this doubled work as a
+     * real bottleneck, add a public irx_arith_normalize() helper shaped
+     * like irx_arith_trunc and call that here instead. No follow-up
+     * issue was filed: without a measured trigger it would just age in
+     * the backlog. */
     return normalize_preserve(p, argv[winner], result, bif_name);
 }
 
