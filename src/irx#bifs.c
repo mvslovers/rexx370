@@ -1006,11 +1006,15 @@ static int bif_find(struct irx_parser *p, int argc, PLstr *argv,
 /*  via the irx#bif.c helpers.                                        */
 /* ================================================================== */
 
-static void raise_nonnumeric(struct irx_parser *p, const char *bif_name)
+/* Compose "BIFNAME<suffix>" into a fixed buffer with runtime clamp and
+ * raise the condition. A clamp keeps callers safe even if a future BIF
+ * has a long name that overruns the descriptor. Shared by
+ * raise_nonnumeric and bif_max_min's "argument omitted" path. */
+static void raise_bif_cond(struct irx_parser *p, int code, int subcode,
+                           const char *bif_name, const char *suffix)
 {
-    char desc[64];
+    char desc[80];
     size_t nlen = strlen(bif_name);
-    const char *suffix = ": argument is not a valid number";
     size_t slen = strlen(suffix);
     if (nlen + slen >= sizeof(desc))
     {
@@ -1019,7 +1023,13 @@ static void raise_nonnumeric(struct irx_parser *p, const char *bif_name)
     memcpy(desc, bif_name, nlen);
     memcpy(desc + nlen, suffix, slen);
     desc[nlen + slen] = '\0';
-    irx_cond_raise(p->envblock, SYNTAX_BAD_ARITH, ERR41_NONNUMERIC, desc);
+    irx_cond_raise(p->envblock, code, subcode, desc);
+}
+
+static void raise_nonnumeric(struct irx_parser *p, const char *bif_name)
+{
+    raise_bif_cond(p, SYNTAX_BAD_ARITH, ERR41_NONNUMERIC, bif_name,
+                   ": argument is not a valid number");
 }
 
 /* Return normalized argv[i] (sign preserved) in out. Non-numeric
@@ -1046,14 +1056,8 @@ static int normalize_preserve(struct irx_parser *p, PLstr in, PLstr out,
 static int bif_max_min(struct irx_parser *p, int argc, PLstr *argv,
                        PLstr result, int want_max, const char *bif_name)
 {
-    if (argc < 1)
-    {
-        char desc[32];
-        memcpy(desc, bif_name, strlen(bif_name) + 1);
-        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_TOO_FEW_ARGS,
-                       desc);
-        return IRXPARS_SYNTAX;
-    }
+    /* The dispatcher enforces min_args=1 via g_bifstr_table so argc>=1
+     * is an invariant here; no runtime guard needed. */
 
     /* Every positional argument must be present; REXX forbids omitted
      * operands to MAX/MIN. */
@@ -1062,13 +1066,8 @@ static int bif_max_min(struct irx_parser *p, int argc, PLstr *argv,
     {
         if (argv[i] == NULL || argv[i]->len == 0)
         {
-            char desc[64];
-            size_t nlen = strlen(bif_name);
-            memcpy(desc, bif_name, nlen);
-            memcpy(desc + nlen, ": argument omitted",
-                   sizeof(": argument omitted"));
-            irx_cond_raise(p->envblock, SYNTAX_BAD_CALL,
-                           ERR40_TOO_FEW_ARGS, desc);
+            raise_bif_cond(p, SYNTAX_BAD_CALL, ERR40_TOO_FEW_ARGS,
+                           bif_name, ": argument omitted");
             return IRXPARS_SYNTAX;
         }
     }
@@ -1164,9 +1163,8 @@ static int bif_require_digits_range(struct irx_parser *p, long v,
     {
         return IRXPARS_OK;
     }
-    int n = sprintf(desc, "%s: %s exceeds NUMERIC DIGITS max (%d)",
-                    bif_name, arg_name, NUMERIC_DIGITS_MAX);
-    (void)n;
+    sprintf(desc, "%s: %s exceeds NUMERIC DIGITS max (%d)", bif_name,
+            arg_name, NUMERIC_DIGITS_MAX);
     irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_ARG_LENGTH, desc);
     return IRXPARS_SYNTAX;
 }
