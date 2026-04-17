@@ -700,6 +700,81 @@ static void test_phase_c_nonnumeric(void)
                     ERR40_ARG_LENGTH, "FORMAT after > DIGITS_MAX");
 }
 
+/* Boundary / edge-case coverage requested in review #9. */
+static void test_phase_c_edges(void)
+{
+    printf("\n--- Phase C: boundary and edge cases ---\n");
+
+    /* SIGN accepts whitespace and exponential notation. */
+    EXPECT_OK("SIGN('0.0E5')", "0", "SIGN exponential zero");
+    EXPECT_OK("SIGN('   0   ')", "0", "SIGN whitespace around zero");
+    EXPECT_OK("SIGN(' 42 ')", "1", "SIGN whitespace around value");
+
+    /* FORMAT exponential output uses expp-zero-padded exponent. */
+    EXPECT_OK("FORMAT('1E10',,,3,6)", "1E+010",
+              "FORMAT explicit exponential");
+
+    /* RANDOM(0,0) collapses to a single value. */
+    EXPECT_OK("RANDOM(0,0)", "0", "RANDOM zero-width range");
+
+    /* RANDOM(min) default max=999; result must land in [5,999]. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "RANDOM(min): fixture_open");
+        }
+        else
+        {
+            int rc = run_src(&fx, "r = RANDOM(,,7)\nx = RANDOM(5)\n");
+            CHECK(rc == IRXPARS_OK, "RANDOM(5) with seed OK");
+            Lstr key;
+            Lstr val;
+            Lzeroinit(&key);
+            Lzeroinit(&val);
+            Lscpy(fx.alloc, &key, "X");
+            int in_range = 0;
+            if (vpool_get(fx.pool, &key, &val) == VPOOL_OK && val.len > 0)
+            {
+                long n = 0;
+                size_t i;
+                int parse_ok = 1;
+                for (i = 0; i < val.len; i++)
+                {
+                    unsigned char c = val.pstr[i];
+                    if (c < (unsigned char)'0' || c > (unsigned char)'9')
+                    {
+                        parse_ok = 0;
+                        break;
+                    }
+                    n = n * 10 + (c - (unsigned char)'0');
+                }
+                in_range = parse_ok && (n >= 5 && n <= 999);
+            }
+            CHECK(in_range, "RANDOM(5) result in [5,999]");
+            Lfree(fx.alloc, &key);
+            Lfree(fx.alloc, &val);
+            fixture_close(&fx);
+        }
+    }
+
+    /* MAX/MIN at exactly IRX_MAX_ARGS (16) — dispatcher accepts. */
+    EXPECT_OK("MAX(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)", "16",
+              "MAX at IRX_MAX_ARGS boundary");
+    EXPECT_OK("MIN(16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1)", "1",
+              "MIN at IRX_MAX_ARGS boundary");
+
+    /* MAX() — dispatcher rejects argc < min_args before the BIF runs;
+     * no condition is raised so want_code=0 asserts "failure with no
+     * condition set". */
+    run_expect_fail("x = MAX()\n", 0, 0,
+                    "MAX() rejected by dispatcher min_args");
+
+    /* One argument over IRX_MAX_ARGS — parser refuses. */
+    run_expect_fail("x = MAX(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17)\n",
+                    0, 0, "MAX(17 args) rejected by parser");
+}
+
 int main(void)
 {
     printf("=== WP-21a + WP-21b Phase C: BIFs ===\n");
@@ -710,6 +785,7 @@ int main(void)
     test_phase_f();
     test_phase_c_numeric();
     test_phase_c_nonnumeric();
+    test_phase_c_edges();
     test_error_paths();
     test_find_phrase_cap();
 
