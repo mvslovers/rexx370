@@ -29,6 +29,7 @@
 #include "irxbif.h"
 #include "irxbifs.h"
 #include "irxcond.h"
+#include "irxfunc.h"
 #include "irxlstr.h"
 #include "irxpars.h"
 #include "irxwkblk.h"
@@ -1387,6 +1388,1099 @@ static int bif_random(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
+/*  Phase H — Conversion BIFs (WP-21b Phase D)                        */
+/*                                                                    */
+/*  C2X / X2C / B2X / X2B are pure byte-level conversions; they       */
+/*  neither inspect nor produce REXX numbers. C2D / X2D / D2C / D2X   */
+/*  bridge bytes and decimal numbers. Small inputs go through direct  */
+/*  long arithmetic; larger values route through                      */
+/*  irx_arith_from_digits / irx_arith_to_digits (WP-21b Phase B).     */
+/*                                                                    */
+/*  Charset note: the conversion BIFs operate on raw byte values, not */
+/*  on characters as symbols. On EBCDIC MVS, D2C(193) produces the    */
+/*  byte 0xC1 which happens to render as 'A'; on ASCII Linux,         */
+/*  D2C(65) produces 0x41 which also renders as 'A'. The interpreter  */
+/*  is byte-identical across platforms — only the rendering differs.  */
+/* ================================================================== */
+
+/* Hex-digit lookup. Returns 0..15 for the three legal digit ranges,  */
+/* -1 for any other character. The contiguous-range checks hold on    */
+/* both ASCII and EBCDIC because '0'..'9', 'A'..'F', and 'a'..'f' are */
+/* each a single contiguous code-point block in both encodings.       */
+static int hex_val(unsigned char c)
+{
+    if (c >= (unsigned char)'0' && c <= (unsigned char)'9')
+    {
+        return (int)(c - (unsigned char)'0');
+    }
+    if (c >= (unsigned char)'A' && c <= (unsigned char)'F')
+    {
+        return (int)(c - (unsigned char)'A') + 10;
+    }
+    if (c >= (unsigned char)'a' && c <= (unsigned char)'f')
+    {
+        return (int)(c - (unsigned char)'a') + 10;
+    }
+    return -1;
+}
+
+/* Produce an upper-case hex digit for nibble value 0..15. */
+static unsigned char hex_char(int v)
+{
+    if (v < 10)
+    {
+        return (unsigned char)((int)'0' + v);
+    }
+    return (unsigned char)((int)'A' + (v - 10));
+}
+
+/* SC28-1883-0 treats only blank as whitespace inside hex/binary       */
+/* literals. Tab, newline, etc. are not skipped.                       */
+static int is_blank(unsigned char c)
+{
+    return c == (unsigned char)' ';
+}
+
+static void raise_bad_hex(struct irx_parser *p, const char *bif_name)
+{
+    raise_bif_cond(p, SYNTAX_BAD_CALL, ERR40_BAD_HEX, bif_name,
+                   ": argument 1 must be a hexadecimal string");
+}
+
+static void raise_bad_binary(struct irx_parser *p, const char *bif_name)
+{
+    raise_bif_cond(p, SYNTAX_BAD_CALL, ERR40_BAD_BINARY, bif_name,
+                   ": argument 1 must be a binary string");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Byte-based conversions (no IRXARITH involvement)                  */
+/* ------------------------------------------------------------------ */
+
+static int bif_c2x(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    (void)argc;
+    PLstr in = argv[0];
+    size_t in_len = in->len;
+    size_t out_len = in_len * 2;
+    int rc = Lfx(p->alloc, result, out_len);
+    if (rc != LSTR_OK)
+    {
+        return translate_lstr_rc(rc);
+    }
+    size_t i;
+    for (i = 0; i < in_len; i++)
+    {
+        unsigned char b = in->pstr[i];
+        result->pstr[2 * i]     = hex_char((b >> 4) & 0x0F);
+        result->pstr[2 * i + 1] = hex_char(b & 0x0F);
+    }
+    result->len = out_len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+static int bif_x2c(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    (void)argc;
+    PLstr in = argv[0];
+    size_t count = 0;
+    size_t i;
+    for (i = 0; i < in->len; i++)
+    {
+        unsigned char c = in->pstr[i];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        if (hex_val(c) < 0)
+        {
+            raise_bad_hex(p, "X2C");
+            return IRXPARS_SYNTAX;
+        }
+        count++;
+    }
+
+    size_t out_len = (count + 1) / 2;
+    int rc = Lfx(p->alloc, result, out_len);
+    if (rc != LSTR_OK)
+    {
+        return translate_lstr_rc(rc);
+    }
+    /* Odd total count pads a leading '0' nibble; the very first input  */
+    /* digit becomes the LOW nibble of byte[0].                         */
+    int nibble_count = (int)(count & 1);
+    int cur = 0;
+    size_t out_idx = 0;
+    for (i = 0; i < in->len; i++)
+    {
+        unsigned char c = in->pstr[i];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        cur = (cur << 4) | hex_val(c);
+        nibble_count++;
+        if (nibble_count == 2)
+        {
+            result->pstr[out_idx++] = (unsigned char)cur;
+            cur = 0;
+            nibble_count = 0;
+        }
+    }
+    result->len = out_len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+static int bif_b2x(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    (void)argc;
+    PLstr in = argv[0];
+    size_t count = 0;
+    size_t i;
+    for (i = 0; i < in->len; i++)
+    {
+        unsigned char c = in->pstr[i];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        if (c != (unsigned char)'0' && c != (unsigned char)'1')
+        {
+            raise_bad_binary(p, "B2X");
+            return IRXPARS_SYNTAX;
+        }
+        count++;
+    }
+
+    size_t out_len = (count + 3) / 4;
+    int rc = Lfx(p->alloc, result, out_len);
+    if (rc != LSTR_OK)
+    {
+        return translate_lstr_rc(rc);
+    }
+    /* Left-pad zero bits so 4-bit groups align from the right. */
+    int pad = (int)((4 - (count & 3)) & 3);
+    int bit_count = pad;
+    int cur = 0;
+    size_t out_idx = 0;
+    for (i = 0; i < in->len; i++)
+    {
+        unsigned char c = in->pstr[i];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        cur = (cur << 1) | (int)(c - (unsigned char)'0');
+        bit_count++;
+        if (bit_count == 4)
+        {
+            result->pstr[out_idx++] = hex_char(cur);
+            cur = 0;
+            bit_count = 0;
+        }
+    }
+    result->len = out_len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+static int bif_x2b(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    (void)argc;
+    PLstr in = argv[0];
+    size_t count = 0;
+    size_t i;
+    for (i = 0; i < in->len; i++)
+    {
+        unsigned char c = in->pstr[i];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        if (hex_val(c) < 0)
+        {
+            raise_bad_hex(p, "X2B");
+            return IRXPARS_SYNTAX;
+        }
+        count++;
+    }
+
+    size_t out_len = count * 4;
+    int rc = Lfx(p->alloc, result, out_len);
+    if (rc != LSTR_OK)
+    {
+        return translate_lstr_rc(rc);
+    }
+    size_t out_idx = 0;
+    for (i = 0; i < in->len; i++)
+    {
+        unsigned char c = in->pstr[i];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        int v = hex_val(c);
+        int b;
+        for (b = 3; b >= 0; b--)
+        {
+            result->pstr[out_idx++] =
+                (unsigned char)((int)'0' + ((v >> b) & 1));
+        }
+    }
+    result->len = out_len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  BCD helpers for the large-value paths                             */
+/* ------------------------------------------------------------------ */
+
+/* Multiply the BCD digit array (MSB first) by 256 and add `byte_val`. */
+/* Returns the new length or -1 if the buffer is too small to hold the */
+/* result. At most three digits can be prepended per call (carry ≤ 255 */
+/* times residual ≤ ~2304, which rolls up to at most three decimals).  */
+static int bcd_mul256_add(char *digits, int len, int cap, int byte_val)
+{
+    int i;
+    int carry = byte_val;
+    for (i = len - 1; i >= 0; i--)
+    {
+        int v = (int)(unsigned char)digits[i] * 256 + carry;
+        digits[i] = (char)(v % 10);
+        carry = v / 10;
+    }
+    int new_len = len;
+    while (carry > 0)
+    {
+        if (new_len >= cap)
+        {
+            return -1;
+        }
+        memmove(digits + 1, digits, (size_t)new_len);
+        digits[0] = (char)(carry % 10);
+        carry /= 10;
+        new_len++;
+    }
+    return new_len;
+}
+
+/* Given a BCD digit array (MSB first) representing |value|, extract   */
+/* bytes LSB-first via repeated division by 256. Up to `max_bytes` are */
+/* written into `bytes_out`. The digit array is consumed. Returns the  */
+/* count written.                                                      */
+/*                                                                     */
+/* Loop invariant for the inner division: each `cur = rem*10 + d[i]`   */
+/* is < 256*10 + 9 = 2569, so `cur/256 ∈ 0..9` — every iteration emits */
+/* a legitimate single decimal digit, no normalization needed.         */
+static int bcd_to_bytes_lsb(char *digits, int digits_len,
+                            unsigned char *bytes_out, int max_bytes)
+{
+    int count = 0;
+    int len = digits_len;
+    while (count < max_bytes && len > 0)
+    {
+        int all_zero = 1;
+        int i;
+        for (i = 0; i < len; i++)
+        {
+            if (digits[i] != 0)
+            {
+                all_zero = 0;
+                break;
+            }
+        }
+        if (all_zero)
+        {
+            break;
+        }
+        int rem = 0;
+        int first_nz = -1;
+        for (i = 0; i < len; i++)
+        {
+            int cur = rem * 10 + (int)(unsigned char)digits[i];
+            digits[i] = (char)(cur / 256);
+            rem = cur % 256;
+            if (first_nz < 0 && digits[i] != 0)
+            {
+                first_nz = i;
+            }
+        }
+        bytes_out[count++] = (unsigned char)rem;
+        if (first_nz < 0)
+        {
+            len = 0;
+        }
+        else if (first_nz > 0)
+        {
+            memmove(digits, digits + first_nz,
+                    (size_t)(len - first_nz));
+            len -= first_nz;
+        }
+    }
+    return count;
+}
+
+/* ------------------------------------------------------------------ */
+/*  C2D / X2D core                                                    */
+/* ------------------------------------------------------------------ */
+
+/* Emit a signed decimal REXX number from a magnitude byte array (MSB   */
+/* first, already the absolute value — no two's-complement logic here). */
+/* `sign` is 0 for non-negative, 1 for negative.                        */
+/*                                                                       */
+/* Small path: byte_len ≤ 3 always fits signed long — uval ≤ 2^24-1,    */
+/* sval ∈ [-2^24+1, 2^24-1]. Four-byte and larger magnitudes route       */
+/* through the BCD path; keeping the small-path threshold at 3 sidesteps */
+/* platform-specific `long` widths (32 bit on MVS, 64 on the Linux       */
+/* cross-compile host).                                                  */
+static int compute_c2d(struct irx_parser *p,
+                       const unsigned char *mag, size_t byte_len,
+                       int sign, PLstr result)
+{
+    /* Strip leading zero bytes so the small-path check sees the true    */
+    /* magnitude width. */
+    while (byte_len > 0 && mag[0] == 0)
+    {
+        mag++;
+        byte_len--;
+    }
+
+    if (byte_len == 0)
+    {
+        return translate_lstr_rc(long_to_lstr(p->alloc, result, 0L));
+    }
+
+    if (byte_len <= 3)
+    {
+        unsigned long uval = 0;
+        size_t i;
+        for (i = 0; i < byte_len; i++)
+        {
+            uval = (uval << 8) | mag[i];
+        }
+        long sval = sign ? -(long)uval : (long)uval;
+        return translate_lstr_rc(long_to_lstr(p->alloc, result, sval));
+    }
+
+    /* BCD path. Scratch: digits upper bound is byte_len * 3 (each byte  */
+    /* contributes ≤ 2.41 decimal digits; round up to 3 for slack).      */
+    int digits_cap = (int)byte_len * 3 + 4;
+    void *tmp = NULL;
+    int arc = irxstor(RXSMGET, digits_cap, &tmp, p->envblock);
+    if (arc != 0)
+    {
+        return IRXPARS_NOMEM;
+    }
+    char *digits = (char *)tmp;
+
+    int digits_len = 0;
+    size_t i;
+    for (i = 0; i < byte_len; i++)
+    {
+        digits_len = bcd_mul256_add(digits, digits_len, digits_cap,
+                                    (int)mag[i]);
+        if (digits_len < 0)
+        {
+            void *p1 = digits;
+            irxstor(RXSMFRE, 0, &p1, p->envblock);
+            return IRXPARS_NOMEM;
+        }
+    }
+
+    int rc = irx_arith_from_digits(p->envblock, digits, digits_len,
+                                   sign ? 1 : 0, 0L, result);
+
+    void *p1 = digits;
+    irxstor(RXSMFRE, 0, &p1, p->envblock);
+    return rc;
+}
+
+/* Negate a bit-width-bounded byte array in place (two's complement)     */
+/* and return the resulting magnitude (low `byte_len` bytes). When       */
+/* `pad_odd_nibble` is non-zero, byte[0]'s high nibble is masked before  */
+/* and after the flip so the eff_hex-nibble-wide semantics are honored.  */
+static void twos_complement_bytes(unsigned char *bytes, size_t byte_len,
+                                  int pad_odd_nibble)
+{
+    if (byte_len == 0)
+    {
+        return;
+    }
+    if (pad_odd_nibble)
+    {
+        bytes[0] &= 0x0F;
+    }
+    size_t i;
+    for (i = 0; i < byte_len; i++)
+    {
+        bytes[i] = (unsigned char)(~bytes[i]);
+    }
+    int carry = 1;
+    size_t j;
+    for (j = byte_len; j > 0 && carry != 0; )
+    {
+        j--;
+        int s = (int)bytes[j] + carry;
+        bytes[j] = (unsigned char)(s & 0xFF);
+        carry = (s >> 8) & 1;
+    }
+    if (pad_odd_nibble)
+    {
+        bytes[0] &= 0x0F;
+    }
+}
+
+static int bif_c2d(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    PLstr in = argv[0];
+    long n = 0;
+    int n_given = 0;
+
+    if (argc >= 2 && argv[1] != NULL && argv[1]->len > 0)
+    {
+        int rc = irx_bif_whole_nonneg(p, argv, 1, "C2D", &n);
+        if (rc != 0)
+        {
+            return rc;
+        }
+        n_given = 1;
+    }
+
+    const unsigned char *bytes = in->pstr;
+    size_t byte_len = in->len;
+    unsigned char *work = NULL;
+
+    if (n_given)
+    {
+        if (n == 0)
+        {
+            return translate_lstr_rc(long_to_lstr(p->alloc, result, 0L));
+        }
+        if (byte_len > (size_t)n)
+        {
+            /* Keep the rightmost n bytes, drop the rest. */
+            bytes += byte_len - (size_t)n;
+            byte_len = (size_t)n;
+        }
+        else if (byte_len < (size_t)n)
+        {
+            /* Left-pad with 0x00 to exactly n bytes. */
+            void *tmp = NULL;
+            int arc = irxstor(RXSMGET, (int)n, &tmp, p->envblock);
+            if (arc != 0)
+            {
+                return IRXPARS_NOMEM;
+            }
+            work = (unsigned char *)tmp;
+            size_t pad = (size_t)n - byte_len;
+            memset(work, 0, pad);
+            if (byte_len > 0)
+            {
+                memcpy(work + pad, bytes, byte_len);
+            }
+            bytes = work;
+            byte_len = (size_t)n;
+        }
+    }
+
+    /* Determine sign. For n_given with MSB of byte[0] set, compute the  */
+    /* magnitude (two's complement) in a scratch buffer and hand that to */
+    /* compute_c2d with sign=1. Otherwise treat as positive.             */
+    int sign = 0;
+    if (n_given && byte_len > 0 && (bytes[0] & 0x80U) != 0)
+    {
+        sign = 1;
+        if (work == NULL)
+        {
+            /* Copy into a mutable scratch buffer — we mustn't modify the */
+            /* original argv[0] payload. */
+            void *tmp = NULL;
+            int arc = irxstor(RXSMGET, (int)byte_len, &tmp, p->envblock);
+            if (arc != 0)
+            {
+                return IRXPARS_NOMEM;
+            }
+            work = (unsigned char *)tmp;
+            memcpy(work, bytes, byte_len);
+            bytes = work;
+        }
+        twos_complement_bytes(work, byte_len, 0);
+    }
+
+    int rc = compute_c2d(p, bytes, byte_len, sign, result);
+
+    if (work != NULL)
+    {
+        void *p1 = work;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+    return rc;
+}
+
+static int bif_x2d(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    PLstr in = argv[0];
+    long n_arg = 0;
+    int n_given = 0;
+
+    if (argc >= 2 && argv[1] != NULL && argv[1]->len > 0)
+    {
+        int rc = irx_bif_whole_nonneg(p, argv, 1, "X2D", &n_arg);
+        if (rc != 0)
+        {
+            return rc;
+        }
+        n_given = 1;
+    }
+
+    size_t hex_count = 0;
+    size_t i;
+    for (i = 0; i < in->len; i++)
+    {
+        unsigned char c = in->pstr[i];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        if (hex_val(c) < 0)
+        {
+            raise_bad_hex(p, "X2D");
+            return IRXPARS_SYNTAX;
+        }
+        hex_count++;
+    }
+
+    size_t eff_hex = n_given ? (size_t)n_arg : hex_count;
+    if (eff_hex == 0)
+    {
+        return translate_lstr_rc(long_to_lstr(p->alloc, result, 0L));
+    }
+
+    size_t byte_len = (eff_hex + 1) / 2;
+    int pad_odd = (int)(eff_hex & 1);
+
+    void *tmp = NULL;
+    int arc = irxstor(RXSMGET, (int)byte_len, &tmp, p->envblock);
+    if (arc != 0)
+    {
+        return IRXPARS_NOMEM;
+    }
+    unsigned char *bytes = (unsigned char *)tmp;
+    memset(bytes, 0, byte_len);
+
+    /* Pack up to min(eff_hex, hex_count) nibbles into the rightmost     */
+    /* slots. When the input has fewer than eff_hex digits, the leading  */
+    /* slots stay zero — that's the implicit left-pad.                   */
+    size_t need = (eff_hex < hex_count) ? eff_hex : hex_count;
+    size_t total_slots = byte_len * 2;
+    size_t slot = total_slots;
+    size_t taken = 0;
+    size_t j;
+    for (j = in->len; j > 0 && taken < need; )
+    {
+        j--;
+        unsigned char c = in->pstr[j];
+        if (is_blank(c))
+        {
+            continue;
+        }
+        int v = hex_val(c);
+        slot--;
+        size_t byte_idx = slot / 2;
+        int is_high = ((slot & 1) == 0);
+        if (is_high)
+        {
+            bytes[byte_idx] |= (unsigned char)((v & 0x0F) << 4);
+        }
+        else
+        {
+            bytes[byte_idx] |= (unsigned char)(v & 0x0F);
+        }
+        taken++;
+    }
+
+    /* Two's-complement sign = bit 3 of the leftmost real hex digit.     */
+    /* For odd eff_hex, slot 0 is a pad '0' nibble and the first real    */
+    /* digit lives at slot 1. Mask byte[0]'s high nibble for odd eff_hex */
+    /* so the magnitude arithmetic stays within the effective bit width. */
+    if (pad_odd && byte_len > 0)
+    {
+        bytes[0] &= 0x0F;
+    }
+
+    int sign = 0;
+    if (n_given && byte_len > 0)
+    {
+        unsigned char msn = pad_odd
+            ? (unsigned char)(bytes[0] & 0x0F)
+            : (unsigned char)((bytes[0] >> 4) & 0x0F);
+        if ((msn & 0x08U) != 0)
+        {
+            sign = 1;
+            twos_complement_bytes(bytes, byte_len, pad_odd);
+        }
+    }
+
+    int rc = compute_c2d(p, bytes, byte_len, sign, result);
+
+    {
+        void *p1 = bytes;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  D2C / D2X core                                                    */
+/* ------------------------------------------------------------------ */
+
+/* Parse argv[0] as a REXX whole number via irx_arith_to_digits.       */
+/* Expands the digit array by any positive exponent (trailing zeros).  */
+/* Sets condition and returns IRXPARS_SYNTAX on non-numeric or         */
+/* fractional inputs.                                                  */
+static int d2_parse_whole(struct irx_parser *p, PLstr in,
+                          const char *bif_name,
+                          char *digits, int digits_cap,
+                          int *digits_len_out, int *sign_out)
+{
+    int digits_len = 0;
+    int sign = 0;
+    long exponent = 0;
+    int rc = irx_arith_to_digits(p->envblock, in, digits, digits_cap,
+                                 &digits_len, &sign, &exponent);
+    if (rc == IRXPARS_SYNTAX)
+    {
+        raise_nonnumeric(p, bif_name);
+        return rc;
+    }
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+    if (exponent < 0)
+    {
+        raise_bif_cond(p, SYNTAX_BAD_CALL, ERR40_WHOLE_NUMBER, bif_name,
+                       ": argument 1 must be a whole number");
+        return IRXPARS_SYNTAX;
+    }
+    if (exponent > 0)
+    {
+        if ((long)digits_len + exponent > (long)digits_cap)
+        {
+            raise_bif_cond(p, SYNTAX_BAD_CALL, ERR40_ARG_LENGTH, bif_name,
+                           ": argument 1 magnitude too large");
+            return IRXPARS_SYNTAX;
+        }
+        int e;
+        for (e = 0; e < (int)exponent; e++)
+        {
+            digits[digits_len + e] = 0;
+        }
+        digits_len += (int)exponent;
+    }
+    *digits_len_out = digits_len;
+    *sign_out = sign;
+    return IRXPARS_OK;
+}
+
+/* Pull out bytes LSB-first from a digit array, into a reversed        */
+/* (caller-provided) buffer. Returns the number of bytes actually      */
+/* written before the value was exhausted.                             */
+static int digits_to_bytes_lsb_collect(char *digits, int digits_len,
+                                       unsigned char *lsb_out, int cap)
+{
+    return bcd_to_bytes_lsb(digits, digits_len, lsb_out, cap);
+}
+
+/* Core for D2C and the byte-backing of D2X. Writes `out_bytes_len`    */
+/* bytes MSB-first into `out_bytes`. Handles sign, length padding,     */
+/* truncation, and two's-complement negation. `*all_zero_out` is 1 iff */
+/* the absolute value of the input is zero.                            */
+static int d2_core_write_bytes(struct irx_parser *p, PLstr in,
+                               const char *bif_name,
+                               int length_given,
+                               int out_bytes_len,
+                               unsigned char *out_bytes,
+                               int *sign_out, int *all_zero_out,
+                               int twos_mask_high_nibble)
+{
+    /* digits_cap sized to hold NUMERIC DIGITS max plus a generous       */
+    /* exponent expansion. 2 * NUMERIC_DIGITS_MAX covers every number    */
+    /* that fits the engine — if that overflows, d2_parse_whole raises  */
+    /* a condition.                                                     */
+    enum { DIGITS_CAP = NUMERIC_DIGITS_MAX * 2 };
+    char *digits = NULL;
+    int rc = IRXPARS_OK;
+    int digits_len = 0;
+    int sign = 0;
+
+    {
+        void *tmp = NULL;
+        int arc = irxstor(RXSMGET, DIGITS_CAP, &tmp, p->envblock);
+        if (arc != 0)
+        {
+            return IRXPARS_NOMEM;
+        }
+        digits = (char *)tmp;
+    }
+
+    rc = d2_parse_whole(p, in, bif_name, digits, DIGITS_CAP,
+                        &digits_len, &sign);
+    if (rc != IRXPARS_OK)
+    {
+        goto cleanup;
+    }
+
+    *sign_out = sign;
+
+    /* Negative without length → SYNTAX 40.11. Must come before byte    */
+    /* extraction so the error wins over an empty output.               */
+    if (sign == 1 && !length_given)
+    {
+        raise_bif_cond(p, SYNTAX_BAD_CALL, ERR40_NONNEG_WHOLE, bif_name,
+                       ": argument 1 must be non-negative when length omitted");
+        rc = IRXPARS_SYNTAX;
+        goto cleanup;
+    }
+
+    /* Extract low bytes into a temporary LSB-first buffer. We need at  */
+    /* most out_bytes_len + 1 bytes to detect overflow for the length-  */
+    /* omitted case (the extra byte lets us see a non-zero after our    */
+    /* window ends). For D2C/D2X with length given, out_bytes_len is    */
+    /* enough and overflow truncates silently per spec.                 */
+    int lsb_cap = out_bytes_len + 1;
+    unsigned char *lsb = NULL;
+    {
+        void *tmp = NULL;
+        int arc = irxstor(RXSMGET, lsb_cap, &tmp, p->envblock);
+        if (arc != 0)
+        {
+            rc = IRXPARS_NOMEM;
+            goto cleanup;
+        }
+        lsb = (unsigned char *)tmp;
+    }
+    memset(lsb, 0, (size_t)lsb_cap);
+
+    int actual = digits_to_bytes_lsb_collect(digits, digits_len, lsb,
+                                             lsb_cap);
+    (void)actual;
+
+    /* Reverse LSB-first into MSB-first in out_bytes, right-aligned. */
+    memset(out_bytes, 0, (size_t)out_bytes_len);
+    int k;
+    for (k = 0; k < out_bytes_len; k++)
+    {
+        out_bytes[out_bytes_len - 1 - k] = lsb[k];
+    }
+
+    *all_zero_out = 1;
+    {
+        int m;
+        for (m = 0; m < out_bytes_len; m++)
+        {
+            if (out_bytes[m] != 0)
+            {
+                *all_zero_out = 0;
+                break;
+            }
+        }
+    }
+
+    /* For D2X with odd hex-digit length, the caller sets                */
+    /* twos_mask_high_nibble = 1 to mask out the stray high nibble of    */
+    /* byte[0] before negation (and after, to restore the invariant).   */
+    if (twos_mask_high_nibble && out_bytes_len > 0)
+    {
+        out_bytes[0] &= 0x0F;
+    }
+
+    if (sign == 1 && length_given && out_bytes_len > 0)
+    {
+        /* Flip all bits, add 1 with carry. */
+        int m;
+        for (m = 0; m < out_bytes_len; m++)
+        {
+            out_bytes[m] = (unsigned char)(~out_bytes[m]);
+        }
+        int carry = 1;
+        for (m = out_bytes_len; m > 0 && carry != 0; )
+        {
+            m--;
+            int s = (int)out_bytes[m] + carry;
+            out_bytes[m] = (unsigned char)(s & 0xFF);
+            carry = (s >> 8) & 1;
+        }
+        if (twos_mask_high_nibble)
+        {
+            out_bytes[0] &= 0x0F;
+        }
+    }
+
+    {
+        void *p1 = lsb;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+    rc = IRXPARS_OK;
+
+cleanup:
+    {
+        void *p1 = digits;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+    return rc;
+}
+
+static int bif_d2c(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    long length = 0;
+    int length_given = 0;
+
+    if (argc >= 2 && argv[1] != NULL && argv[1]->len > 0)
+    {
+        int rc = irx_bif_whole_nonneg(p, argv, 1, "D2C", &length);
+        if (rc != 0)
+        {
+            return rc;
+        }
+        length_given = 1;
+    }
+
+    /* length == 0 → empty result regardless of value. */
+    if (length_given && length == 0)
+    {
+        int lrc = Lfx(p->alloc, result, 0);
+        if (lrc == LSTR_OK)
+        {
+            result->len = 0;
+            result->type = LSTRING_TY;
+        }
+        return translate_lstr_rc(lrc);
+    }
+
+    int out_len;
+    if (length_given)
+    {
+        out_len = (int)length;
+    }
+    else
+    {
+        /* Upper bound for the unsigned case. Each decimal digit needs   */
+        /* ≤ log2(10)/8 ≈ 0.415 bytes, so digits/2 + 2 is safe. We       */
+        /* actually ask d2_core_write_bytes for this many slots; if the  */
+        /* magnitude is smaller we trim the leading zero bytes afterward.*/
+        out_len = NUMERIC_DIGITS_MAX / 2 + 4;
+    }
+
+    void *tmp = NULL;
+    int arc = irxstor(RXSMGET, out_len, &tmp, p->envblock);
+    if (arc != 0)
+    {
+        return IRXPARS_NOMEM;
+    }
+    unsigned char *buf = (unsigned char *)tmp;
+
+    int sign = 0;
+    int all_zero = 0;
+    int rc = d2_core_write_bytes(p, argv[0], "D2C", length_given, out_len,
+                                 buf, &sign, &all_zero, 0);
+    if (rc != IRXPARS_OK)
+    {
+        void *p1 = buf;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+        return rc;
+    }
+
+    int emit_len = out_len;
+    int emit_start = 0;
+    if (!length_given)
+    {
+        /* Strip leading zero bytes; zero value → empty. */
+        if (all_zero)
+        {
+            emit_len = 0;
+        }
+        else
+        {
+            while (emit_start < out_len && buf[emit_start] == 0)
+            {
+                emit_start++;
+            }
+            emit_len = out_len - emit_start;
+        }
+    }
+
+    int lrc = Lfx(p->alloc, result, (size_t)emit_len);
+    if (lrc != LSTR_OK)
+    {
+        void *p1 = buf;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+        return translate_lstr_rc(lrc);
+    }
+    if (emit_len > 0)
+    {
+        memcpy(result->pstr, buf + emit_start, (size_t)emit_len);
+    }
+    result->len = (size_t)emit_len;
+    result->type = LSTRING_TY;
+
+    {
+        void *p1 = buf;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+    return IRXPARS_OK;
+}
+
+static int bif_d2x(struct irx_parser *p, int argc, PLstr *argv,
+                   PLstr result)
+{
+    long length = 0;
+    int length_given = 0;
+
+    if (argc >= 2 && argv[1] != NULL && argv[1]->len > 0)
+    {
+        int rc = irx_bif_whole_nonneg(p, argv, 1, "D2X", &length);
+        if (rc != 0)
+        {
+            return rc;
+        }
+        length_given = 1;
+    }
+
+    if (length_given && length == 0)
+    {
+        int lrc = Lfx(p->alloc, result, 0);
+        if (lrc == LSTR_OK)
+        {
+            result->len = 0;
+            result->type = LSTRING_TY;
+        }
+        return translate_lstr_rc(lrc);
+    }
+
+    int byte_len;
+    int pad_odd = 0;
+    if (length_given)
+    {
+        byte_len = (int)((length + 1) / 2);
+        pad_odd = (int)(length & 1);
+    }
+    else
+    {
+        byte_len = NUMERIC_DIGITS_MAX / 2 + 4;
+    }
+
+    void *tmp = NULL;
+    int arc = irxstor(RXSMGET, byte_len, &tmp, p->envblock);
+    if (arc != 0)
+    {
+        return IRXPARS_NOMEM;
+    }
+    unsigned char *buf = (unsigned char *)tmp;
+
+    int sign = 0;
+    int all_zero = 0;
+    int rc = d2_core_write_bytes(p, argv[0], "D2X", length_given, byte_len,
+                                 buf, &sign, &all_zero, pad_odd);
+    if (rc != IRXPARS_OK)
+    {
+        void *p1 = buf;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+        return rc;
+    }
+
+    /* Emit hex. For length_given: exactly `length` hex digits,          */
+    /* starting at nibble position (pad_odd): if pad_odd, the high       */
+    /* nibble of byte[0] is the pad and is skipped. For length omitted:  */
+    /* emit all nibbles of the un-trimmed buffer, then strip leading '0' */
+    /* characters (leaving a single '0' if the value is zero).           */
+    int out_hex;
+    if (length_given)
+    {
+        out_hex = (int)length;
+    }
+    else
+    {
+        out_hex = byte_len * 2;
+    }
+
+    /* Worst case scratch = byte_len * 2. */
+    void *tmp2 = NULL;
+    int arc2 = irxstor(RXSMGET, byte_len * 2, &tmp2, p->envblock);
+    if (arc2 != 0)
+    {
+        void *p1 = buf;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+        return IRXPARS_NOMEM;
+    }
+    unsigned char *hex_buf = (unsigned char *)tmp2;
+    int k;
+    for (k = 0; k < byte_len; k++)
+    {
+        hex_buf[2 * k]     = hex_char((buf[k] >> 4) & 0x0F);
+        hex_buf[2 * k + 1] = hex_char(buf[k] & 0x0F);
+    }
+
+    int emit_start;
+    int emit_len;
+    if (length_given)
+    {
+        emit_start = pad_odd ? 1 : 0;
+        emit_len = out_hex;
+    }
+    else
+    {
+        if (all_zero)
+        {
+            /* D2X(0) → "0". */
+            emit_start = byte_len * 2 - 1;
+            emit_len = 1;
+        }
+        else
+        {
+            emit_start = 0;
+            while (emit_start < byte_len * 2 - 1
+                   && hex_buf[emit_start] == (unsigned char)'0')
+            {
+                emit_start++;
+            }
+            emit_len = byte_len * 2 - emit_start;
+        }
+    }
+
+    int lrc = Lfx(p->alloc, result, (size_t)emit_len);
+    if (lrc == LSTR_OK)
+    {
+        if (emit_len > 0)
+        {
+            memcpy(result->pstr, hex_buf + emit_start, (size_t)emit_len);
+        }
+        result->len = (size_t)emit_len;
+        result->type = LSTRING_TY;
+    }
+
+    {
+        void *p1 = hex_buf;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+    {
+        void *p1 = buf;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+    return translate_lstr_rc(lrc);
+}
+
+/* ================================================================== */
 /*  Registration                                                      */
 /* ================================================================== */
 
@@ -1434,6 +2528,15 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"TRUNC", 1, 2, bif_trunc},
     {"FORMAT", 1, 5, bif_format},
     {"RANDOM", 0, 3, bif_random},
+    /* Phase H — Conversion BIFs (WP-21b Phase D) */
+    {"C2X", 1, 1, bif_c2x},
+    {"X2C", 1, 1, bif_x2c},
+    {"B2X", 1, 1, bif_b2x},
+    {"X2B", 1, 1, bif_x2b},
+    {"C2D", 1, 2, bif_c2d},
+    {"X2D", 1, 2, bif_x2d},
+    {"D2C", 1, 2, bif_d2c},
+    {"D2X", 1, 2, bif_d2x},
     /* Sentinel */
     {"", 0, 0, NULL}};
 
