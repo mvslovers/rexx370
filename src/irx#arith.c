@@ -1537,8 +1537,9 @@ static int num_grow(struct envblock *env, struct irx_number *n, int min_cap)
 }
 
 /* Pad n with trailing zeros (never touches the coefficient's leading
- * digits) until n->exp == target_exp. Caller guarantees target_exp <=
- * n->exp, otherwise this function no-ops. Returns -1 on OOM. */
+ * digits) until n->exp == target_exp. When target_exp >= n->exp the
+ * function is a no-op — it is safe to call without checking. Returns
+ * -1 on OOM. */
 static int num_pad_to_exp(struct envblock *env, struct irx_number *n,
                           int target_exp)
 {
@@ -1560,8 +1561,9 @@ static int num_pad_to_exp(struct envblock *env, struct irx_number *n,
 }
 
 /* Truncate n toward zero so that n->exp == target_exp. Any digits
- * below position 10^target_exp are discarded (no rounding). Caller
- * guarantees target_exp >= n->exp. */
+ * below position 10^target_exp are discarded (no rounding). When
+ * target_exp <= n->exp the function is a no-op — it is safe to call
+ * without checking. */
 static void num_truncate_to_exp(struct irx_number *n, int target_exp)
 {
     int drop;
@@ -1992,21 +1994,65 @@ int irx_arith_format(struct envblock *env, PLstr in,
         use_fixed = 1;
     }
 
-    /* Allocate working buffers. Size upper-bounded by digits rendered
-     * plus padding plus exponent. */
-    maxbuf = n.len + 64;
-    if (before != IRX_FORMAT_OMIT)
+    /* Reject fixed-point requests whose integer part would exceed
+     * NUMERIC_DIGITS_MAX digits — otherwise a pathological input such
+     * as FORMAT('1E999999999', ,,0) would try to allocate multiple
+     * gigabytes of scratch buffer. The cap matches NUMERIC DIGITS's
+     * own upper bound, which is already the tightest constraint in
+     * REXX/370's arithmetic subsystem. */
+    if (use_fixed)
     {
-        maxbuf += (int)before;
+        long potential_int_digits = (long)n.exp + (long)n.len;
+        if (potential_int_digits < 1)
+        {
+            potential_int_digits = 1; /* "0" for purely fractional */
+        }
+        if (potential_int_digits > NUMERIC_DIGITS_MAX)
+        {
+            num_free(env, &n);
+            return IRXPARS_SYNTAX;
+        }
     }
-    if (after != IRX_FORMAT_OMIT)
+
+    /* Size the working buffers based on the actual rendered layout
+     * rather than a fixed constant: the int_part buffer in particular
+     * must be able to hold every integer digit plus sign, or the
+     * format loop below would overrun. */
     {
-        maxbuf += (int)after;
+        int int_digits_max;
+        int frac_digits_max;
+        int exp_digits_max;
+
+        if (use_fixed)
+        {
+            int tmp = n.exp + n.len;
+            int_digits_max = (tmp > 1) ? tmp : 1; /* at least the "0" */
+            frac_digits_max =
+                (after != IRX_FORMAT_OMIT)
+                    ? (int)after
+                    : ((n.exp < 0) ? -n.exp : 0);
+            exp_digits_max = 0;
+        }
+        else
+        {
+            /* Exponential form: exactly one integer digit. */
+            int_digits_max = 1;
+            frac_digits_max = (after != IRX_FORMAT_OMIT)
+                                  ? (int)after
+                                  : ((n.len > 1) ? n.len - 1 : 0);
+            exp_digits_max =
+                (expp != IRX_FORMAT_OMIT) ? (int)expp : 11; /* "E+" + 10 digits */
+        }
+
+        /* Sign + int_digits + '.' + frac_digits + 'E' + sign + exp + slack. */
+        maxbuf = 1 + int_digits_max + 1 + frac_digits_max + 2 +
+                 exp_digits_max + 8;
+        if (before != IRX_FORMAT_OMIT && (int)before > int_digits_max + 1)
+        {
+            maxbuf += (int)before; /* leading space padding */
+        }
     }
-    if (expp != IRX_FORMAT_OMIT)
-    {
-        maxbuf += (int)expp;
-    }
+
     if (irxstor(RXSMGET, maxbuf, &pbuf, env) != 0)
     {
         num_free(env, &n);
@@ -2030,23 +2076,14 @@ int irx_arith_format(struct envblock *env, PLstr in,
 
     if (use_fixed)
     {
-        int target_exp = (after != IRX_FORMAT_OMIT) ? -(int)after : n.exp;
-        if (target_exp > n.exp)
-        {
-            num_truncate_to_exp(&n, target_exp);
-        }
-        else if (target_exp < n.exp)
-        {
-            if (num_pad_to_exp(env, &n, target_exp) != 0)
-            {
-                goto oom;
-            }
-        }
-        frac_digits_wanted = -target_exp;
-        if (frac_digits_wanted < 0)
-        {
-            frac_digits_wanted = 0;
-        }
+        /* When `after` was supplied we already normalized n to
+         * n.exp == -after above; when it was omitted n.exp is the
+         * authoritative fractional count. Either way there is no more
+         * padding/truncation to do here. */
+        frac_digits_wanted =
+            (after != IRX_FORMAT_OMIT)
+                ? (int)after
+                : ((n.exp < 0) ? -n.exp : 0);
     }
     else
     {
@@ -2099,35 +2136,55 @@ int irx_arith_format(struct envblock *env, PLstr in,
         }
     }
 
-    /* Build the integer-part buffer (without leading sign padding). */
-    if (use_fixed)
+    /* Build the integer-part buffer (without leading sign padding).
+     * The magnitude cap above guarantees int_len stays below int_cap
+     * (== maxbuf), but we still bound every write as defense-in-depth
+     * so a future caller that passes an unchecked exponent cannot
+     * overrun the scratch buffer. */
     {
-        int int_digits = n.len + n.exp;
-        if (n.sign && !(n.len == 1 && n.digits[0] == 0))
+        int int_cap = maxbuf;
+
+        if (use_fixed)
         {
-            int_part[int_len++] = '-';
-        }
-        if (int_digits <= 0)
-        {
-            int_part[int_len++] = '0';
+            int int_digits = n.len + n.exp;
+            if (n.sign && !(n.len == 1 && n.digits[0] == 0) &&
+                int_len < int_cap)
+            {
+                int_part[int_len++] = '-';
+            }
+            if (int_digits <= 0)
+            {
+                if (int_len < int_cap)
+                {
+                    int_part[int_len++] = '0';
+                }
+            }
+            else
+            {
+                for (i = 0; i < int_digits && int_len < int_cap; i++)
+                {
+                    int_part[int_len++] =
+                        (i < n.len) ? (char)('0' + n.digits[i]) : '0';
+                }
+                if (i < int_digits)
+                {
+                    goto format_syntax; /* must not happen given the cap */
+                }
+            }
         }
         else
         {
-            for (i = 0; i < int_digits; i++)
+            /* Exponential: exactly one integer digit (the leading one). */
+            if (n.sign && !(n.len == 1 && n.digits[0] == 0) &&
+                int_len < int_cap)
             {
-                int_part[int_len++] =
-                    (i < n.len) ? (char)('0' + n.digits[i]) : '0';
+                int_part[int_len++] = '-';
+            }
+            if (int_len < int_cap)
+            {
+                int_part[int_len++] = (char)('0' + n.digits[0]);
             }
         }
-    }
-    else
-    {
-        /* Exponential: exactly one integer digit (the leading one). */
-        if (n.sign && !(n.len == 1 && n.digits[0] == 0))
-        {
-            int_part[int_len++] = '-';
-        }
-        int_part[int_len++] = (char)('0' + n.digits[0]);
     }
 
     /* Compute `before` field width and validate. */

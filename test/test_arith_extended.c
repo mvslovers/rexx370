@@ -172,6 +172,13 @@ static void test_trunc_errors(struct envblock *env)
     Lzeroinit(&out);
     CHECK(irx_arith_trunc(env, &in, 2, &out) == IRXPARS_SYNTAX,
           "TRUNC on empty string -> SYNTAX");
+
+    /* Over-large decimals would require an absurd scratch buffer;
+     * routine must refuse upfront. */
+    in = make_lstr("1");
+    Lzeroinit(&out);
+    CHECK(irx_arith_trunc(env, &in, 100000L, &out) == IRXPARS_SYNTAX,
+          "TRUNC with decimals > NUMERIC_DIGITS_MAX -> SYNTAX");
 }
 
 /* ================================================================== */
@@ -272,6 +279,40 @@ static void test_format_exponential(struct envblock *env)
     CHECK(lstr_matches(&out, "123000"),
           "FORMAT('1.23E5', ,,0) forces fixed-point -> '123000'");
     Lfree(NULL, &out);
+
+    /* Force-fixed with a large but representable exponent (regression
+     * test for the int_part sizing fix). 1E50 must yield 51 chars. */
+    in = make_lstr("1E50");
+    Lzeroinit(&out);
+    CHECK(irx_arith_format(env, &in, IRX_FORMAT_OMIT, IRX_FORMAT_OMIT,
+                           0, IRX_FORMAT_OMIT, &out) == IRXPARS_OK,
+          "FORMAT('1E50', ,,0) returns OK");
+    CHECK(out.len == 51 && out.pstr != NULL && out.pstr[0] == '1',
+          "FORMAT('1E50', ,,0) emits 51 chars starting with '1'");
+    if (out.pstr != NULL)
+    {
+        int all_zeros_after = 1;
+        size_t k;
+        for (k = 1; k < out.len; k++)
+        {
+            if (out.pstr[k] != '0')
+            {
+                all_zeros_after = 0;
+                break;
+            }
+        }
+        CHECK(all_zeros_after,
+              "FORMAT('1E50', ,,0) -> '1' followed by 50 zeros");
+    }
+    Lfree(NULL, &out);
+
+    /* Force-fixed with an exponent above NUMERIC_DIGITS_MAX — must
+     * be rejected, not silently attempt a multi-KB allocation. */
+    in = make_lstr("1E1001");
+    Lzeroinit(&out);
+    CHECK(irx_arith_format(env, &in, IRX_FORMAT_OMIT, IRX_FORMAT_OMIT,
+                           0, IRX_FORMAT_OMIT, &out) == IRXPARS_SYNTAX,
+          "FORMAT('1E1001', ,,0) -> SYNTAX (exceeds NUMERIC_DIGITS_MAX)");
 
     /* expt triggers exponential form when |adj| > expt */
     in = make_lstr("12345");
@@ -400,6 +441,17 @@ static void test_from_digits_basic(struct envblock *env)
               "from_digits with leading zeros OK");
         CHECK(lstr_matches(&out, "12"),
               "from_digits strips leading zeros -> '12'");
+        Lfree(NULL, &out);
+    }
+
+    /* Trailing zeros get normalized into the exponent. */
+    {
+        const char trail[] = {1, 2, 0, 0};
+        Lzeroinit(&out);
+        CHECK(irx_arith_from_digits(env, trail, 4, 0, 0, &out) == IRXPARS_OK,
+              "from_digits with trailing zeros OK");
+        CHECK(lstr_matches(&out, "1200"),
+              "from_digits normalizes trailing zeros -> '1200'");
         Lfree(NULL, &out);
     }
 }

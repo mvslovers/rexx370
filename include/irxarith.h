@@ -114,15 +114,20 @@ int irx_arith_trunc(struct envblock *env,
 
 /* FORMAT(number [, before [, after [, expp [, expt]]]]): SC28-1883-0
  * §4 FORMAT built-in. Any of the four integer arguments may be
- * negative to mean "omitted" — callers pass IRX_FORMAT_OMIT (-1) for
- * optional args that were not supplied by the REXX user. When
- * supplied, each integer must be non-negative (negatives raise
+ * set to IRX_FORMAT_OMIT (-1) to mean "not supplied by the user".
+ * When supplied, each integer must be non-negative (negatives raise
  * IRXPARS_SYNTAX inside this routine).
  *
  *   before  width of the integer part (space-padded on the left)
  *   after   fractional digit count (rounded/padded)
  *   expp    exponent digit count (0 forces fixed-point notation)
  *   expt    exponent threshold (|adj_exp| > expt -> exponential)
+ *
+ * Note for the future BIF wrapper (Phase C): the BIF layer must
+ * pre-validate user input and map "argument absent" to
+ * IRX_FORMAT_OMIT before calling this routine — never pass a
+ * negative user-provided value straight through, since that would
+ * look identical to the OMIT sentinel and silently change meaning.
  *
  * Non-zero return codes are IRXPARS_SYNTAX, IRXPARS_OVERFLOW or
  * IRXPARS_NOMEM per the usual convention.

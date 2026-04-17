@@ -45,11 +45,12 @@
 #define IRXPARS_DIVZERO  23 /* division by zero                   */
 #define IRXPARS_BADFUNC  24 /* unknown function in call           */
 #define IRXPARS_BADARG   25 /* bad argument to parser entry       */
-/* Note: value 26 coincides with SYNTAX_OVERFLOW in irxcond.h but the
- * two live in unrelated namespaces (parser return code vs. REXX
+/* 26 intentionally skipped: SYNTAX_OVERFLOW = 26 in irxcond.h and
+ * we avoid the numeric coincidence even though the two constants
+ * live in unrelated namespaces (parser return code vs. REXX
  * condition subcode). */
-#define IRXPARS_OVERFLOW 26 /* scratch buffer too small or value  */
-                            /* exceeds representable range         */
+#define IRXPARS_OVERFLOW 27 /* scratch buffer too small, or value */
+                            /* exceeds representable range        */
 
 /* ================================================================== */
 /*  Parser context                                                    */
