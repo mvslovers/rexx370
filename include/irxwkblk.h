@@ -154,7 +154,11 @@ struct irx_wkblk_int
      * environment creation. See <irxbif.h>.                          */
     void *wkbi_bif_registry;
 
-    int _reserved[1]; /* reserved for future use        */
+    /* Originally 2 reserved word-slots; WP-21a consumed one for
+     * wkbi_bif_registry (above). One slot remaining for future use;
+     * enlarge the array (and re-check any layout-sensitive callers)
+     * when a new WP needs another slot.                              */
+    int _reserved[1];
 };
 
 #define WKBLK_INT_ID "WKBI"

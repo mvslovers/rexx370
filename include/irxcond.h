@@ -31,17 +31,19 @@ struct envblock; /* forward decl to avoid circular include */
 
 /* Subcodes listed in SC28-1883-0 Appendix E. Not every integer from  */
 /* 1..29 is defined by the spec; we expose only the documented ones.  */
-#define ERR40_TOO_FEW_ARGS    1  /* too few arguments                 */
-#define ERR40_TOO_MANY_ARGS   2  /* too many arguments                */
-#define ERR40_STRING_REQUIRED 3  /* argument N must be a string       */
-#define ERR40_ARG_LENGTH      4  /* argument N length out of range    */
+#define ERR40_TOO_FEW_ARGS    1 /* too few arguments                 */
+#define ERR40_TOO_MANY_ARGS   2 /* too many arguments                */
+#define ERR40_STRING_REQUIRED 3 /* argument N must be a string       */
+#define ERR40_ARG_LENGTH      4 /* argument N length out of range    */
+/* reserved for WP-21b misc BIFs (raised by e.g. DATATYPE / FORMAT) */
 #define ERR40_WHOLE_NUMBER    5  /* argument N must be a whole number */
 #define ERR40_NONNEG_WHOLE    11 /* argument N must be ≥ 0 whole num  */
 #define ERR40_POSITIVE_WHOLE  12 /* argument N must be > 0 whole num  */
 #define ERR40_SINGLE_CHAR     14 /* argument N must be single char    */
 #define ERR40_NUMBER_REQUIRED 21 /* argument N must be a number       */
 #define ERR40_OPTION_INVALID  23 /* argument N option not in allowed  */
-#define ERR40_PAIRED_LENGTH   29 /* translate table lengths mismatch  */
+/* reserved for WP-21b misc BIFs (raised by TRANSLATE-style table check) */
+#define ERR40_PAIRED_LENGTH 29 /* translate table lengths mismatch  */
 
 /* ================================================================== */
 /*  Condition Information block                                       */

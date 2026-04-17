@@ -73,18 +73,6 @@ static int translate_lstr_rc(int rc)
     return IRXPARS_SYNTAX;
 }
 
-static int set_empty(struct lstr_alloc *a, PLstr s)
-{
-    int rc = Lfx(a, s, 0);
-    if (rc != LSTR_OK)
-    {
-        return rc;
-    }
-    s->len = 0;
-    s->type = LSTRING_TY;
-    return LSTR_OK;
-}
-
 static int set_one(struct lstr_alloc *a, PLstr s, unsigned char c)
 {
     int rc = Lfx(a, s, 1);
@@ -911,6 +899,13 @@ static size_t next_word_span(const PLstr s, size_t *cursor,
     return 1;
 }
 
+/* Implementation cap on the phrase argument. SC28-1883-0 §4 does not
+ * define a limit, but real REXX programs never approach this value —
+ * 1024 words would be 6+ KB of prose. Exceeding the cap raises
+ * SYNTAX 40.ERR40_ARG_LENGTH so the caller learns immediately that
+ * the argument is out of range, rather than silently getting 0. */
+#define FIND_MAX_WORDS 1024
+
 static int bif_find(struct irx_parser *p, int argc, PLstr *argv,
                     PLstr result)
 {
@@ -918,10 +913,6 @@ static int bif_find(struct irx_parser *p, int argc, PLstr *argv,
     const PLstr str = argv[0];
     const PLstr phrase = argv[1];
 
-    /* Count words in phrase and stash (offset,len) pairs in a small
-     * temporary buffer. REXX FIND has no stated cap on phrase words;
-     * 64 words is well beyond typical usage. */
-#define FIND_MAX_WORDS 64
     size_t ph_off[FIND_MAX_WORDS];
     size_t ph_len[FIND_MAX_WORDS];
     size_t ph_count = 0;
@@ -932,7 +923,11 @@ static int bif_find(struct irx_parser *p, int argc, PLstr *argv,
     {
         if (ph_count >= FIND_MAX_WORDS)
         {
-            return translate_lstr_rc(long_to_lstr(p->alloc, result, 0));
+            char desc[64];
+            sprintf(desc, "FIND: phrase exceeds %d words", FIND_MAX_WORDS);
+            irx_cond_raise(p->envblock, SYNTAX_BAD_CALL,
+                           ERR40_ARG_LENGTH, desc);
+            return IRXPARS_SYNTAX;
         }
         ph_off[ph_count] = wstart;
         ph_len[ph_count] = wlen;
@@ -996,7 +991,6 @@ static int bif_find(struct irx_parser *p, int argc, PLstr *argv,
     }
 
     return translate_lstr_rc(long_to_lstr(p->alloc, result, 0));
-#undef FIND_MAX_WORDS
 }
 
 /* ================================================================== */
@@ -1047,7 +1041,6 @@ static const struct irx_bif_entry g_bifstr_table[] = {
 
 int irx_bifstr_register(struct envblock *env, struct irx_bif_registry *reg)
 {
-    (void)set_empty; /* kept for future use */
     return irx_bif_register_table(env, reg, g_bifstr_table,
                                   BIFSTR_COUNT);
 }

@@ -413,6 +413,61 @@ static void test_error_paths(void)
                     ERR40_OPTION_INVALID, "VERIFY bad option");
 }
 
+/* FIND has a hard implementation cap on the phrase argument. Exceeding
+ * it must raise SYNTAX 40.4 (ERR40_ARG_LENGTH) rather than silently
+ * returning 0 (which would look like a legitimate "not found"). */
+static void test_find_phrase_cap(void)
+{
+    printf("\n--- FIND phrase-length cap ---\n");
+
+    /* Build a REXX expression of the form
+     *    x = FIND('a', 'w1 w2 w3 ... wN')
+     * where N = 1050 > FIND_MAX_WORDS (1024). 5-byte tokens at most,
+     * so a ~7 KB source buffer is sufficient. */
+    const int num_words = 1050;
+    size_t buflen = 64 + (size_t)num_words * 6;
+    char *buf = (char *)malloc(buflen);
+    if (buf == NULL)
+    {
+        CHECK(0, "malloc for FIND cap source");
+        return;
+    }
+    size_t off = 0;
+    off += (size_t)sprintf(buf + off, "x = FIND('a','");
+    for (int i = 0; i < num_words; i++)
+    {
+        off += (size_t)sprintf(buf + off, "%sw%d",
+                               (i == 0) ? "" : " ", i);
+    }
+    off += (size_t)sprintf(buf + off, "')\n");
+
+    struct fixture fx;
+    if (fixture_open(&fx) != 0)
+    {
+        free(buf);
+        CHECK(0, "fixture_open FIND cap");
+        return;
+    }
+    int rc = run_src(&fx, buf);
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)fx.env->envblock_userfield;
+    int code = 0;
+    int subcode = 0;
+    if (wk != NULL && wk->wkbi_last_condition != NULL &&
+        wk->wkbi_last_condition->valid)
+    {
+        code = wk->wkbi_last_condition->code;
+        subcode = wk->wkbi_last_condition->subcode;
+    }
+    CHECK(rc != IRXPARS_OK, "FIND >cap: parser reports error");
+    CHECK(code == SYNTAX_BAD_CALL,
+          "FIND >cap: condition code is SYNTAX 40");
+    CHECK(subcode == ERR40_ARG_LENGTH,
+          "FIND >cap: subcode is ERR40_ARG_LENGTH (40.4)");
+    fixture_close(&fx);
+    free(buf);
+}
+
 int main(void)
 {
     printf("=== WP-21a: String BIFs ===\n");
@@ -422,6 +477,7 @@ int main(void)
     test_phase_e();
     test_phase_f();
     test_error_paths();
+    test_find_phrase_cap();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
