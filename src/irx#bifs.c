@@ -1262,19 +1262,42 @@ static int bif_format(struct irx_parser *p, int argc, PLstr *argv,
 /*  Simple 32-bit linear congruential generator seeded in the work    */
 /*  block (wkbi_random_seed). Constants taken from the Numerical      */
 /*  Recipes / glibc LCG (multiplier 1103515245, increment 12345).     */
+/*                                                                    */
+/*  Output bit width: two LCG steps yield 30 bits of entropy by       */
+/*  concatenating the 15 high-order bits of each step. The low-order  */
+/*  bits of an LCG have very short periods (bit 1 repeats every 4    */
+/*  steps) so we intentionally discard them and use only the upper   */
+/*  half of each state. 30 bits cover the full RANDOM_MAX_RANGE of   */
+/*  100000 without modulus collapse. A single-step 15-bit output     */
+/*  would silently truncate any range above 32767.                   */
 /* ------------------------------------------------------------------ */
 
-#define RANDOM_DEFAULT_MIN  0L
-#define RANDOM_DEFAULT_MAX  999L
-#define RANDOM_MAX_RANGE    100000L
-#define RANDOM_LCG_MULT     1103515245U
-#define RANDOM_LCG_INC      12345U
-#define RANDOM_LCG_OUT_SHFT 16
-#define RANDOM_LCG_OUT_MASK 0x7FFFU
+#define RANDOM_DEFAULT_MIN   0L
+#define RANDOM_DEFAULT_MAX   999L
+#define RANDOM_MAX_RANGE     100000L
+#define RANDOM_LCG_MULT      1103515245U
+#define RANDOM_LCG_INC       12345U
+#define RANDOM_LCG_HI_SHIFT  16      /* drop short-period low bits      */
+#define RANDOM_LCG_HI_MASK   0x7FFFU /* 15 good bits per step          */
+#define RANDOM_LCG_HI_BITS   15
+#define RANDOM_LCG_OUT_BITS  30 /* two steps -> 30-bit output     */
+#define RANDOM_LCG_OUT_SCALE (1UL << RANDOM_LCG_OUT_BITS)
 
 static unsigned int lcg_next(unsigned int state)
 {
     return state * RANDOM_LCG_MULT + RANDOM_LCG_INC;
+}
+
+/* Two-step LCG combiner: returns a 30-bit value in [0, 2^30) and
+ * updates *state in place. Callers persist *state back into the work
+ * block so the next RANDOM() call continues the sequence. */
+static unsigned long lcg_next_30(unsigned int *state)
+{
+    *state = lcg_next(*state);
+    unsigned int hi = (*state >> RANDOM_LCG_HI_SHIFT) & RANDOM_LCG_HI_MASK;
+    *state = lcg_next(*state);
+    unsigned int lo = (*state >> RANDOM_LCG_HI_SHIFT) & RANDOM_LCG_HI_MASK;
+    return ((unsigned long)hi << RANDOM_LCG_HI_BITS) | (unsigned long)lo;
 }
 
 static int bif_random(struct irx_parser *p, int argc, PLstr *argv,
@@ -1343,15 +1366,14 @@ static int bif_random(struct irx_parser *p, int argc, PLstr *argv,
     }
 
     unsigned int state = (wk != NULL) ? wk->wkbi_random_seed : 0U;
-    state = lcg_next(state);
+    unsigned long raw30 = lcg_next_30(&state);
     if (wk != NULL)
     {
         wk->wkbi_random_seed = state;
     }
 
     long range = max_val - min_val + 1;
-    unsigned int raw = (state >> RANDOM_LCG_OUT_SHFT) & RANDOM_LCG_OUT_MASK;
-    long value = min_val + (long)(raw % (unsigned long)range);
+    long value = min_val + (long)(raw30 % (unsigned long)range);
     return translate_lstr_rc(long_to_lstr(p->alloc, result, value));
 }
 

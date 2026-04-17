@@ -536,11 +536,18 @@ static void test_phase_c_numeric(void)
             {
                 long n = 0;
                 size_t i;
+                int parse_ok = 1;
                 for (i = 0; i < val.len; i++)
                 {
-                    n = n * 10 + (val.pstr[i] - (unsigned char)'0');
+                    unsigned char c = val.pstr[i];
+                    if (c < (unsigned char)'0' || c > (unsigned char)'9')
+                    {
+                        parse_ok = 0;
+                        break;
+                    }
+                    n = n * 10 + (c - (unsigned char)'0');
                 }
-                in_range = (n >= 1 && n <= 10);
+                in_range = parse_ok && (n >= 1 && n <= 10);
             }
             CHECK(in_range, "AC-C6 RANDOM(1,10) result in [1,10]");
             Lfree(fx.alloc, &key);
@@ -550,12 +557,22 @@ static void test_phase_c_numeric(void)
     }
 
     /* Seeded RANDOM is deterministic: same seed → same sequence across
-     * two independent environments. */
+     * two independent environments. Sequential fixture open/close so
+     * that a late fixture_open failure never leaves an un-paired
+     * fixture_close or a skipped Lfree. */
     {
         struct fixture fa;
         struct fixture fb;
-        int ok = 0;
-        if (fixture_open(&fa) == 0 && fixture_open(&fb) == 0)
+        if (fixture_open(&fa) != 0)
+        {
+            CHECK(0, "RANDOM repro: fixture_open(fa)");
+        }
+        else if (fixture_open(&fb) != 0)
+        {
+            fixture_close(&fa);
+            CHECK(0, "RANDOM repro: fixture_open(fb)");
+        }
+        else
         {
             /* max-min must be <= 100000 per RANDOM spec. */
             run_src(&fa,
@@ -574,15 +591,74 @@ static void test_phase_c_numeric(void)
             Lscpy(fa.alloc, &key, "X");
             vpool_get(fa.pool, &key, &va);
             vpool_get(fb.pool, &key, &vb);
-            ok = (va.len == vb.len) && (va.len > 0) &&
-                 (memcmp(va.pstr, vb.pstr, va.len) == 0);
+            int ok = (va.len == vb.len) && (va.len > 0) &&
+                     (memcmp(va.pstr, vb.pstr, va.len) == 0);
             Lfree(fa.alloc, &key);
             Lfree(fa.alloc, &va);
             Lfree(fb.alloc, &vb);
+            fixture_close(&fa);
+            fixture_close(&fb);
+            CHECK(ok, "RANDOM reproducible across seeded envs");
         }
-        fixture_close(&fa);
-        fixture_close(&fb);
-        CHECK(ok, "RANDOM reproducible across seeded envs");
+    }
+
+    /* Regression for the 15-bit output bug fixed by the two-step LCG.
+     * A 15-bit LCG output would cap RANDOM(0, 100000) at 32767, so any
+     * run of samples would stay well below 50000. With a 30-bit output
+     * the sample distribution covers the full range. 100 draws from a
+     * fixed seed is enough: the probability of 100 consecutive values
+     * all below 50001 is (50001/100001)^100 ≈ 7.9e-31, which is zero
+     * for practical purposes and makes the test a hard regression
+     * guard rather than a flaky statistical check. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "RANDOM wide-range: fixture_open");
+        }
+        else
+        {
+            run_src(&fx, "r = RANDOM(,,1)\n");
+            int saw_high = 0;
+            int k;
+            for (k = 0; k < 100 && !saw_high; k++)
+            {
+                run_src(&fx, "x = RANDOM(0,100000)\n");
+                Lstr key;
+                Lstr val;
+                Lzeroinit(&key);
+                Lzeroinit(&val);
+                Lscpy(fx.alloc, &key, "X");
+                if (vpool_get(fx.pool, &key, &val) == VPOOL_OK &&
+                    val.len > 0)
+                {
+                    long n = 0;
+                    size_t i;
+                    int parse_ok = 1;
+                    for (i = 0; i < val.len; i++)
+                    {
+                        unsigned char c = val.pstr[i];
+                        if (c < (unsigned char)'0' ||
+                            c > (unsigned char)'9')
+                        {
+                            parse_ok = 0;
+                            break;
+                        }
+                        n = n * 10 + (c - (unsigned char)'0');
+                    }
+                    if (parse_ok && n > 50000)
+                    {
+                        saw_high = 1;
+                    }
+                }
+                Lfree(fx.alloc, &key);
+                Lfree(fx.alloc, &val);
+            }
+            CHECK(saw_high,
+                  "RANDOM(0,100000) reaches values > 50000 "
+                  "(guards 15-bit truncation)");
+            fixture_close(&fx);
+        }
     }
 }
 
