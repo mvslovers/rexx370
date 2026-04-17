@@ -158,6 +158,9 @@ Tests: `test/test_name.c`
 | `src/irx#io.c`   | IRX#IO   | Default I/O routine IRXINOUT (WP-14) |
 | `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
 | `src/irx#exec.c` | IRX#EXEC | End-to-end execution pipeline irx_exec_run() (WP-18) |
+| `src/irx#cond.c` | IRX#COND | Condition raise helper (irx_cond_raise, WP-21a) |
+| `src/irx#bif.c`  | IRX#BIF  | BIF registry + argument-validation helpers (WP-21a) |
+| `src/irx#bifs.c` | IRX#BIFS | String BIFs (LENGTH, SUBSTR, WORD, ... WP-21a) |
 
 New source files follow the same pattern: `src/irx#xxxx.c` where
 `xxxx` is a 4-character identifier. Member names must be ≤ 8 chars.
@@ -292,7 +295,8 @@ The common dependency set for cross-compile tests is:
 LSTRING_SRC=../lstring370/src/'lstr#cor.c'
 LSTRING_INC=-I contrib/lstring370-0.1.0-dev/include
 PHASE1_SRC='src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
-           'src/irx#rab.c'  'src/irx#uid.c'  'src/irx#msid.c'
+           'src/irx#rab.c'  'src/irx#uid.c'  'src/irx#msid.c' \
+           'src/irx#cond.c' 'src/irx#bif.c'  'src/irx#bifs.c'
 PHASE2_SRC='src/irx#io.c' 'src/irx#lstr.c' 'src/irx#tokn.c' \
            'src/irx#vpol.c' 'src/irx#pars.c' 'src/irx#ctrl.c'
 ```
@@ -355,6 +359,18 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     -o test/test_arith test/test_arith.c \
     $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
 ./test/test_arith
+
+# BIF registry (WP-21a) — 29/29
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_bif test/test_bif.c \
+    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
+./test/test_bif
+
+# String BIFs end-to-end (WP-21a) — 87/87
+gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+    -o test/test_bifs test/test_bifs.c \
+    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
+./test/test_bifs
 ```
 
 ## Work packages
@@ -366,7 +382,9 @@ and acceptance criteria.
 Current status:
 - Phase 1 (WP-01 through WP-05): complete
 - Phase 2 (WP-10 through WP-18): complete
-- Phase 3 in progress: WP-20 (Arithmetic engine — 128/128)
+- Phase 3 in progress:
+  - WP-20 (Arithmetic engine — 128/128)
+  - WP-21a (String BIFs — 29/29 + 87/87)
 
 ## Knowledge sources
 

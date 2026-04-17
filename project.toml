@@ -66,6 +66,9 @@ include = [
   "IRX#RAB",
   "IRX#UID",
   "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
   "IRX#IO",
   "IRX#LSTR",
   "IRX#TOKN",
@@ -90,5 +93,6 @@ version_files = ["VERSION"]
 
 [artifacts]
 headers = true
-header_files = ["irx.h", "irxrab.h", "irxwkblk.h", "irxfunc.h"]
+header_files = ["irx.h", "irxrab.h", "irxwkblk.h", "irxfunc.h",
+                "irxbif.h", "irxbifstr.h", "irxcond.h"]
 loads = true
