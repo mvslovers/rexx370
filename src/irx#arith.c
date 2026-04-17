@@ -1203,7 +1203,7 @@ int irx_arith_op(struct envblock *env,
         return IRXPARS_SYNTAX;
     }
 
-    if (op != ARITH_NEG)
+    if (op != ARITH_NEG && op != ARITH_ABS)
     {
         if (b == NULL || lstr_to_num(env, b, &nb) != 0)
         {
@@ -1355,6 +1355,21 @@ int irx_arith_op(struct envblock *env,
             ret = 0;
             break;
         }
+        case ARITH_ABS:
+        {
+            /* Copy na into nr, clear sign */
+            if (num_alloc(env, na.len, &nr) != 0)
+            {
+                num_free(env, &na);
+                return IRXPARS_NOMEM;
+            }
+            memcpy(nr.digits, na.digits, (size_t)na.len);
+            nr.len = na.len;
+            nr.exp = na.exp;
+            nr.sign = 0;
+            ret = 0;
+            break;
+        }
         default:
             num_free(env, &na);
             num_free(env, &nb);
@@ -1486,5 +1501,964 @@ int irx_arith_compare(struct envblock *env,
     num_free(env, &na);
     num_free(env, &nb);
     num_free(env, &diff);
+    return IRXPARS_OK;
+}
+
+/* ================================================================== */
+/*  WP-21b Phase B: string-oriented helpers                          */
+/*                                                                    */
+/*  The helpers below expose BCD operations that REXX BIFs need       */
+/*  without forcing callers to know the internal struct irx_number    */
+/*  layout.                                                           */
+/* ================================================================== */
+
+/* Grow n->digits in-place to at least `min_cap` bytes. */
+static int num_grow(struct envblock *env, struct irx_number *n, int min_cap)
+{
+    void *newp = NULL;
+    void *oldp;
+    int newcap;
+
+    if (n->cap >= min_cap)
+    {
+        return 0;
+    }
+    newcap = min_cap + 8;
+    if (irxstor(RXSMGET, newcap, &newp, env) != 0)
+    {
+        return -1;
+    }
+    memcpy(newp, n->digits, (size_t)n->len);
+    oldp = n->digits;
+    irxstor(RXSMFRE, n->cap, &oldp, env);
+    n->digits = (unsigned char *)newp;
+    n->cap = newcap;
+    return 0;
+}
+
+/* Pad n with trailing zeros (never touches the coefficient's leading
+ * digits) until n->exp == target_exp. When target_exp >= n->exp the
+ * function is a no-op — it is safe to call without checking. Returns
+ * -1 on OOM. */
+static int num_pad_to_exp(struct envblock *env, struct irx_number *n,
+                          int target_exp)
+{
+    int pad;
+
+    if (n->exp <= target_exp)
+    {
+        return 0;
+    }
+    pad = n->exp - target_exp;
+    if (num_grow(env, n, n->len + pad) != 0)
+    {
+        return -1;
+    }
+    memset(n->digits + n->len, 0, (size_t)pad);
+    n->len += pad;
+    n->exp = target_exp;
+    return 0;
+}
+
+/* Truncate n toward zero so that n->exp == target_exp. Any digits
+ * below position 10^target_exp are discarded (no rounding). When
+ * target_exp <= n->exp the function is a no-op — it is safe to call
+ * without checking. */
+static void num_truncate_to_exp(struct irx_number *n, int target_exp)
+{
+    int drop;
+    int all_zero;
+    int i;
+
+    if (n->exp >= target_exp)
+    {
+        return;
+    }
+    drop = target_exp - n->exp;
+    if (drop >= n->len)
+    {
+        n->digits[0] = 0;
+        n->len = 1;
+        n->sign = 0;
+        n->exp = 0;
+        return;
+    }
+    n->len -= drop;
+    n->exp = target_exp;
+
+    all_zero = 1;
+    for (i = 0; i < n->len; i++)
+    {
+        if (n->digits[i] != 0)
+        {
+            all_zero = 0;
+            break;
+        }
+    }
+    if (all_zero)
+    {
+        n->digits[0] = 0;
+        n->len = 1;
+        n->sign = 0;
+        n->exp = 0;
+    }
+}
+
+/* Round n half-up so that n->exp == target_exp. Grows the buffer if
+ * rounding overflows the leading digit. Returns -1 on OOM. */
+static int num_round_to_exp(struct envblock *env, struct irx_number *n,
+                            int target_exp)
+{
+    int drop;
+    int round_up;
+    int i;
+    int all_zero;
+
+    if (n->exp >= target_exp)
+    {
+        return 0;
+    }
+    drop = target_exp - n->exp;
+
+    if (drop >= n->len)
+    {
+        /* Everything is below the target — at most one digit of rounding
+         * survives, and only when drop == n->len and the leading digit
+         * was >= 5. */
+        round_up = (drop == n->len && n->digits[0] >= 5) ? 1 : 0;
+        n->digits[0] = (unsigned char)round_up;
+        n->len = 1;
+        n->exp = target_exp;
+        if (!round_up)
+        {
+            n->sign = 0;
+        }
+        return 0;
+    }
+
+    round_up = (n->digits[n->len - drop] >= 5) ? 1 : 0;
+    n->len -= drop;
+    n->exp = target_exp;
+
+    if (round_up)
+    {
+        int carry = 1;
+        for (i = n->len - 1; i >= 0 && carry; i--)
+        {
+            n->digits[i]++;
+            if (n->digits[i] < 10)
+            {
+                carry = 0;
+            }
+            else
+            {
+                n->digits[i] = 0;
+            }
+        }
+        if (carry)
+        {
+            /* e.g. 9999 + 1 -> 10000: prepend a leading 1, shift. */
+            if (num_grow(env, n, n->len + 1) != 0)
+            {
+                return -1;
+            }
+            memmove(n->digits + 1, n->digits, (size_t)n->len);
+            n->digits[0] = 1;
+            n->len++;
+        }
+    }
+
+    all_zero = 1;
+    for (i = 0; i < n->len; i++)
+    {
+        if (n->digits[i] != 0)
+        {
+            all_zero = 0;
+            break;
+        }
+    }
+    if (all_zero)
+    {
+        n->digits[0] = 0;
+        n->len = 1;
+        n->sign = 0;
+        n->exp = 0;
+    }
+    return 0;
+}
+
+/* Emit n in fixed-point with exactly `decimals` fractional digits.
+ * Precondition: num_pad_to_exp / num_truncate_to_exp have been used so
+ * that n->exp == -decimals or n is the canonical zero. */
+static int num_emit_fixed(const struct irx_number *n, int decimals,
+                          char *buf, int maxbuf)
+{
+    int pos = 0;
+    int int_digits;
+    int i;
+
+    if (n->len == 1 && n->digits[0] == 0)
+    {
+        if (pos < maxbuf - 1)
+        {
+            buf[pos++] = '0';
+        }
+        if (decimals > 0 && pos < maxbuf - 1)
+        {
+            buf[pos++] = '.';
+            for (i = 0; i < decimals && pos < maxbuf - 1; i++)
+            {
+                buf[pos++] = '0';
+            }
+        }
+        buf[pos] = '\0';
+        return pos;
+    }
+
+    if (n->sign && pos < maxbuf - 1)
+    {
+        buf[pos++] = '-';
+    }
+
+    int_digits = n->len + n->exp; /* digits before decimal point */
+    if (int_digits <= 0)
+    {
+        /* Purely fractional: "0.<leading-zeros><digits>". */
+        int leading_zeros = -int_digits;
+        if (pos < maxbuf - 1)
+        {
+            buf[pos++] = '0';
+        }
+        if (decimals > 0 && pos < maxbuf - 1)
+        {
+            buf[pos++] = '.';
+            for (i = 0; i < leading_zeros && pos < maxbuf - 1; i++)
+            {
+                buf[pos++] = '0';
+            }
+            for (i = 0; i < n->len && pos < maxbuf - 1; i++)
+            {
+                buf[pos++] = (char)('0' + n->digits[i]);
+            }
+        }
+    }
+    else
+    {
+        for (i = 0; i < int_digits && pos < maxbuf - 1; i++)
+        {
+            char d = (i < n->len) ? (char)('0' + n->digits[i]) : '0';
+            buf[pos++] = d;
+        }
+        if (decimals > 0 && pos < maxbuf - 1)
+        {
+            buf[pos++] = '.';
+            for (i = int_digits; i < n->len && pos < maxbuf - 1; i++)
+            {
+                buf[pos++] = (char)('0' + n->digits[i]);
+            }
+        }
+    }
+
+    buf[pos] = '\0';
+    return pos;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public: irx_arith_trunc                                           */
+/* ------------------------------------------------------------------ */
+
+int irx_arith_trunc(struct envblock *env, PLstr in, long decimals,
+                    PLstr result)
+{
+    struct irx_number n;
+    struct lstr_alloc *alloc;
+    void *pbuf = NULL;
+    char *buf;
+    int maxbuf;
+    int slen;
+    int rc;
+
+    if (decimals < 0 || decimals > NUMERIC_DIGITS_MAX)
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    n.digits = NULL;
+    n.cap = n.len = n.sign = n.exp = 0;
+    if (lstr_to_num(env, in, &n) != 0)
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    num_truncate_to_exp(&n, -(int)decimals);
+    if (num_pad_to_exp(env, &n, -(int)decimals) != 0)
+    {
+        num_free(env, &n);
+        return IRXPARS_NOMEM;
+    }
+
+    alloc = irx_lstr_init(env);
+    if (alloc == NULL)
+    {
+        alloc = lstr_default_alloc();
+    }
+
+    maxbuf = n.len + (int)decimals + 16;
+    if (irxstor(RXSMGET, maxbuf, &pbuf, env) != 0)
+    {
+        num_free(env, &n);
+        return IRXPARS_NOMEM;
+    }
+    buf = (char *)pbuf;
+
+    slen = num_emit_fixed(&n, (int)decimals, buf, maxbuf);
+
+    rc = Lfx(alloc, result, (size_t)slen);
+    if (rc == LSTR_OK)
+    {
+        if (slen > 0)
+        {
+            memcpy(result->pstr, buf, (size_t)slen);
+        }
+        result->len = (size_t)slen;
+        result->type = LSTRING_TY;
+    }
+
+    irxstor(RXSMFRE, maxbuf, &pbuf, env);
+    num_free(env, &n);
+    return (rc == LSTR_OK) ? IRXPARS_OK : IRXPARS_NOMEM;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public: irx_arith_format                                          */
+/*                                                                    */
+/*  SC28-1883-0 §4 FORMAT built-in. Four optional integer arguments — */
+/*  callers pass IRX_FORMAT_OMIT (-1) for omitted ones.               */
+/* ------------------------------------------------------------------ */
+
+/* Write `edigits` expressed in decimal into `buf`, zero-padded to at
+ * least `minw` characters. Returns the number of characters written. */
+static int emit_exponent_digits(int edigits, int minw, char *buf, int maxbuf)
+{
+    char tmp[12];
+    int n = 0;
+    int i;
+    int pad;
+    int pos = 0;
+
+    if (edigits == 0)
+    {
+        tmp[n++] = '0';
+    }
+    else
+    {
+        int t = edigits;
+        while (t > 0 && n < (int)sizeof(tmp))
+        {
+            tmp[n++] = (char)('0' + t % 10);
+            t /= 10;
+        }
+    }
+    pad = (minw > n) ? minw - n : 0;
+    for (i = 0; i < pad && pos < maxbuf - 1; i++)
+    {
+        buf[pos++] = '0';
+    }
+    for (i = n - 1; i >= 0 && pos < maxbuf - 1; i--)
+    {
+        buf[pos++] = tmp[i];
+    }
+    return pos;
+}
+
+/* Count decimal digits of a non-negative int. */
+static int dec_width(int v)
+{
+    int w = 0;
+    if (v == 0)
+    {
+        return 1;
+    }
+    while (v > 0)
+    {
+        w++;
+        v /= 10;
+    }
+    return w;
+}
+
+int irx_arith_format(struct envblock *env, PLstr in,
+                     long before, long after, long expp, long expt,
+                     PLstr result)
+{
+    struct irx_number n;
+    struct lstr_alloc *alloc;
+    int digits, fuzz, form;
+    int adj;
+    int use_fixed;
+    void *pbuf = NULL;
+    char *buf;
+    int maxbuf;
+    int pos = 0;
+    int rc;
+    char *int_part;
+    int int_len;
+    int frac_digits_wanted;
+    int int_field_width;
+    int pad_spaces;
+    int exponent_val = 0;
+    int i;
+
+    if ((before != IRX_FORMAT_OMIT && before < 0) ||
+        (after != IRX_FORMAT_OMIT && after < 0) ||
+        (expp != IRX_FORMAT_OMIT && expp < 0) ||
+        (expt != IRX_FORMAT_OMIT && expt < 0))
+    {
+        return IRXPARS_SYNTAX;
+    }
+    /* Sanity bounds so we never try to allocate astronomically large
+     * scratch space. These match the intent of NUMERIC DIGITS_MAX. */
+    if ((before != IRX_FORMAT_OMIT && before > NUMERIC_DIGITS_MAX) ||
+        (after != IRX_FORMAT_OMIT && after > NUMERIC_DIGITS_MAX) ||
+        (expp != IRX_FORMAT_OMIT && expp > NUMERIC_DIGITS_MAX) ||
+        (expt != IRX_FORMAT_OMIT && expt > NUMERIC_DIGITS_MAX))
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    n.digits = NULL;
+    n.cap = n.len = n.sign = n.exp = 0;
+    if (lstr_to_num(env, in, &n) != 0)
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    get_numeric(env, &digits, &fuzz, &form);
+
+    /* Round to NUMERIC DIGITS first (as irx_arith_op would). */
+    num_round(&n, digits);
+
+    /* Apply `after` — exactly that many fractional digits. */
+    if (after != IRX_FORMAT_OMIT)
+    {
+        int target_exp = -(int)after;
+        if (n.exp < target_exp)
+        {
+            if (num_round_to_exp(env, &n, target_exp) != 0)
+            {
+                num_free(env, &n);
+                return IRXPARS_NOMEM;
+            }
+        }
+        else
+        {
+            if (num_pad_to_exp(env, &n, target_exp) != 0)
+            {
+                num_free(env, &n);
+                return IRXPARS_NOMEM;
+            }
+        }
+    }
+    else
+    {
+        /* No `after`: strip trailing zeros (normal REXX canonical form). */
+        num_strip_trailing(&n);
+    }
+
+    /* Decide fixed vs exponential. */
+    adj = n.exp + n.len - 1;
+    if (expp == 0)
+    {
+        use_fixed = 1;
+    }
+    else if (expt != IRX_FORMAT_OMIT)
+    {
+        int aadj = adj < 0 ? -adj : adj;
+        use_fixed = (aadj <= (int)expt);
+    }
+    else if (expp != IRX_FORMAT_OMIT)
+    {
+        /* expp supplied, expt not: default expt = NUMERIC DIGITS. */
+        int aadj = adj < 0 ? -adj : adj;
+        use_fixed = (aadj <= digits);
+    }
+    else
+    {
+        /* Neither supplied: standard form rule. */
+        use_fixed = (adj >= IRX_FIXED_POINT_MIN_EXP && adj <= digits);
+    }
+
+    /* Never consider "0" as exponential regardless of flags. */
+    if (n.len == 1 && n.digits[0] == 0)
+    {
+        use_fixed = 1;
+    }
+
+    /* Reject fixed-point requests whose integer part would exceed
+     * NUMERIC_DIGITS_MAX digits — otherwise a pathological input such
+     * as FORMAT('1E999999999', ,,0) would try to allocate multiple
+     * gigabytes of scratch buffer. The cap matches NUMERIC DIGITS's
+     * own upper bound, which is already the tightest constraint in
+     * REXX/370's arithmetic subsystem. */
+    if (use_fixed)
+    {
+        long potential_int_digits = (long)n.exp + (long)n.len;
+        if (potential_int_digits < 1)
+        {
+            potential_int_digits = 1; /* "0" for purely fractional */
+        }
+        if (potential_int_digits > NUMERIC_DIGITS_MAX)
+        {
+            num_free(env, &n);
+            return IRXPARS_SYNTAX;
+        }
+    }
+
+    /* Size the working buffers based on the actual rendered layout
+     * rather than a fixed constant: the int_part buffer in particular
+     * must be able to hold every integer digit plus sign, or the
+     * format loop below would overrun. */
+    {
+        int int_digits_max;
+        int frac_digits_max;
+        int exp_digits_max;
+
+        if (use_fixed)
+        {
+            int tmp = n.exp + n.len;
+            int_digits_max = (tmp > 1) ? tmp : 1; /* at least the "0" */
+            frac_digits_max =
+                (after != IRX_FORMAT_OMIT)
+                    ? (int)after
+                    : ((n.exp < 0) ? -n.exp : 0);
+            exp_digits_max = 0;
+        }
+        else
+        {
+            /* Exponential form: exactly one integer digit. */
+            int_digits_max = 1;
+            frac_digits_max = (after != IRX_FORMAT_OMIT)
+                                  ? (int)after
+                                  : ((n.len > 1) ? n.len - 1 : 0);
+            exp_digits_max =
+                (expp != IRX_FORMAT_OMIT) ? (int)expp : 11; /* "E+" + 10 digits */
+        }
+
+        /* Sign + int_digits + '.' + frac_digits + 'E' + sign + exp + slack. */
+        maxbuf = 1 + int_digits_max + 1 + frac_digits_max + 2 +
+                 exp_digits_max + 8;
+        if (before != IRX_FORMAT_OMIT && (int)before > int_digits_max + 1)
+        {
+            maxbuf += (int)before; /* leading space padding */
+        }
+    }
+
+    if (irxstor(RXSMGET, maxbuf, &pbuf, env) != 0)
+    {
+        num_free(env, &n);
+        return IRXPARS_NOMEM;
+    }
+    buf = (char *)pbuf;
+
+    /* Allocate scratch for the integer part. */
+    {
+        void *ip = NULL;
+        int int_cap = maxbuf;
+        if (irxstor(RXSMGET, int_cap, &ip, env) != 0)
+        {
+            irxstor(RXSMFRE, maxbuf, &pbuf, env);
+            num_free(env, &n);
+            return IRXPARS_NOMEM;
+        }
+        int_part = (char *)ip;
+    }
+    int_len = 0;
+
+    if (use_fixed)
+    {
+        /* When `after` was supplied we already normalized n to
+         * n.exp == -after above; when it was omitted n.exp is the
+         * authoritative fractional count. Either way there is no more
+         * padding/truncation to do here. */
+        frac_digits_wanted =
+            (after != IRX_FORMAT_OMIT)
+                ? (int)after
+                : ((n.exp < 0) ? -n.exp : 0);
+    }
+    else
+    {
+        /* Exponential form. Shift so exactly one digit sits before the
+         * decimal point, remaining digits are fractional, and the
+         * adjusted exponent is preserved. */
+        exponent_val = adj;
+
+        /* After this block, n.digits[0] is the single integer digit
+         * and n.digits[1..] are the fractional digits. n.exp / n.len
+         * are left untouched; we work with the raw digits array. */
+        if (after != IRX_FORMAT_OMIT)
+        {
+            /* Restrict to 1 + after significant digits total. */
+            long want_sig = (long)1 + after;
+            if (want_sig < (long)n.len)
+            {
+                /* Round */
+                int target_exp_for_round = (int)((long)adj - after);
+                if (num_round_to_exp(env, &n, target_exp_for_round) != 0)
+                {
+                    goto oom;
+                }
+                /* Rounding may have changed adj by +1 (e.g. 9.99 ->
+                 * 10.0). Recompute. */
+                adj = n.exp + n.len - 1;
+                exponent_val = adj;
+            }
+            else
+            {
+                /* Pad fractional part to 1 + after digits by appending
+                 * trailing zeros to the coefficient. */
+                int pad = (int)(want_sig - (long)n.len);
+                if (pad > 0)
+                {
+                    if (num_grow(env, &n, n.len + pad) != 0)
+                    {
+                        goto oom;
+                    }
+                    memset(n.digits + n.len, 0, (size_t)pad);
+                    n.len += pad;
+                }
+            }
+            frac_digits_wanted = (int)after;
+        }
+        else
+        {
+            /* Natural form: leading digit + whatever follows. */
+            frac_digits_wanted = n.len - 1;
+        }
+    }
+
+    /* Build the integer-part buffer (without leading sign padding).
+     * The magnitude cap above guarantees int_len stays below int_cap
+     * (== maxbuf), but we still bound every write as defense-in-depth
+     * so a future caller that passes an unchecked exponent cannot
+     * overrun the scratch buffer. */
+    {
+        int int_cap = maxbuf;
+
+        if (use_fixed)
+        {
+            int int_digits = n.len + n.exp;
+            if (n.sign && !(n.len == 1 && n.digits[0] == 0) &&
+                int_len < int_cap)
+            {
+                int_part[int_len++] = '-';
+            }
+            if (int_digits <= 0)
+            {
+                if (int_len < int_cap)
+                {
+                    int_part[int_len++] = '0';
+                }
+            }
+            else
+            {
+                for (i = 0; i < int_digits && int_len < int_cap; i++)
+                {
+                    int_part[int_len++] =
+                        (i < n.len) ? (char)('0' + n.digits[i]) : '0';
+                }
+                if (i < int_digits)
+                {
+                    goto format_syntax; /* must not happen given the cap */
+                }
+            }
+        }
+        else
+        {
+            /* Exponential: exactly one integer digit (the leading one). */
+            if (n.sign && !(n.len == 1 && n.digits[0] == 0) &&
+                int_len < int_cap)
+            {
+                int_part[int_len++] = '-';
+            }
+            if (int_len < int_cap)
+            {
+                int_part[int_len++] = (char)('0' + n.digits[0]);
+            }
+        }
+    }
+
+    /* Compute `before` field width and validate. */
+    if (before != IRX_FORMAT_OMIT)
+    {
+        int_field_width = (int)before;
+        if (int_len > int_field_width)
+        {
+            /* Spec: padding cannot chop meaningful digits — SYNTAX. */
+            goto format_syntax;
+        }
+        pad_spaces = int_field_width - int_len;
+    }
+    else
+    {
+        int_field_width = int_len;
+        pad_spaces = 0;
+    }
+
+    /* Emit: left-pad spaces + int_part + '.' + fractional + exp suffix */
+    pos = 0;
+    for (i = 0; i < pad_spaces && pos < maxbuf - 1; i++)
+    {
+        buf[pos++] = ' ';
+    }
+    for (i = 0; i < int_len && pos < maxbuf - 1; i++)
+    {
+        buf[pos++] = int_part[i];
+    }
+
+    if (frac_digits_wanted > 0 && pos < maxbuf - 1)
+    {
+        int frac_start;
+        int k;
+
+        buf[pos++] = '.';
+
+        if (use_fixed)
+        {
+            int int_digits = n.len + n.exp;
+            if (int_digits < 0)
+            {
+                /* Leading zeros in fractional part, then all coefficient
+                 * digits. */
+                for (k = 0; k < -int_digits && pos < maxbuf - 1; k++)
+                {
+                    buf[pos++] = '0';
+                }
+                for (k = 0; k < n.len && pos < maxbuf - 1; k++)
+                {
+                    buf[pos++] = (char)('0' + n.digits[k]);
+                }
+            }
+            else
+            {
+                for (k = int_digits; k < n.len && pos < maxbuf - 1; k++)
+                {
+                    buf[pos++] = (char)('0' + n.digits[k]);
+                }
+            }
+            /* `num_pad_to_exp` guarantees we already have enough digits;
+             * no trailing-zero padding needed. */
+        }
+        else
+        {
+            frac_start = 1;
+            for (k = frac_start;
+                 k < frac_start + frac_digits_wanted && pos < maxbuf - 1;
+                 k++)
+            {
+                buf[pos++] = (k < n.len) ? (char)('0' + n.digits[k]) : '0';
+            }
+        }
+    }
+
+    if (!use_fixed)
+    {
+        int abs_exp;
+        int minw;
+        int actual_w;
+
+        if (pos < maxbuf - 1)
+        {
+            buf[pos++] = 'E';
+        }
+        if (exponent_val >= 0)
+        {
+            if (pos < maxbuf - 1)
+            {
+                buf[pos++] = '+';
+            }
+            abs_exp = exponent_val;
+        }
+        else
+        {
+            if (pos < maxbuf - 1)
+            {
+                buf[pos++] = '-';
+            }
+            abs_exp = -exponent_val;
+        }
+        minw = (expp != IRX_FORMAT_OMIT) ? (int)expp : 1;
+        actual_w = dec_width(abs_exp);
+        if (expp != IRX_FORMAT_OMIT && actual_w > minw)
+        {
+            /* Caller restricted exponent width too tightly. */
+            goto format_syntax;
+        }
+        pos += emit_exponent_digits(abs_exp, minw, buf + pos, maxbuf - pos);
+    }
+
+    buf[pos] = '\0';
+
+    alloc = irx_lstr_init(env);
+    if (alloc == NULL)
+    {
+        alloc = lstr_default_alloc();
+    }
+    rc = Lfx(alloc, result, (size_t)pos);
+    if (rc == LSTR_OK)
+    {
+        if (pos > 0)
+        {
+            memcpy(result->pstr, buf, (size_t)pos);
+        }
+        result->len = (size_t)pos;
+        result->type = LSTRING_TY;
+    }
+
+    {
+        void *ip = int_part;
+        irxstor(RXSMFRE, maxbuf, &ip, env);
+    }
+    irxstor(RXSMFRE, maxbuf, &pbuf, env);
+    num_free(env, &n);
+    return (rc == LSTR_OK) ? IRXPARS_OK : IRXPARS_NOMEM;
+
+oom:
+{
+    void *ip = int_part;
+    irxstor(RXSMFRE, maxbuf, &ip, env);
+}
+    irxstor(RXSMFRE, maxbuf, &pbuf, env);
+    num_free(env, &n);
+    return IRXPARS_NOMEM;
+
+format_syntax:
+{
+    void *ip = int_part;
+    irxstor(RXSMFRE, maxbuf, &ip, env);
+}
+    irxstor(RXSMFRE, maxbuf, &pbuf, env);
+    num_free(env, &n);
+    return IRXPARS_SYNTAX;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public: irx_arith_from_digits                                     */
+/* ------------------------------------------------------------------ */
+
+int irx_arith_from_digits(struct envblock *env,
+                          const char *digits, int digits_len,
+                          int sign, long exponent,
+                          PLstr result)
+{
+    struct irx_number n;
+    int dig, fuzz, form;
+    int rc;
+    int i;
+
+    if (digits_len < 0 || (digits_len > 0 && digits == NULL))
+    {
+        return IRXPARS_SYNTAX;
+    }
+    if (sign != 0 && sign != 1)
+    {
+        return IRXPARS_SYNTAX;
+    }
+    if (exponent > INT_MAX || exponent < INT_MIN)
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    n.digits = NULL;
+    n.cap = n.len = n.sign = n.exp = 0;
+
+    /* Canonical zero when the caller passes no digits. */
+    if (digits_len == 0)
+    {
+        if (num_alloc(env, 1, &n) != 0)
+        {
+            return IRXPARS_NOMEM;
+        }
+        n.digits[0] = 0;
+        n.len = 1;
+        n.sign = 0;
+        n.exp = 0;
+    }
+    else
+    {
+        if (num_alloc(env, digits_len, &n) != 0)
+        {
+            return IRXPARS_NOMEM;
+        }
+        for (i = 0; i < digits_len; i++)
+        {
+            unsigned char d = (unsigned char)digits[i];
+            if (d > 9)
+            {
+                num_free(env, &n);
+                return IRXPARS_SYNTAX;
+            }
+            n.digits[i] = d;
+        }
+        n.len = digits_len;
+        n.sign = sign;
+        n.exp = (int)exponent;
+
+        num_strip_leading(&n);
+        num_strip_trailing(&n);
+
+        if (n.len == 1 && n.digits[0] == 0)
+        {
+            n.sign = 0;
+            n.exp = 0;
+        }
+    }
+
+    get_numeric(env, &dig, &fuzz, &form);
+    num_round(&n, dig);
+
+    rc = num_to_lstr(env, &n, dig, form, result);
+    num_free(env, &n);
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public: irx_arith_to_digits                                       */
+/* ------------------------------------------------------------------ */
+
+int irx_arith_to_digits(struct envblock *env, PLstr in,
+                        char *digits, int digits_cap, int *digits_len,
+                        int *sign, long *exponent)
+{
+    struct irx_number n;
+    int i;
+
+    if (digits == NULL || digits_cap < 0 || digits_len == NULL ||
+        sign == NULL || exponent == NULL)
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    n.digits = NULL;
+    n.cap = n.len = n.sign = n.exp = 0;
+    if (lstr_to_num(env, in, &n) != 0)
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    if (n.len > digits_cap)
+    {
+        num_free(env, &n);
+        return IRXPARS_OVERFLOW;
+    }
+
+    for (i = 0; i < n.len; i++)
+    {
+        digits[i] = (char)n.digits[i];
+    }
+    *digits_len = n.len;
+    *sign = n.sign;
+    *exponent = n.exp;
+
+    num_free(env, &n);
     return IRXPARS_OK;
 }

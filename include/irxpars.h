@@ -38,13 +38,19 @@
 /*  Return codes                                                      */
 /* ================================================================== */
 
-#define IRXPARS_OK      0
-#define IRXPARS_SYNTAX  20 /* generic SYNTAX error               */
-#define IRXPARS_NOMEM   21 /* allocator failure                  */
-#define IRXPARS_NOVALUE 22 /* uninitialised variable (NOVALUE)   */
-#define IRXPARS_DIVZERO 23 /* division by zero                   */
-#define IRXPARS_BADFUNC 24 /* unknown function in call           */
-#define IRXPARS_BADARG  25 /* bad argument to parser entry       */
+#define IRXPARS_OK       0
+#define IRXPARS_SYNTAX   20 /* generic SYNTAX error               */
+#define IRXPARS_NOMEM    21 /* allocator failure                  */
+#define IRXPARS_NOVALUE  22 /* uninitialised variable (NOVALUE)   */
+#define IRXPARS_DIVZERO  23 /* division by zero                   */
+#define IRXPARS_BADFUNC  24 /* unknown function in call           */
+#define IRXPARS_BADARG   25 /* bad argument to parser entry       */
+/* 26 intentionally skipped: SYNTAX_OVERFLOW = 26 in irxcond.h and
+ * we avoid the numeric coincidence even though the two constants
+ * live in unrelated namespaces (parser return code vs. REXX
+ * condition subcode). */
+#define IRXPARS_OVERFLOW 27 /* scratch buffer too small, or value */
+                            /* exceeds representable range        */
 
 /* ================================================================== */
 /*  Parser context                                                    */
