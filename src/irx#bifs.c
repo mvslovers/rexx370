@@ -7,7 +7,9 @@
 /*  conditions on failure.                                            */
 /*                                                                    */
 /*  All state is per-environment; no globals, no statics holding      */
-/*  mutable data. Registration is one-shot via irx_bifstr_register(). */
+/*  mutable data. Registration is one-shot via irx_bif_register_all() */
+/*  which wires up every built-in — string BIFs from this module plus */
+/*  parser-internal BIFs (ARG) defined in src/irx#pars.c.             */
 /*                                                                    */
 /*  Note on the filename: SC28-1883-0 naming wants IRXBIFSTR but the  */
 /*  MVS PDS member limit is 8 characters; mbt truncates upper-cased   */
@@ -24,7 +26,7 @@
 
 #include "irx.h"
 #include "irxbif.h"
-#include "irxbifstr.h"
+#include "irxbifs.h"
 #include "irxcond.h"
 #include "irxlstr.h"
 #include "irxpars.h"
@@ -1039,8 +1041,18 @@ static const struct irx_bif_entry g_bifstr_table[] = {
 #define BIFSTR_COUNT \
     ((int)(sizeof(g_bifstr_table) / sizeof(g_bifstr_table[0])))
 
-int irx_bifstr_register(struct envblock *env, struct irx_bif_registry *reg)
+int irx_bif_register_all(struct envblock *env, struct irx_bif_registry *reg)
 {
-    return irx_bif_register_table(env, reg, g_bifstr_table,
-                                  BIFSTR_COUNT);
+    int rc = irx_bif_register_table(env, reg, g_bifstr_table,
+                                    BIFSTR_COUNT);
+    if (rc != IRX_BIF_OK)
+    {
+        return rc;
+    }
+
+    /* ARG() is implemented in src/irx#pars.c because it reads the
+     * parser-private call_args / call_argc fields. Its registration
+     * is consolidated here so there is a single entry point for all
+     * built-ins. */
+    return irx_bif_register(env, reg, "ARG", 0, 2, irx_pars_bif_arg);
 }

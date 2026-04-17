@@ -398,7 +398,8 @@ static int compare_normal(struct envblock *env, PLstr a, PLstr b)
 /*  directly; other BIFs (LENGTH, SUBSTR, ...) live in irx#bifs.c.    */
 /* ------------------------------------------------------------------ */
 
-static int bif_arg(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
+int irx_pars_bif_arg(struct irx_parser *p, int argc, PLstr *argv,
+                     PLstr result)
 {
     int n;
     char nbuf[16];
@@ -479,21 +480,6 @@ static int bif_arg(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
     return (lstr_set_bytes(p->alloc, result, &answer, 1) == LSTR_OK)
                ? IRXPARS_OK
                : fail(p, IRXPARS_NOMEM);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Registry wiring                                                   */
-/*                                                                    */
-/*  irx_pars_register_core_bifs() is called from irxinit() once the   */
-/*  per-environment BIF registry has been allocated. It adds the      */
-/*  parser-internal built-ins; everything else (string BIFs, ...)     */
-/*  registers from its own module.                                    */
-/* ------------------------------------------------------------------ */
-
-int irx_pars_register_core_bifs(struct envblock *env,
-                                struct irx_bif_registry *reg)
-{
-    return irx_bif_register(env, reg, "ARG", 0, 2, bif_arg);
 }
 
 /* Fetch the registry hanging off the parser's environment. */
