@@ -16,7 +16,7 @@
 
 #include "irx.h"
 #include "irxbif.h"
-#include "irxbifstr.h"
+#include "irxbifs.h"
 #include "irxfunc.h"
 #include "irxio.h"
 #include "irxpars.h"
@@ -353,12 +353,7 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         }
         wkbi->wkbi_bif_registry = reg;
 
-        rc = irx_pars_register_core_bifs(envblk, reg);
-        if (rc != 0)
-        {
-            goto cleanup;
-        }
-        rc = irx_bifstr_register(envblk, reg);
+        rc = irx_bif_register_all(envblk, reg);
         if (rc != 0)
         {
             goto cleanup;
