@@ -145,4 +145,11 @@ int irx_pars_run(struct irx_parser *p) asm("IRXPARRN");
 int irx_pars_eval_expr(struct irx_parser *p,
                        PLstr out) asm("IRXPAREV");
 
+/* Register parser-owned BIFs (ARG) into the per-environment registry.
+ * Called from irxinit() after the registry is created. */
+struct irx_bif_registry; /* forward */
+int irx_pars_register_core_bifs(struct envblock *env,
+                                struct irx_bif_registry *reg)
+    asm("IRXPARBF");
+
 #endif /* IRXPARS_H */

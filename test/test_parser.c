@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "irx.h"
+#include "irxfunc.h"
 #include "irxpars.h"
 #include "irxtokn.h"
 #include "irxvpool.h"
@@ -70,11 +72,11 @@ static void set_lstr(struct lstr_alloc *a, PLstr s, const char *c)
     Lscpy(a, s, c);
 }
 
-/* Run a complete REXX source through tokenizer + parser, using the
- * provided (optional) pre-populated variable pool. Returns the final
- * parser return code (IRXPARS_*). */
-static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
-                      const char *src)
+/* Run a complete REXX source through tokenizer + parser, optionally
+ * tied to an ENVBLOCK so BIF dispatch can reach the per-env registry.
+ * Returns the final parser return code (IRXPARS_*). */
+static int run_source_env(struct lstr_alloc *a, struct irx_vpool *pool,
+                          const char *src, struct envblock *env)
 {
     struct irx_token *tokens = NULL;
     int count = 0;
@@ -92,7 +94,7 @@ static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
         return -1;
     }
 
-    rc = irx_pars_init(&parser, tokens, count, pool, a, NULL);
+    rc = irx_pars_init(&parser, tokens, count, pool, a, env);
     if (rc != IRXPARS_OK)
     {
         irx_tokn_free(NULL, tokens, count);
@@ -110,6 +112,12 @@ static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
     irx_pars_cleanup(&parser);
     irx_tokn_free(NULL, tokens, count);
     return rc;
+}
+
+static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
+                      const char *src)
+{
+    return run_source_env(a, pool, src, NULL);
 }
 
 /* Convenience: run_source then vpool_get("X") and compare. */
@@ -256,10 +264,18 @@ static void test_ac8_function_length(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
     struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+
     printf("\n--- AC#8: x = LENGTH('hello') ---\n");
-    CHECK(run_source(a, pool, "x = LENGTH('hello')\n") == IRXPARS_OK,
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    CHECK(run_source_env(a, pool, "x = LENGTH('hello')\n", env) ==
+              IRXPARS_OK,
           "parser OK");
     CHECK(get_var_eq(a, pool, "X", "5"), "X = '5'");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
     vpool_destroy(pool);
 }
 

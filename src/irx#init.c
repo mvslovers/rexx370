@@ -15,8 +15,11 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxbif.h"
+#include "irxbifstr.h"
 #include "irxfunc.h"
 #include "irxio.h"
+#include "irxpars.h"
 #include "irxrab.h"
 #include "irxwkblk.h"
 
@@ -339,6 +342,28 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
 
     /* Link internal work block via envblock_userfield */
     envblk->envblock_userfield = wkbi;
+
+    /* 7a. BIF registry and core registrations */
+    {
+        struct irx_bif_registry *reg = NULL;
+        rc = irx_bif_create(envblk, &reg);
+        if (rc != 0)
+        {
+            goto cleanup;
+        }
+        wkbi->wkbi_bif_registry = reg;
+
+        rc = irx_pars_register_core_bifs(envblk, reg);
+        if (rc != 0)
+        {
+            goto cleanup;
+        }
+        rc = irx_bifstr_register(envblk, reg);
+        if (rc != 0)
+        {
+            goto cleanup;
+        }
+    }
 
     /* 8. Create env_node and register in RAB */
     {

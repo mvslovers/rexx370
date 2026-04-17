@@ -148,7 +148,17 @@ struct irx_wkblk_int
     /* --- Condition tracking (WP-20) --- */
     struct irx_condition_info *wkbi_last_condition; /* last raised condition */
 
-    int _reserved[2]; /* reserved for future use        */
+    /* --- BIF registry (WP-21a) ------------------------------------- */
+    /* Opaque pointer to struct irx_bif_registry, allocated by irxinit
+     * and released by irxterm. Populated with all core built-ins at
+     * environment creation. See <irxbif.h>.                          */
+    void *wkbi_bif_registry;
+
+    /* Originally 2 reserved word-slots; WP-21a consumed one for
+     * wkbi_bif_registry (above). One slot remaining for future use;
+     * enlarge the array (and re-check any layout-sensitive callers)
+     * when a new WP needs another slot.                              */
+    int _reserved[1];
 };
 
 #define WKBLK_INT_ID "WKBI"

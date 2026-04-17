@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxbif.h"
 #include "irxfunc.h"
 #include "irxrab.h"
 #include "irxwkblk.h"
@@ -75,6 +76,15 @@ int irxterm(struct envblock *envblk)
         if (wkbi->wkbi_lstr_alloc != NULL)
         {
             stor_free(&wkbi->wkbi_lstr_alloc, envblk);
+        }
+
+        /* Free the BIF registry (WP-21a). */
+        if (wkbi->wkbi_bif_registry != NULL)
+        {
+            irx_bif_destroy(
+                envblk,
+                (struct irx_bif_registry *)wkbi->wkbi_bif_registry);
+            wkbi->wkbi_bif_registry = NULL;
         }
 
         envblk->envblock_userfield = NULL;
