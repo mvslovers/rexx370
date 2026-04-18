@@ -1646,6 +1646,13 @@ static int bif_x2b(struct irx_parser *p, int argc, PLstr *argv,
 /* Returns the new length or -1 if the buffer is too small to hold the */
 /* result. At most three digits can be prepended per call (carry ≤ 255 */
 /* times residual ≤ ~2304, which rolls up to at most three decimals).  */
+/*                                                                      */
+/* Performance note: the prepend loop uses memmove per new digit, so a  */
+/* k-byte input costs O(k²) bytes of movement worst case (~7.5 MB for   */
+/* k=1000). A "prepend counter + single final shift" variant would      */
+/* reduce this to O(k). Left as-is until profiling against a real       */
+/* hotpath justifies the change — C2D inputs of that magnitude are      */
+/* pathological in practice.                                            */
 static int bcd_mul256_add(char *digits, int len, int cap, int byte_val)
 {
     int i;
@@ -1771,6 +1778,8 @@ static int compute_c2d(struct irx_parser *p,
 
     /* BCD path. Scratch: digits upper bound is byte_len * 3 (each byte  */
     /* contributes ≤ 2.41 decimal digits; round up to 3 for slack).      */
+    /* The (int) cast is safe in practice: byte_len is bounded by the    */
+    /* input Lstr length which is well under INT_MAX/3 on 24-bit MVS.    */
     int digits_cap = (int)byte_len * 3 + 4;
     void *tmp = NULL;
     int arc = irxstor(RXSMGET, digits_cap, &tmp, p->envblock);
@@ -2092,19 +2101,19 @@ static int d2_parse_whole(struct irx_parser *p, PLstr in,
     return IRXPARS_OK;
 }
 
-/* Pull out bytes LSB-first from a digit array, into a reversed        */
-/* (caller-provided) buffer. Returns the number of bytes actually      */
-/* written before the value was exhausted.                             */
-static int digits_to_bytes_lsb_collect(char *digits, int digits_len,
-                                       unsigned char *lsb_out, int cap)
-{
-    return bcd_to_bytes_lsb(digits, digits_len, lsb_out, cap);
-}
-
 /* Core for D2C and the byte-backing of D2X. Writes `out_bytes_len`    */
 /* bytes MSB-first into `out_bytes`. Handles sign, length padding,     */
-/* truncation, and two's-complement negation. `*all_zero_out` is 1 iff */
-/* the absolute value of the input is zero.                            */
+/* truncation, and two's-complement negation. `*all_zero_out` reflects */
+/* the PRE-NEGATION magnitude (1 iff |n| == 0 after length truncation) */
+/* — callers only use it in the sign==0 / length-omitted path where    */
+/* the distinction doesn't matter. If a future refactor consults       */
+/* `all_zero` on a post-negation buffer, re-check this semantics.      */
+/*                                                                     */
+/* Performance note: two scratch buffers are allocated per call        */
+/* (`digits`, DIGITS_CAP bytes ≈ 2000; `lsb`, lsb_cap bytes ≤ ~505).    */
+/* Consolidating into one allocation with offset pointers would save   */
+/* ~2.5 KB on the MVS heap per invocation — deferred until a concrete  */
+/* hotpath motivates it.                                               */
 static int d2_core_write_bytes(struct irx_parser *p, PLstr in,
                                const char *bif_name,
                                int length_given,
@@ -2171,9 +2180,7 @@ static int d2_core_write_bytes(struct irx_parser *p, PLstr in,
     }
     memset(lsb, 0, (size_t)lsb_cap);
 
-    int actual = digits_to_bytes_lsb_collect(digits, digits_len, lsb,
-                                             lsb_cap);
-    (void)actual;
+    (void)bcd_to_bytes_lsb(digits, digits_len, lsb, lsb_cap);
 
     /* Reverse LSB-first into MSB-first in out_bytes, right-aligned. */
     memset(out_bytes, 0, (size_t)out_bytes_len);

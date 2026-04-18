@@ -908,6 +908,18 @@ static void test_phase_d_c2d_x2d(void)
     EXPECT_OK("X2D('FFF',3)", "-1", "X2D FFF n=3 (12-bit -1)");
     EXPECT_OK("X2D('800',3)", "-2048", "X2D 800 n=3 (12-bit min)");
     EXPECT_OK("X2D('7FF',3)", "2047", "X2D 7FF n=3 (12-bit max)");
+
+    /* Odd-nibble TRUNCATION: hex_count > n, retains rightmost n nibbles. */
+    /* Expected values verified on TSO/E REXX (SC28-1883-0 reference — see */
+    /* PR #38 thread for the verification run). The leading 'A' gets       */
+    /* dropped, MSN = 'B' has bit 3 set, so the 12-bit two's-complement    */
+    /* value is 0x0BCD - 2^12 = -1075.                                     */
+    EXPECT_OK("X2D('ABCD',3)", "-1075",
+              "X2D ABCD n=3 truncates → BCD (neg, TSO/E-verified)");
+    EXPECT_OK("X2D('A7CD',3)", "1997",
+              "X2D A7CD n=3 truncates → 7CD (pos, non-negation path)");
+    EXPECT_OK("X2D('A00D',3)", "13",
+              "X2D A00D n=3 truncates → 00D (pos, small value)");
 }
 
 static void test_phase_d_d2c_d2x(void)
@@ -1052,6 +1064,12 @@ static void test_phase_d_errors(void)
                     "AC-D7 X2D non-hex → 40.25");
     run_expect_fail("x = X2B('GG')\n", SYNTAX_BAD_CALL, ERR40_BAD_HEX,
                     "X2B non-hex → 40.25");
+    /* Non-hex character surrounded by legitimate blanks — the blank-   */
+    /* skipping loop must NOT suppress the non-hex detection.           */
+    run_expect_fail("x = X2D('F G F')\n", SYNTAX_BAD_CALL, ERR40_BAD_HEX,
+                    "X2D non-hex between blanks");
+    run_expect_fail("x = X2C('A G B')\n", SYNTAX_BAD_CALL, ERR40_BAD_HEX,
+                    "X2C non-hex between blanks");
 
     /* B2X non-binary → SYNTAX 40.24. */
     run_expect_fail("x = B2X('12')\n", SYNTAX_BAD_CALL, ERR40_BAD_BINARY,
@@ -1070,6 +1088,12 @@ static void test_phase_d_errors(void)
                     ERR40_WHOLE_NUMBER, "D2C fractional");
     run_expect_fail("x = D2X('3.14')\n", SYNTAX_BAD_CALL,
                     ERR40_WHOLE_NUMBER, "D2X fractional");
+    /* Scientific notation with negative exponent parses as a number but  */
+    /* has fractional digits after NUMERIC normalization — whole check    */
+    /* must reject it. TSO/E REXX raises SYNTAX 40 (verified, see PR #38  */
+    /* thread).                                                           */
+    run_expect_fail("x = D2C('1E-5')\n", SYNTAX_BAD_CALL,
+                    ERR40_WHOLE_NUMBER, "D2C negative-exponent fractional");
 
     /* D2C / D2X non-numeric → 41.1. */
     run_expect_fail("x = D2C('abc')\n", SYNTAX_BAD_ARITH,
