@@ -192,7 +192,7 @@ Tests: `test/test_name.c`
 | `src/irx#exec.c` | IRX#EXEC | End-to-end execution pipeline irx_exec_run() (WP-18) |
 | `src/irx#cond.c` | IRX#COND | Condition raise helper (irx_cond_raise, WP-21a) |
 | `src/irx#bif.c`  | IRX#BIF  | BIF registry + argument-validation helpers (WP-21a) |
-| `src/irx#bifs.c` | IRX#BIFS | String BIFs (LENGTH, SUBSTR, WORD, ... WP-21a) |
+| `src/irx#bifs.c` | IRX#BIFS | All §4 BIFs — string (WP-21a) + numeric, conversion, reflection, environment (WP-21b) |
 
 New source files follow the same pattern: `src/irx#xxxx.c` where
 `xxxx` is a 4-character identifier. Member names must be ≤ 8 chars.
@@ -349,7 +349,7 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     $LSTRING_SRC
 ./test/test_vpool
 
-# Parser (WP-13) — 38/38
+# Parser (WP-13) — 39/39
 gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     -o test/test_parser test/test_parser.c \
     $PHASE1_SRC 'src/irx#lstr.c' 'src/irx#tokn.c' \
@@ -398,12 +398,21 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
 ./test/test_bif
 
-# String BIFs end-to-end (WP-21a) — 87/87
+# All §4 BIFs end-to-end (WP-21a + WP-21b) — 410/410
 gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
     -o test/test_bifs test/test_bifs.c \
     $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
 ./test/test_bifs
 ```
+
+Additional test binaries (same dependency sets as above; check each
+file's header comment for the exact invocation):
+
+- `test/test_arith_extended` — direct IRXARITH API tests (WP-20 + WP-21b Phase B) — 113/113
+- `test/test_procedure` — PROCEDURE EXPOSE (WP-17) — 53/53
+- `test/test_phase1` — Phase 1 control-block smoke tests — 38/38
+
+Full matrix: 14 binaries, **1156 tests green** as of WP-21b Phase H close-out.
 
 ## Work packages
 
@@ -415,8 +424,9 @@ Current status:
 - Phase 1 (WP-01 through WP-05): complete
 - Phase 2 (WP-10 through WP-18): complete
 - Phase 3 in progress:
-  - WP-20 (Arithmetic engine — 128/128)
-  - WP-21a (String BIFs — 29/29 + 87/87)
+  - WP-20 (Arithmetic engine — 128/128 + 113/113 extended)
+  - WP-21a (String BIFs, 29 BIFs) — done
+  - WP-21b (Numeric/Conversion/Reflection/Environment BIFs, 23 BIFs) — done
 
 ## Knowledge sources
 

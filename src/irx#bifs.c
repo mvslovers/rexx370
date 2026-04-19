@@ -93,7 +93,7 @@ static int set_one(struct lstr_alloc *a, PLstr s, unsigned char c)
 }
 
 /* ================================================================== */
-/*  Phase B — Substring & position                                    */
+/*  String — Substring & position (WP-21a)                            */
 /* ================================================================== */
 
 static int bif_length(struct irx_parser *p, int argc, PLstr *argv,
@@ -216,7 +216,7 @@ static int bif_lastpos(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase C — Word operations                                         */
+/*  String — Word operations (WP-21a)                                 */
 /* ================================================================== */
 
 static int bif_words(struct irx_parser *p, int argc, PLstr *argv,
@@ -308,7 +308,7 @@ static int bif_wordpos(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase D — Padding, stripping, formatting                          */
+/*  String — Padding, stripping, formatting (WP-21a)                  */
 /* ================================================================== */
 
 static int bif_center(struct irx_parser *p, int argc, PLstr *argv,
@@ -522,7 +522,7 @@ static int bif_justify(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase E — Insert, delete, overlay                                 */
+/*  String — Insert, delete, overlay (WP-21a)                         */
 /* ================================================================== */
 
 static int bif_insert(struct irx_parser *p, int argc, PLstr *argv,
@@ -729,7 +729,7 @@ static int bif_delword(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase F — Translation & verification                              */
+/*  String — Translation & verification (WP-21a)                      */
 /* ================================================================== */
 
 static int bif_translate(struct irx_parser *p, int argc, PLstr *argv,
@@ -1000,7 +1000,7 @@ static int bif_find(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase G — Numeric BIFs (WP-21b Phase C)                           */
+/*  Numeric (WP-21b)                                                  */
 /*                                                                    */
 /*  All seven BIFs delegate to IRXARITH primitives (irx_arith_op,     */
 /*  irx_arith_compare, irx_arith_trunc, irx_arith_format,             */
@@ -1390,7 +1390,7 @@ static int bif_random(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase H — Conversion BIFs (WP-21b Phase D)                        */
+/*  Conversion (WP-21b)                                               */
 /*                                                                    */
 /*  C2X / X2C / B2X / X2B are pure byte-level conversions; they       */
 /*  neither inspect nor produce REXX numbers. C2D / X2D / D2C / D2X   */
@@ -2493,7 +2493,7 @@ static int bif_d2x(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase I — Reflection BIFs (WP-21b Phase E)                        */
+/*  Reflection (WP-21b)                                               */
 /*                                                                    */
 /*  DATATYPE / SYMBOL / DIGITS / FUZZ / FORM expose interpreter       */
 /*  state and classification rules to REXX code. They are thin        */
@@ -2710,7 +2710,7 @@ static int bif_form(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
-/*  Phase F — Environment BIFs (WP-21b Phase F)                       */
+/*  Environment (WP-21b)                                              */
 /* ================================================================== */
 
 /* USERID() — current user id.
@@ -3045,8 +3045,12 @@ static int bif_errortext(struct irx_parser *p, int argc, PLstr *argv,
 /*  Registration                                                      */
 /* ================================================================== */
 
+/* Registration order groups by functional category; within a group
+ * the sequence reflects implementation order rather than alphabetical
+ * sort — semantically related BIFs cluster (word ops together, byte-
+ * conversion together) for faster review scanning. */
 static const struct irx_bif_entry g_bifstr_table[] = {
-    /* Phase B */
+    /* String — substring & position (WP-21a) */
     {"LENGTH", 1, 1, bif_length},
     {"LEFT", 2, 3, bif_left},
     {"RIGHT", 2, 3, bif_right},
@@ -3054,14 +3058,14 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"POS", 2, 3, bif_pos},
     {"INDEX", 2, 3, bif_index},
     {"LASTPOS", 2, 3, bif_lastpos},
-    /* Phase C */
+    /* String — word operations (WP-21a) */
     {"WORDS", 1, 1, bif_words},
     {"WORD", 2, 2, bif_word},
     {"WORDINDEX", 2, 2, bif_wordindex},
     {"WORDLENGTH", 2, 2, bif_wordlength},
     {"SUBWORD", 2, 3, bif_subword},
     {"WORDPOS", 2, 3, bif_wordpos},
-    /* Phase D */
+    /* String — padding, stripping, formatting (WP-21a) */
     {"CENTER", 2, 3, bif_center},
     {"CENTRE", 2, 3, bif_center},
     {"STRIP", 1, 3, bif_strip},
@@ -3069,19 +3073,19 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"JUSTIFY", 2, 3, bif_justify},
     {"COPIES", 2, 2, bif_copies},
     {"REVERSE", 1, 1, bif_reverse},
-    /* Phase E */
+    /* String — insert, delete, overlay (WP-21a) */
     {"INSERT", 2, 5, bif_insert},
     {"OVERLAY", 2, 5, bif_overlay},
     {"DELSTR", 2, 3, bif_delstr},
     {"DELWORD", 2, 3, bif_delword},
-    /* Phase F */
+    /* String — translation & verification (WP-21a) */
     {"TRANSLATE", 1, 4, bif_translate},
     {"VERIFY", 2, 4, bif_verify},
     {"COMPARE", 2, 3, bif_compare},
     {"ABBREV", 2, 3, bif_abbrev},
     {"XRANGE", 0, 2, bif_xrange},
     {"FIND", 2, 2, bif_find},
-    /* Phase G — Numeric BIFs (WP-21b Phase C) */
+    /* Numeric (WP-21b) */
     {"MAX", 1, IRX_MAX_ARGS, bif_max},
     {"MIN", 1, IRX_MAX_ARGS, bif_min},
     {"ABS", 1, 1, bif_abs},
@@ -3089,7 +3093,7 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"TRUNC", 1, 2, bif_trunc},
     {"FORMAT", 1, 5, bif_format},
     {"RANDOM", 0, 3, bif_random},
-    /* Phase H — Conversion BIFs (WP-21b Phase D) */
+    /* Conversion (WP-21b) */
     {"C2X", 1, 1, bif_c2x},
     {"X2C", 1, 1, bif_x2c},
     {"B2X", 1, 1, bif_b2x},
@@ -3098,13 +3102,13 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"X2D", 1, 2, bif_x2d},
     {"D2C", 1, 2, bif_d2c},
     {"D2X", 1, 2, bif_d2x},
-    /* Phase I — Reflection BIFs (WP-21b Phase E) */
+    /* Reflection (WP-21b) */
     {"DATATYPE", 1, 2, bif_datatype},
     {"SYMBOL", 1, 1, bif_symbol},
     {"DIGITS", 0, 0, bif_digits},
     {"FUZZ", 0, 0, bif_fuzz},
     {"FORM", 0, 0, bif_form},
-    /* Phase J — Environment BIFs (WP-21b Phase F) */
+    /* Environment (WP-21b) */
     {"USERID", 0, 0, bif_userid},
     {"ERRORTEXT", 1, 1, bif_errortext},
     {"EXTERNALS", 0, 0, bif_externals},
