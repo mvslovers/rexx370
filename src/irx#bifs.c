@@ -2693,6 +2693,45 @@ static int bif_form(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
+/*  Phase F — Environment BIFs (WP-21b Phase F)                       */
+/* ================================================================== */
+
+/* ERRORTEXT(n) — descriptive text for a SYNTAX primary code.
+ * The table itself lives in src/irx#cond.c; the BIF just validates the
+ * argument and formats the lookup result. Out-of-range n raises
+ * SYNTAX 40.23 (ERR40_OPTION_INVALID); in-range but undefined codes
+ * return the empty string, matching TSO/E behaviour. */
+static int bif_errortext(struct irx_parser *p, int argc, PLstr *argv,
+                         PLstr result)
+{
+    (void)argc;
+    long code = 0;
+    int rc = irx_bif_whole_nonneg(p, argv, 0, "ERRORTEXT", &code);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    /* Pre-check guards the (int) cast below against pathological long
+     * values; the canonical range check lives in irx_cond_errortext(). */
+    const char *text =
+        (code >= ERRORTEXT_CODE_MIN && code <= ERRORTEXT_CODE_MAX)
+            ? irx_cond_errortext((int)code)
+            : NULL;
+
+    if (text == NULL)
+    {
+        char desc[80];
+        snprintf(desc, sizeof(desc),
+                 "ERRORTEXT: code %ld out of range", code);
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL,
+                       ERR40_OPTION_INVALID, desc);
+        return IRXPARS_SYNTAX;
+    }
+    return translate_lstr_rc(lit_to_lstr(p->alloc, result, text));
+}
+
+/* ================================================================== */
 /*  Registration                                                      */
 /* ================================================================== */
 
@@ -2755,6 +2794,8 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"DIGITS", 0, 0, bif_digits},
     {"FUZZ", 0, 0, bif_fuzz},
     {"FORM", 0, 0, bif_form},
+    /* Phase J — Environment BIFs (WP-21b Phase F) */
+    {"ERRORTEXT", 1, 1, bif_errortext},
     /* Sentinel */
     {"", 0, 0, NULL}};
 

@@ -1279,9 +1279,125 @@ static void test_phase_e_errors(void)
                     "DATATYPE unknown multi-char option -> 40.23");
 }
 
+/* ================================================================== */
+/*  Phase F — Environment BIFs (WP-21b Phase F, issue #34)            */
+/* ================================================================== */
+
+/* True iff s contains at least one non-digit and at least one non-blank
+ * character — used to reject a regression where ERRORTEXT would echo
+ * the numeric code back as its own text. */
+static int looks_non_numeric_text(const char *s, size_t len)
+{
+    if (len == 0)
+    {
+        return 0;
+    }
+    int saw_non_digit = 0;
+    int saw_non_blank = 0;
+    for (size_t i = 0; i < len; i++)
+    {
+        unsigned char c = (unsigned char)s[i];
+        if (c != ' ')
+        {
+            saw_non_blank = 1;
+        }
+        if (c < '0' || c > '9')
+        {
+            saw_non_digit = 1;
+        }
+    }
+    return saw_non_blank && saw_non_digit;
+}
+
+static void errortext_check_nonempty(int code)
+{
+    char src[64];
+    snprintf(src, sizeof(src), "x = ERRORTEXT(%d)\n", code);
+    struct fixture fx;
+    if (fixture_open(&fx) != 0)
+    {
+        CHECK(0, "ERRORTEXT fixture_open");
+        return;
+    }
+    int rc = run_src(&fx, src);
+    if (rc != IRXPARS_OK)
+    {
+        CHECK(0, "ERRORTEXT(n) executes");
+        fixture_close(&fx);
+        return;
+    }
+
+    Lstr key;
+    Lstr val;
+    Lzeroinit(&key);
+    Lzeroinit(&val);
+    Lscpy(fx.alloc, &key, "X");
+    int vrc = vpool_get(fx.pool, &key, &val);
+    int ok = (vrc == VPOOL_OK) &&
+             looks_non_numeric_text((const char *)val.pstr, val.len);
+    if (!ok)
+    {
+        printf("    ERRORTEXT(%d) = '%.*s'\n",
+               code, (int)val.len, (const char *)val.pstr);
+    }
+    char label[64];
+    snprintf(label, sizeof(label),
+             "ERRORTEXT(%d) non-empty non-numeric", code);
+    CHECK(ok, label);
+    Lfree(fx.alloc, &key);
+    Lfree(fx.alloc, &val);
+    fixture_close(&fx);
+}
+
+static void test_phase_f_errortext(void)
+{
+    printf("\n--- Phase F: ERRORTEXT ---\n");
+
+    /* AC-F2 — exact match against the TSO/E-verified spec text. */
+    EXPECT_OK("ERRORTEXT(40)", "Incorrect call to routine",
+              "AC-F2 ERRORTEXT(40) exact TSO/E text");
+
+    /* Table-boundary guards — the first and last defined Appendix A
+     * entries. Catches off-by-one regressions from table reorder. */
+    EXPECT_OK("ERRORTEXT(3)", "Program is unreadable",
+              "ERRORTEXT(3) first table entry");
+    EXPECT_OK("ERRORTEXT(49)", "Interpreter failure",
+              "ERRORTEXT(49) last table entry");
+
+    /* Codes rexx370 actually raises today — verify the lookup returns
+     * something sensible (non-empty, not just the numeric code). */
+    errortext_check_nonempty(24);
+    errortext_check_nonempty(26);
+    errortext_check_nonempty(41);
+    errortext_check_nonempty(42);
+
+    /* AC-F3 — out-of-range codes raise SYNTAX 40.23. */
+    run_expect_fail("x = ERRORTEXT(0)\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "AC-F3 ERRORTEXT(0) -> 40.23");
+    run_expect_fail("x = ERRORTEXT(99)\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "AC-F3 ERRORTEXT(99) -> 40.23");
+
+    /* Upstream validation — negative or non-numeric fails in whole-number
+     * parsing before the range check runs. */
+    run_expect_fail("x = ERRORTEXT(-1)\n", SYNTAX_BAD_CALL,
+                    ERR40_NONNEG_WHOLE,
+                    "ERRORTEXT(-1) rejected as non-negative");
+    run_expect_fail("x = ERRORTEXT('ABC')\n", SYNTAX_BAD_CALL,
+                    ERR40_NONNEG_WHOLE,
+                    "ERRORTEXT('ABC') rejected as non-numeric");
+
+    /* In-range but undefined codes must return empty string, matching
+     * TSO/E behaviour for gaps (1, 2, 46, 47) and for codes 50..90. */
+    EXPECT_OK("ERRORTEXT(1)", "", "ERRORTEXT(1) undefined -> empty");
+    EXPECT_OK("ERRORTEXT(46)", "", "ERRORTEXT(46) undefined -> empty");
+    EXPECT_OK("ERRORTEXT(90)", "", "ERRORTEXT(90) undefined -> empty");
+}
+
 int main(void)
 {
-    printf("=== WP-21a + WP-21b Phase C+D+E: BIFs ===\n");
+    printf("=== WP-21a + WP-21b Phase C+D+E+F: BIFs ===\n");
     test_phase_b();
     test_phase_c();
     test_phase_d();
@@ -1300,6 +1416,7 @@ int main(void)
     test_phase_e_symbol();
     test_phase_e_numeric_reflection();
     test_phase_e_errors();
+    test_phase_f_errortext();
     test_error_paths();
     test_find_phrase_cap();
 
