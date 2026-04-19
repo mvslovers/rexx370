@@ -2900,16 +2900,23 @@ static int source_line_count(const unsigned char *src, size_t len)
 
 /* Find the start offset and length of line `n` (1-based). Returns 1
  * on success, 0 if n is out of range, source is NULL, or source is
- * empty. The returned range excludes the terminating '\n'. */
+ * empty. The returned range excludes the terminating '\n'.
+ *
+ * `n` is `long` to avoid a silent truncation bug when a 64-bit REXX
+ * integer arrives on cross-compile hosts — an int-cast on LP64 could
+ * land back inside the valid range and return a spurious line. The
+ * internal `cur` stays int: REXX source sizes are bounded (tokens
+ * cap at 500 chars per clause, so a million-line program would still
+ * be <500MB and well under INT_MAX line count). */
 static int source_line_find(const unsigned char *src, size_t len,
-                            int n, size_t *out_start, size_t *out_len)
+                            long n, size_t *out_start, size_t *out_len)
 {
     if (src == NULL || len == 0 || n <= 0)
     {
         return 0;
     }
     size_t i = 0;
-    int cur = 1;
+    long cur = 1;
     while (cur < n && i < len)
     {
         while (i < len && src[i] != '\n')
@@ -2975,7 +2982,7 @@ static int bif_sourceline(struct irx_parser *p, int argc, PLstr *argv,
 
     size_t line_start = 0;
     size_t line_len = 0;
-    if (!source_line_find(src, src_len, (int)n, &line_start, &line_len))
+    if (!source_line_find(src, src_len, n, &line_start, &line_len))
     {
         char desc[80];
         snprintf(desc, sizeof(desc),

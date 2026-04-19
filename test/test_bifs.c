@@ -1550,6 +1550,28 @@ static void test_phase_f_value(void)
               "VALUE empty selector treated as absent (no raise)");
         fixture_close(&fx);
     }
+
+    /* Mode 2 with empty newvalue — "set to empty string" is a valid
+     * assignment, distinct from "omit the second argument". Verifies
+     * the commentary claim that empty newvalue is honoured. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE empty-newvalue fixture_open");
+            return;
+        }
+        int rc = run_src(&fx,
+                         "x = 'hello'\n"
+                         "y = VALUE('X', '')\n"
+                         "z = X\n");
+        CHECK(rc == IRXPARS_OK, "VALUE empty-newvalue executes");
+        CHECK(var_eq(&fx, "Y", "hello"),
+              "VALUE('X','') returns previous 'hello'");
+        CHECK(var_eq(&fx, "Z", ""),
+              "VALUE('X','') sets X to empty string");
+        fixture_close(&fx);
+    }
 }
 
 /* Drive bif_sourceline with a pre-populated wkbi_source. The test
@@ -1660,6 +1682,44 @@ static void test_phase_f_sourceline(void)
     run_expect_fail("x = SOURCELINE('abc')\n", SYNTAX_BAD_CALL,
                     ERR40_POSITIVE_WHOLE,
                     "SOURCELINE('abc') -> 40.12 (non-numeric)");
+
+    /* Huge n must NOT silently truncate into a valid line index.
+     * On cross-compile hosts (long = 64-bit, int = 32-bit) this
+     * guards against a cast-truncation bug that would land the
+     * request back inside the valid range — e.g. 2^32 + 5 -> 5
+     * and spuriously return line 5. source_line_find takes long
+     * directly, so the out-of-range check fires as expected. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE huge-n fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "one\ntwo\nthree\nfour\nfive");
+        int rc = run_src(&fx, "y = SOURCELINE(4294967301)\n");
+        CHECK(rc != IRXPARS_OK,
+              "SOURCELINE huge-n rejects (no silent truncation)");
+        fixture_close(&fx);
+    }
+
+    /* Trailing '\n' does not add a phantom empty line: "a\nb\n"
+     * counts as 2, not 3. Guards against off-by-one regression
+     * in source_line_count. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE trailing-nl fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "a\nb\n");
+        int rc = run_src(&fx, "y = SOURCELINE()\n");
+        CHECK(rc == IRXPARS_OK, "SOURCELINE trailing-nl executes");
+        CHECK(var_eq(&fx, "Y", "2"),
+              "SOURCELINE() with trailing '\\n' counts 2 (not 3)");
+        fixture_close(&fx);
+    }
 
     /* End-to-end through irx_exec_run: proves the wkbi_source plumbing
      * in exec.c actually populates before BIF dispatch. The source
