@@ -35,8 +35,40 @@ throughout `src/`, `include/`, and `test/`.
 
 The full style guide lives in [`docs/code-style.md`](docs/code-style.md).
 `.clang-format` and `.clang-tidy` at the repo root encode the
-mechanically enforceable parts. **Run `clang-format -i src/*.c
-include/*.h test/*.c` before every commit.**
+mechanically enforceable parts.
+
+### Tooling workflow
+
+**clang-tidy during development.** Run while iterating to catch
+issues early. Warnings are advisory — they surface magic numbers,
+const-correctness, multi-level pointer conversions, and similar
+concerns. Fix what's in your diff; pre-existing warnings are out
+of scope for the current commit unless the task explicitly includes
+them.
+
+```sh
+clang-tidy --config-file=.clang-tidy src/irx#*.c -- \
+    -Iinclude -Icontrib/lstring370-0.1.0-dev/include -std=gnu99
+```
+
+**clang-format at the end of each commit, only on files you changed.**
+Run it ONCE as the very last step, immediately before `git add`.
+Pass the specific files you touched — do not sweep the whole tree
+from a feature branch (that belongs in a dedicated `chore: clang-format
+sweep` commit).
+
+```sh
+clang-format --style=file:.clang-format -i <files you changed>
+```
+
+The codebase is convergent with `.clang-format` as of the sweep that
+landed just before this workflow was documented — running
+`clang-format --style=file --dry-run --Werror` across `src/`,
+`include/`, `test/` passes cleanly. CI is expected to ratchet on
+this invariant (follow-up task). Any diff produced by `clang-format`
+on a file you didn't semantically change is a red flag: re-check
+that you're using `--style=file:.clang-format` and that your local
+clang-format isn't picking up a different config.
 
 ### Language rules
 
