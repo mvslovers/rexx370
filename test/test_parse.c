@@ -29,7 +29,7 @@
 void *_simulated_tcbuser = NULL;
 #endif
 
-static int tests_run    = 0;
+static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
@@ -56,12 +56,12 @@ static int tests_failed = 0;
 #define OUT_BUF_SIZE 4096
 
 static char g_out[OUT_BUF_SIZE];
-static int  g_out_len = 0;
+static int g_out_len = 0;
 
 static void reset_output(void)
 {
-    g_out_len  = 0;
-    g_out[0]   = '\0';
+    g_out_len = 0;
+    g_out[0] = '\0';
 }
 
 static int output_contains(const char *line)
@@ -90,7 +90,7 @@ static int mock_io(int function, PLstr data, struct envblock *envblock)
             memcpy(g_out + g_out_len, data->pstr, (size_t)n);
             g_out_len += n;
             g_out[g_out_len++] = '\n';
-            g_out[g_out_len]   = '\0';
+            g_out[g_out_len] = '\0';
         }
     }
     return 0;
