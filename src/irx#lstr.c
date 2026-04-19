@@ -15,6 +15,7 @@
 #include "irx.h"
 #include "irxfunc.h"
 #include "irxlstr.h"
+#include "irxtokn.h"
 #include "irxwkblk.h"
 #include "lstring.h"
 
@@ -222,27 +223,6 @@ int _Lisnum(PLstr s)
 /*  handles the empty-string short-circuit.                            */
 /* ------------------------------------------------------------------ */
 
-static int is_symbol_char(int c)
-{
-    if (isalnum(c))
-    {
-        return 1;
-    }
-    switch (c)
-    {
-        case '_':
-        case '@':
-        case '#':
-        case '$':
-        case '?':
-        case '!':
-        case '.':
-            return 1;
-        default:
-            return 0;
-    }
-}
-
 static int all_match(const unsigned char *p, size_t n, int (*pred)(int))
 {
     size_t i;
@@ -341,7 +321,11 @@ int irx_datatype(PLstr s, char option)
 
         case 'S':
         case 's':
-            return all_match(s->pstr, s->len, is_symbol_char);
+            /* Shares the tokenizer's rule: non-empty, first char a
+             * symbol starter (letter / special), rest symbol chars.
+             * This rejects leading digits and '.' — those introduce
+             * constant symbols / numbers, not variable names. */
+            return is_rexx_symbol(s->pstr, s->len);
 
         case 'U':
         case 'u':

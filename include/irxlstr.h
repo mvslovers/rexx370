@@ -97,14 +97,20 @@ int _Lisnum(PLstr s);
  *   'B'     binary                             '0' | '1'
  *   'L'     lowercase alphabetic only          a-z
  *   'M'     mixed / any alphabetic             a-z | A-Z
- *   'S'     symbol characters                  letters digits _ @ # $ ? ! .
+ *   'S'     valid REXX symbol name             first char a letter /
+ *                                              _ @ # $ ? !, rest also
+ *                                              allow digits and '.'
  *   'U'     uppercase alphabetic only          A-Z
  *   'W'     whole number                       integer with no frac part
  *   'X'     hex digits (blanks permitted)      0-9 a-f A-F + blanks
  *
  * Per SC28-1883-0: DATATYPE returns 1 only if the string is non-empty
- * and every character satisfies the option. (Option 'W' also accepts
- * leading sign.) Returns 0 for empty strings and any mismatch.
+ * and satisfies the option. For every option except 'S' this means
+ * every character individually passes the class check; 'S' adds a
+ * stricter starter rule so leading digits or '.' (which would start a
+ * constant symbol or number in REXX) are rejected — this predicate
+ * is shared with SYMBOL() and the tokenizer. Option 'W' also accepts
+ * a leading sign. Returns 0 for empty strings and any mismatch.
  *
  * Unknown option characters return 0.
  */

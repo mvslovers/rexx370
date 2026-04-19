@@ -58,8 +58,10 @@ struct tok_ctx
 /* ------------------------------------------------------------------ */
 
 /* Characters allowed as the first character of a symbol (letter or
- * one of the REXX special starters). */
-static int is_symbol_start(int c)
+ * one of the REXX special starters). Public — also used by the
+ * SYMBOL() and DATATYPE('S') BIFs so the two definitions of "symbol"
+ * can never drift apart. */
+int irx_is_symbol_start(int c)
 {
     if (isalpha(c))
     {
@@ -81,7 +83,7 @@ static int is_symbol_start(int c)
 
 /* Characters allowed within a symbol after the first char. Dot is
  * included; dots make a symbol compound. */
-static int is_symbol_char(int c)
+int irx_is_symbol_char(int c)
 {
     if (isalnum(c))
     {
@@ -100,6 +102,31 @@ static int is_symbol_char(int c)
         default:
             return 0;
     }
+}
+
+/* Whole-string predicate: non-empty and every character is a symbol
+ * character, with the first constrained to a letter / special
+ * starter (digits and '.' introduce constant symbols or numbers in
+ * REXX, not variable names, so they are rejected here). */
+int is_rexx_symbol(const unsigned char *s, size_t len)
+{
+    if (s == NULL || len == 0)
+    {
+        return 0;
+    }
+    if (!irx_is_symbol_start(s[0]))
+    {
+        return 0;
+    }
+    size_t i;
+    for (i = 1; i < len; i++)
+    {
+        if (!irx_is_symbol_char(s[i]))
+        {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* The REXX "NOT" sign has two representations: backslash, and the
@@ -533,7 +560,7 @@ static int scan_symbol_or_number(struct tok_ctx *ctx)
     while (ctx->pos < ctx->src_len)
     {
         int c = peek(ctx, 0);
-        if (!is_symbol_char(c))
+        if (!irx_is_symbol_char(c))
         {
             break;
         }
@@ -714,7 +741,7 @@ static int tokenize(struct tok_ctx *ctx)
             continue;
         }
 
-        if (is_symbol_start(c) || isdigit(c) || c == '.')
+        if (irx_is_symbol_start(c) || isdigit(c) || c == '.')
         {
             if (scan_symbol_or_number(ctx) != 0)
             {
