@@ -1458,6 +1458,99 @@ static void test_phase_f_stubs(void)
     EXPECT_OK("LINESIZE()", "80", "AC-F8 LINESIZE() -> '80'");
 }
 
+static void test_phase_f_value(void)
+{
+    printf("\n--- Phase F: VALUE ---\n");
+
+    /* AC-F6 Mode 1 — read existing variable. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE mode 1 fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "x = 5\ny = VALUE('X')\n");
+        CHECK(rc == IRXPARS_OK, "AC-F6 Mode 1 VALUE('X') executes");
+        CHECK(var_eq(&fx, "Y", "5"), "AC-F6 Mode 1 VALUE('X') -> '5'");
+        fixture_close(&fx);
+    }
+
+    /* Mode 1 — unset variable returns uppercased name. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE unset fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "y = VALUE('new_var')\n");
+        CHECK(rc == IRXPARS_OK, "VALUE unset executes");
+        CHECK(var_eq(&fx, "Y", "NEW_VAR"),
+              "VALUE('new_var') unset -> 'NEW_VAR' (uppercased)");
+        fixture_close(&fx);
+    }
+
+    /* AC-F6 Mode 2 — read old, set new, return old. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE mode 2 fixture_open");
+            return;
+        }
+        int rc = run_src(&fx,
+                         "x = 5\n"
+                         "y = VALUE('X', '7')\n"
+                         "z = VALUE('X')\n");
+        CHECK(rc == IRXPARS_OK, "AC-F6 Mode 2 VALUE('X','7') executes");
+        CHECK(var_eq(&fx, "Y", "5"),
+              "AC-F6 Mode 2 VALUE('X','7') returns previous '5'");
+        CHECK(var_eq(&fx, "Z", "7"),
+              "AC-F6 Mode 2 VALUE('X','7') sets X to '7'");
+        fixture_close(&fx);
+    }
+
+    /* Mode 2 — set a previously-unset variable. Return is the
+     * uppercased name (matches Mode 1 behaviour), set still happens. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE set-new fixture_open");
+            return;
+        }
+        int rc = run_src(&fx,
+                         "y = VALUE('NEW_VAR', 'hello')\n"
+                         "z = NEW_VAR\n");
+        CHECK(rc == IRXPARS_OK, "VALUE set-new executes");
+        CHECK(var_eq(&fx, "Y", "NEW_VAR"),
+              "VALUE set-new returns uppercased name for previously unset");
+        CHECK(var_eq(&fx, "Z", "hello"),
+              "VALUE set-new actually sets the variable");
+        fixture_close(&fx);
+    }
+
+    /* AC-F7 — Mode 3 with selector raises SYNTAX 40.23. */
+    run_expect_fail("x = 5\ny = VALUE('X', '7', 'ENVIRONMENT')\n",
+                    SYNTAX_BAD_CALL, ERR40_OPTION_INVALID,
+                    "AC-F7 VALUE with selector -> 40.23");
+
+    /* Empty selector treated as absent — must NOT raise. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE empty-selector fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "x = 5\ny = VALUE('X', '7', '')\n");
+        CHECK(rc == IRXPARS_OK,
+              "VALUE empty selector treated as absent (no raise)");
+        fixture_close(&fx);
+    }
+}
+
 int main(void)
 {
     printf("=== WP-21a + WP-21b Phase C+D+E+F: BIFs ===\n");
@@ -1482,6 +1575,7 @@ int main(void)
     test_phase_f_errortext();
     test_phase_f_userid();
     test_phase_f_stubs();
+    test_phase_f_value();
     test_error_paths();
     test_find_phrase_cap();
 

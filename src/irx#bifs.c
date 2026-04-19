@@ -2582,6 +2582,56 @@ static int bif_datatype(struct irx_parser *p, int argc, PLstr *argv,
         lit_to_lstr(p->alloc, result, match ? "1" : "0"));
 }
 
+/* Copy `src` into a working buffer with ctype-based uppercasing and
+ * wrap it in an Lstr key suitable for vpool_get / vpool_set /
+ * vpool_exists. The buffer is either the caller-supplied `stack_buf`
+ * (when src->len fits) or a heap allocation via irxstor; *out_heap
+ * reports which, so the matching upper_key_free releases correctly.
+ * Returns IRXPARS_OK or IRXPARS_NOMEM. Shared by SYMBOL and VALUE,
+ * both of which must match the parser's canonical upper-case form. */
+static int upper_copy_to_key(struct irx_parser *p, PLstr src,
+                             unsigned char *stack_buf, size_t stack_len,
+                             Lstr *out_key, int *out_heap)
+{
+    unsigned char *dst;
+    if (src->len <= stack_len)
+    {
+        dst = stack_buf;
+        *out_heap = 0;
+    }
+    else
+    {
+        void *mem = NULL;
+        if (irxstor(RXSMGET, (int)src->len, &mem, p->envblock) != 0)
+        {
+            return IRXPARS_NOMEM;
+        }
+        dst = (unsigned char *)mem;
+        *out_heap = 1;
+    }
+    for (size_t i = 0; i < src->len; i++)
+    {
+        unsigned char c = src->pstr[i];
+        dst[i] = (unsigned char)(islower(c) ? toupper(c) : c);
+    }
+    out_key->pstr = dst;
+    out_key->len = src->len;
+    out_key->maxlen = src->len;
+    out_key->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+static void upper_key_free(struct irx_parser *p, Lstr *key, int heap)
+{
+    if (heap)
+    {
+        void *p1 = key->pstr;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+}
+
+#define UPPER_KEY_STACK_BUF 64
+
 static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
                       PLstr result)
 {
@@ -2593,41 +2643,14 @@ static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
         return translate_lstr_rc(lit_to_lstr(p->alloc, result, "BAD"));
     }
 
-    /* vpool stores variable names as-is (parser produces the canonical
-     * upper-case form). SYMBOL() is called directly by user code with
-     * whatever casing the caller typed, so uppercase here before the
-     * lookup to match the parser's convention. */
-    unsigned char tmp_buf[64];
-    unsigned char *up = NULL;
-    int heap_up = 0;
-
-    if (name->len <= sizeof(tmp_buf))
-    {
-        up = tmp_buf;
-    }
-    else
-    {
-        void *mem = NULL;
-        if (irxstor(RXSMGET, (int)name->len, &mem, p->envblock) != 0)
-        {
-            return IRXPARS_NOMEM;
-        }
-        up = (unsigned char *)mem;
-        heap_up = 1;
-    }
-
-    size_t i;
-    for (i = 0; i < name->len; i++)
-    {
-        unsigned char c = name->pstr[i];
-        up[i] = (unsigned char)(islower(c) ? toupper(c) : c);
-    }
-
+    unsigned char buf[UPPER_KEY_STACK_BUF];
     Lstr key;
-    key.pstr = up;
-    key.len = name->len;
-    key.maxlen = name->len;
-    key.type = LSTRING_TY;
+    int heap = 0;
+    int rc = upper_copy_to_key(p, name, buf, sizeof(buf), &key, &heap);
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
 
     /* vpool_exists returns 1 if the name is a set variable, 0
      * otherwise (missing or tombstoned). It does NOT use the
@@ -2635,15 +2658,9 @@ static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
     const char *text =
         (vpool_exists(p->vpool, &key) != 0) ? "VAR" : "LIT";
 
-    int rc = lit_to_lstr(p->alloc, result, text);
-
-    if (heap_up)
-    {
-        void *p1 = up;
-        irxstor(RXSMFRE, 0, &p1, p->envblock);
-    }
-
-    return translate_lstr_rc(rc);
+    int lrc = lit_to_lstr(p->alloc, result, text);
+    upper_key_free(p, &key, heap);
+    return translate_lstr_rc(lrc);
 }
 
 /* DIGITS / FUZZ / FORM read per-environment NUMERIC state from the
@@ -2758,6 +2775,103 @@ static int bif_linesize(struct irx_parser *p, int argc, PLstr *argv,
     return translate_lstr_rc(long_to_lstr(p->alloc, result, 80L));
 }
 
+/* VALUE(name [, newvalue [, selector]]) — read-or-set a REXX variable.
+ *
+ *   Mode 1 — VALUE(name):
+ *     Return the current value of `name`. If the variable is unset,
+ *     return its uppercased name (standard REXX unset-variable
+ *     behaviour), matching the value a bare reference would produce.
+ *
+ *   Mode 2 — VALUE(name, newvalue):
+ *     Read the previous value (as in Mode 1), set `name` to `newvalue`,
+ *     return the previous value. Atomic from REXX's perspective —
+ *     the caller always sees the pre-update value in the return.
+ *
+ *   Mode 3 — VALUE(name, newvalue, selector):
+ *     Host-command-environment / alternate-pool access. Not implemented
+ *     in WP-21b. When `selector` is supplied and non-empty, raise
+ *     SYNTAX 40.23. An empty `selector` is treated as absent (same
+ *     convention REXX itself uses for trailing-empty arguments). */
+static int bif_value(struct irx_parser *p, int argc, PLstr *argv,
+                     PLstr result)
+{
+    PLstr name = argv[0];
+
+    /* Mode-3 rejection — selector argument is out of scope. */
+    if (argc >= 3 && argv[2] != NULL && argv[2]->len > 0)
+    {
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_OPTION_INVALID,
+                       "VALUE: selector argument not supported in WP-21b");
+        return IRXPARS_SYNTAX;
+    }
+
+    unsigned char buf[UPPER_KEY_STACK_BUF];
+    Lstr key;
+    int heap = 0;
+    int rc = upper_copy_to_key(p, name, buf, sizeof(buf), &key, &heap);
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+
+    /* Capture the previous value. VPOOL_NOT_FOUND is expected and
+     * means the variable was unset — return the uppercased name. */
+    Lstr old;
+    Lzeroinit(&old);
+    int vrc = vpool_get(p->vpool, &key, &old);
+    if (vrc != VPOOL_OK && vrc != VPOOL_NOT_FOUND)
+    {
+        Lfree(p->alloc, &old);
+        upper_key_free(p, &key, heap);
+        return (vrc == VPOOL_NOMEM) ? IRXPARS_NOMEM : IRXPARS_SYNTAX;
+    }
+
+    int lrc;
+    if (vrc == VPOOL_OK)
+    {
+        lrc = Lfx(p->alloc, result, old.len);
+        if (lrc == LSTR_OK && old.len > 0)
+        {
+            memcpy(result->pstr, old.pstr, old.len);
+        }
+    }
+    else
+    {
+        lrc = Lfx(p->alloc, result, key.len);
+        if (lrc == LSTR_OK && key.len > 0)
+        {
+            memcpy(result->pstr, key.pstr, key.len);
+        }
+    }
+    if (lrc == LSTR_OK)
+    {
+        result->len = (vrc == VPOOL_OK) ? old.len : key.len;
+        result->type = LSTRING_TY;
+    }
+    Lfree(p->alloc, &old);
+
+    if (lrc != LSTR_OK)
+    {
+        upper_key_free(p, &key, heap);
+        return translate_lstr_rc(lrc);
+    }
+
+    /* Mode 2 — apply the new value AFTER the previous one is captured
+     * in `result`. An empty newvalue is a valid "set to empty string". */
+    if (argc >= 2 && argv[1] != NULL)
+    {
+        int src_rc = vpool_set(p->vpool, &key, argv[1]);
+        if (src_rc != VPOOL_OK)
+        {
+            upper_key_free(p, &key, heap);
+            return (src_rc == VPOOL_NOMEM) ? IRXPARS_NOMEM : IRXPARS_SYNTAX;
+        }
+    }
+
+    upper_key_free(p, &key, heap);
+    return IRXPARS_OK;
+}
+
 /* ERRORTEXT(n) — descriptive text for a SYNTAX primary code.
  * The table itself lives in src/irx#cond.c; the BIF just validates the
  * argument and formats the lookup result. Out-of-range n raises
@@ -2861,6 +2975,7 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"ERRORTEXT", 1, 1, bif_errortext},
     {"EXTERNALS", 0, 0, bif_externals},
     {"LINESIZE", 0, 0, bif_linesize},
+    {"VALUE", 1, 3, bif_value},
     /* Sentinel */
     {"", 0, 0, NULL}};
 
