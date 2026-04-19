@@ -1475,7 +1475,7 @@ static int bif_c2x(struct irx_parser *p, int argc, PLstr *argv,
     for (i = 0; i < in_len; i++)
     {
         unsigned char b = in->pstr[i];
-        result->pstr[2 * i]     = hex_char((b >> 4) & 0x0F);
+        result->pstr[2 * i] = hex_char((b >> 4) & 0x0F);
         result->pstr[2 * i + 1] = hex_char(b & 0x0F);
     }
     result->len = out_len;
@@ -1835,7 +1835,7 @@ static void twos_complement_bytes(unsigned char *bytes, size_t byte_len,
     }
     int carry = 1;
     size_t j;
-    for (j = byte_len; j > 0 && carry != 0; )
+    for (j = byte_len; j > 0 && carry != 0;)
     {
         j--;
         int s = (int)bytes[j] + carry;
@@ -1996,7 +1996,7 @@ static int bif_x2d(struct irx_parser *p, int argc, PLstr *argv,
     size_t slot = total_slots;
     size_t taken = 0;
     size_t j;
-    for (j = in->len; j > 0 && taken < need; )
+    for (j = in->len; j > 0 && taken < need;)
     {
         j--;
         unsigned char c = in->pstr[j];
@@ -2032,8 +2032,8 @@ static int bif_x2d(struct irx_parser *p, int argc, PLstr *argv,
     if (n_given && byte_len > 0)
     {
         unsigned char msn = pad_odd
-            ? (unsigned char)(bytes[0] & 0x0F)
-            : (unsigned char)((bytes[0] >> 4) & 0x0F);
+                                ? (unsigned char)(bytes[0] & 0x0F)
+                                : (unsigned char)((bytes[0] >> 4) & 0x0F);
         if ((msn & 0x08U) != 0)
         {
             sign = 1;
@@ -2128,7 +2128,11 @@ static int d2_core_write_bytes(struct irx_parser *p, PLstr in,
     /* exponent expansion. 2 * NUMERIC_DIGITS_MAX covers every number    */
     /* that fits the engine — if that overflows, d2_parse_whole raises  */
     /* a condition.                                                     */
-    enum { DIGITS_CAP = NUMERIC_DIGITS_MAX * 2 };
+    enum
+    {
+        DIGITS_CAP = NUMERIC_DIGITS_MAX * 2
+    };
+
     char *digits = NULL;
     int rc = IRXPARS_OK;
     int digits_len = 0;
@@ -2222,7 +2226,7 @@ static int d2_core_write_bytes(struct irx_parser *p, PLstr in,
             out_bytes[m] = (unsigned char)(~out_bytes[m]);
         }
         int carry = 1;
-        for (m = out_bytes_len; m > 0 && carry != 0; )
+        for (m = out_bytes_len; m > 0 && carry != 0;)
         {
             m--;
             int s = (int)out_bytes[m] + carry;
@@ -2242,10 +2246,10 @@ static int d2_core_write_bytes(struct irx_parser *p, PLstr in,
     rc = IRXPARS_OK;
 
 cleanup:
-    {
-        void *p1 = digits;
-        irxstor(RXSMFRE, 0, &p1, p->envblock);
-    }
+{
+    void *p1 = digits;
+    irxstor(RXSMFRE, 0, &p1, p->envblock);
+}
     return rc;
 }
 
@@ -2436,7 +2440,7 @@ static int bif_d2x(struct irx_parser *p, int argc, PLstr *argv,
     int k;
     for (k = 0; k < byte_len; k++)
     {
-        hex_buf[2 * k]     = hex_char((buf[k] >> 4) & 0x0F);
+        hex_buf[2 * k] = hex_char((buf[k] >> 4) & 0x0F);
         hex_buf[2 * k + 1] = hex_char(buf[k] & 0x0F);
     }
 
@@ -2458,8 +2462,7 @@ static int bif_d2x(struct irx_parser *p, int argc, PLstr *argv,
         else
         {
             emit_start = 0;
-            while (emit_start < byte_len * 2 - 1
-                   && hex_buf[emit_start] == (unsigned char)'0')
+            while (emit_start < byte_len * 2 - 1 && hex_buf[emit_start] == (unsigned char)'0')
             {
                 emit_start++;
             }
