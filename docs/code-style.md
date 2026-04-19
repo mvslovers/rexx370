@@ -4,12 +4,11 @@ This project uses **C99 / gnu99** (see `project.toml`: `cflags = ["-std=gnu99"]`
 We do **NOT** target C89. Do not write C89-compatible code.
 
 Formatting is enforced by `.clang-format`. Static analysis by `.clang-tidy`.
-Run before every commit:
-
-```bash
-clang-format -i src/*.c include/*.h test/*.c
-clang-tidy src/*.c -- -I./include -std=gnu99
-```
+See `CLAUDE.md` section "Tooling workflow" for the current invocation
+pattern: clang-tidy during development, clang-format only on files you
+changed, as the final step before `git add`. Running `clang-format` over
+the whole tree belongs in a dedicated `chore: clang-format sweep` commit,
+not in a feature commit.
 
 ### C99 rules we use
 
