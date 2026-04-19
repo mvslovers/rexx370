@@ -27,6 +27,7 @@
 #include "irx.h"
 #include "irxbif.h"
 #include "irxcond.h"
+#include "irxexec.h"
 #include "irxfunc.h"
 #include "irxpars.h"
 #include "irxtokn.h"
@@ -1551,6 +1552,143 @@ static void test_phase_f_value(void)
     }
 }
 
+/* Drive bif_sourceline with a pre-populated wkbi_source. The test
+ * fixture calls irx_tokn_run / irx_pars_run directly (it does not go
+ * through irx_exec_run), so we have to inject the retained source
+ * manually — that's exactly what irx_exec_run does at step 2b of its
+ * pipeline. */
+static void sourceline_set_retention(struct fixture *fx,
+                                     const char *src)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)fx->env->envblock_userfield;
+    wk->wkbi_source = (void *)src;
+    wk->wkbi_source_len = (int)strlen(src);
+}
+
+static void test_phase_f_sourceline(void)
+{
+    printf("\n--- Phase F: SOURCELINE ---\n");
+
+    /* AC-F5 — SOURCELINE(1) returns the first line text. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE retention fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "first\nsecond\nthird");
+        int rc = run_src(&fx, "y = SOURCELINE(1)\n");
+        CHECK(rc == IRXPARS_OK, "AC-F5 SOURCELINE(1) executes");
+        CHECK(var_eq(&fx, "Y", "first"),
+              "AC-F5 SOURCELINE(1) -> 'first'");
+        fixture_close(&fx);
+    }
+
+    /* Mid-buffer line and line-count reporting. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE mid fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "first\nsecond\nthird");
+        int rc = run_src(&fx,
+                         "a = SOURCELINE(2)\n"
+                         "b = SOURCELINE(3)\n"
+                         "c = SOURCELINE()\n");
+        CHECK(rc == IRXPARS_OK, "SOURCELINE mid executes");
+        CHECK(var_eq(&fx, "A", "second"), "SOURCELINE(2) -> 'second'");
+        CHECK(var_eq(&fx, "B", "third"), "SOURCELINE(3) -> 'third'");
+        CHECK(var_eq(&fx, "C", "3"), "SOURCELINE() -> '3' line count");
+        fixture_close(&fx);
+    }
+
+    /* No retention → SOURCELINE() is 0, SOURCELINE(n) raises. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE empty fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "y = SOURCELINE()\n");
+        CHECK(rc == IRXPARS_OK, "SOURCELINE() no-retention executes");
+        CHECK(var_eq(&fx, "Y", "0"),
+              "SOURCELINE() with no retention -> '0'");
+        fixture_close(&fx);
+    }
+
+    run_expect_fail("x = SOURCELINE(1)\n", SYNTAX_BAD_CALL,
+                    ERR40_ARG_LENGTH,
+                    "SOURCELINE(1) with no retention -> 40.4");
+
+    /* Out-of-range n raises. */
+    {
+        /* Retention is module-scoped across this closure via a helper */
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE OOR fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "one\ntwo");
+        int rc = run_src(&fx, "y = SOURCELINE(3)\n");
+        CHECK(rc != IRXPARS_OK, "SOURCELINE(3) on 2-line source rejects");
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)fx.env->envblock_userfield;
+        int code = (wk && wk->wkbi_last_condition &&
+                    wk->wkbi_last_condition->valid)
+                       ? wk->wkbi_last_condition->code
+                       : 0;
+        int sub = (wk && wk->wkbi_last_condition &&
+                   wk->wkbi_last_condition->valid)
+                      ? wk->wkbi_last_condition->subcode
+                      : 0;
+        CHECK(code == SYNTAX_BAD_CALL && sub == ERR40_ARG_LENGTH,
+              "SOURCELINE(3) on 2-line source -> 40.4");
+        fixture_close(&fx);
+    }
+
+    /* n must be a positive whole number — 0, negative, non-numeric
+     * all go through the standard validation helper. */
+    run_expect_fail("x = SOURCELINE(0)\n", SYNTAX_BAD_CALL,
+                    ERR40_POSITIVE_WHOLE,
+                    "SOURCELINE(0) -> 40.12 (non-positive)");
+    run_expect_fail("x = SOURCELINE('abc')\n", SYNTAX_BAD_CALL,
+                    ERR40_POSITIVE_WHOLE,
+                    "SOURCELINE('abc') -> 40.12 (non-numeric)");
+
+    /* End-to-end through irx_exec_run: proves the wkbi_source plumbing
+     * in exec.c actually populates before BIF dispatch. The source
+     * itself invokes SOURCELINE on its own text. */
+    {
+        const char *src = "x = 'one'\n"
+                          "y = 'two'\n"
+                          "out1 = SOURCELINE(1)\n"
+                          "out3 = SOURCELINE()\n";
+        struct envblock *env = NULL;
+        int rcinit = irxinit(NULL, &env);
+        CHECK(rcinit == 0, "SOURCELINE end-to-end: irxinit");
+        int rc_out = 0;
+        int rc = irx_exec_run(src, (int)strlen(src), NULL, 0,
+                              &rc_out, env);
+        CHECK(rc == 0, "SOURCELINE end-to-end: exec_run ok");
+
+        /* Verify wkbi_source was cleared after exec_run returned. */
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)env->envblock_userfield;
+        CHECK(wk->wkbi_source == NULL,
+              "SOURCELINE: wkbi_source cleared on cleanup");
+        CHECK(wk->wkbi_source_len == 0,
+              "SOURCELINE: wkbi_source_len cleared on cleanup");
+
+        irxterm(env);
+    }
+}
+
 int main(void)
 {
     printf("=== WP-21a + WP-21b Phase C+D+E+F: BIFs ===\n");
@@ -1576,6 +1714,7 @@ int main(void)
     test_phase_f_userid();
     test_phase_f_stubs();
     test_phase_f_value();
+    test_phase_f_sourceline();
     test_error_paths();
     test_find_phrase_cap();
 

@@ -20,6 +20,7 @@
 #include "irxpars.h"
 #include "irxtokn.h"
 #include "irxvpool.h"
+#include "irxwkblk.h"
 
 int irx_exec_run(const char *source, int source_len,
                  const char *args, int args_len,
@@ -54,6 +55,20 @@ int irx_exec_run(const char *source, int source_len,
     {
         rc = 20;
         goto cleanup;
+    }
+
+    /* 2b. Retain source pointer on the work block so SOURCELINE can   */
+    /* read it back. The source buffer is caller-owned and outlives    */
+    /* the run; wkbi_source is cleared in cleanup to avoid dangling    */
+    /* references after we return. */
+    {
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)envblock->envblock_userfield;
+        if (wk != NULL)
+        {
+            wk->wkbi_source = (void *)source;
+            wk->wkbi_source_len = source_len;
+        }
     }
 
     /* 3. Tokenize --------------------------------------------------- */
@@ -148,6 +163,18 @@ cleanup:
     if (tokens != NULL)
     {
         irx_tokn_free(envblock, tokens, tok_count);
+    }
+    /* Release the source retention before we return — the caller's
+     * buffer stops being valid for us once control leaves here. */
+    if (envblock != NULL)
+    {
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)envblock->envblock_userfield;
+        if (wk != NULL)
+        {
+            wk->wkbi_source = NULL;
+            wk->wkbi_source_len = 0;
+        }
     }
     if (own_env)
     {

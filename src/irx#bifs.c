@@ -2872,6 +2872,133 @@ static int bif_value(struct irx_parser *p, int argc, PLstr *argv,
     return IRXPARS_OK;
 }
 
+/* Count 1-based lines in a source buffer. A trailing '\n' does NOT
+ * introduce an empty trailing line, matching REXX SOURCELINE semantics
+ * and the line numbers the tokenizer records in tok_line. */
+static int source_line_count(const unsigned char *src, size_t len)
+{
+    if (src == NULL || len == 0)
+    {
+        return 0;
+    }
+    int count = 0;
+    size_t i = 0;
+    while (i < len)
+    {
+        count++;
+        while (i < len && src[i] != '\n')
+        {
+            i++;
+        }
+        if (i < len)
+        {
+            i++;
+        }
+    }
+    return count;
+}
+
+/* Find the start offset and length of line `n` (1-based). Returns 1
+ * on success, 0 if n is out of range, source is NULL, or source is
+ * empty. The returned range excludes the terminating '\n'. */
+static int source_line_find(const unsigned char *src, size_t len,
+                            int n, size_t *out_start, size_t *out_len)
+{
+    if (src == NULL || len == 0 || n <= 0)
+    {
+        return 0;
+    }
+    size_t i = 0;
+    int cur = 1;
+    while (cur < n && i < len)
+    {
+        while (i < len && src[i] != '\n')
+        {
+            i++;
+        }
+        if (i < len)
+        {
+            i++;
+        }
+        cur++;
+    }
+    /* cur < n → loop exited early because source ran out; line doesn't
+     * exist. cur == n but i == len → landed past the last '\n' with no
+     * content following; also out of range. */
+    if (cur < n || i >= len)
+    {
+        return 0;
+    }
+    size_t start = i;
+    while (i < len && src[i] != '\n')
+    {
+        i++;
+    }
+    *out_start = start;
+    *out_len = i - start;
+    return 1;
+}
+
+/* SOURCELINE([n]) — query the retained REXX source.
+ *
+ *   No argument → return the total number of lines as a whole number.
+ *   One argument → return the text of line n (1-based), excluding the
+ *                  terminating newline. n must be a positive whole
+ *                  number in 1..SOURCELINE(); anything else raises
+ *                  SYNTAX 40.4 (ERR40_ARG_LENGTH).
+ *
+ * Source retention is plumbed in src/irx#exec.c; wkbi_source is set
+ * before tokenisation and cleared on cleanup. Calls outside an
+ * active exec_run see wkbi_source == NULL and behave as if the source
+ * were empty (line count 0, any n out of range). */
+static int bif_sourceline(struct irx_parser *p, int argc, PLstr *argv,
+                          PLstr result)
+{
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+    const unsigned char *src =
+        (wk != NULL) ? (const unsigned char *)wk->wkbi_source : NULL;
+    size_t src_len = (wk != NULL) ? (size_t)wk->wkbi_source_len : 0;
+
+    /* No-arg (or empty-arg) — return line count. */
+    if (argc < 1 || argv[0] == NULL || argv[0]->len == 0)
+    {
+        long count = (long)source_line_count(src, src_len);
+        return translate_lstr_rc(long_to_lstr(p->alloc, result, count));
+    }
+
+    long n = 0;
+    int rc = irx_bif_whole_positive(p, argv, 0, "SOURCELINE", &n);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    size_t line_start = 0;
+    size_t line_len = 0;
+    if (!source_line_find(src, src_len, (int)n, &line_start, &line_len))
+    {
+        char desc[80];
+        snprintf(desc, sizeof(desc),
+                 "SOURCELINE: line %ld out of range", n);
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL,
+                       ERR40_ARG_LENGTH, desc);
+        return IRXPARS_SYNTAX;
+    }
+
+    int lrc = Lfx(p->alloc, result, line_len);
+    if (lrc != LSTR_OK)
+    {
+        return translate_lstr_rc(lrc);
+    }
+    if (line_len > 0)
+    {
+        memcpy(result->pstr, src + line_start, line_len);
+    }
+    result->len = line_len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
 /* ERRORTEXT(n) — descriptive text for a SYNTAX primary code.
  * The table itself lives in src/irx#cond.c; the BIF just validates the
  * argument and formats the lookup result. Out-of-range n raises
@@ -2976,6 +3103,7 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"EXTERNALS", 0, 0, bif_externals},
     {"LINESIZE", 0, 0, bif_linesize},
     {"VALUE", 1, 3, bif_value},
+    {"SOURCELINE", 0, 1, bif_sourceline},
     /* Sentinel */
     {"", 0, 0, NULL}};
 
