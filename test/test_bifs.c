@@ -791,26 +791,26 @@ static void test_phase_c_edges(void)
 /* Like EXPECT_OK, but wraps the source with `numeric digits 20` so    */
 /* results longer than the 9-digit default don't get rounded. Used for */
 /* BCD-path tests whose expected value has 10+ decimal digits.         */
-#define EXPECT_OK_BIG(src, want, msg)                                  \
-    do                                                                 \
-    {                                                                  \
-        struct fixture fx;                                             \
-        if (fixture_open(&fx) != 0)                                    \
-        {                                                              \
-            CHECK(0, "fixture_open " msg);                             \
-            break;                                                     \
-        }                                                              \
-        int _rc = run_src(&fx, "numeric digits 20\nx = " src "\n");    \
-        if (_rc != IRXPARS_OK)                                         \
-        {                                                              \
-            printf("    parser rc=%d\n", _rc);                         \
-            CHECK(0, msg);                                             \
-        }                                                              \
-        else                                                           \
-        {                                                              \
-            CHECK(var_eq(&fx, "X", want), msg);                        \
-        }                                                              \
-        fixture_close(&fx);                                            \
+#define EXPECT_OK_BIG(src, want, msg)                               \
+    do                                                              \
+    {                                                               \
+        struct fixture fx;                                          \
+        if (fixture_open(&fx) != 0)                                 \
+        {                                                           \
+            CHECK(0, "fixture_open " msg);                          \
+            break;                                                  \
+        }                                                           \
+        int _rc = run_src(&fx, "numeric digits 20\nx = " src "\n"); \
+        if (_rc != IRXPARS_OK)                                      \
+        {                                                           \
+            printf("    parser rc=%d\n", _rc);                      \
+            CHECK(0, msg);                                          \
+        }                                                           \
+        else                                                        \
+        {                                                           \
+            CHECK(var_eq(&fx, "X", want), msg);                     \
+        }                                                           \
+        fixture_close(&fx);                                         \
     } while (0)
 
 static void test_phase_d_byte_conv(void)
@@ -1114,9 +1114,174 @@ static void test_phase_d_errors(void)
                     "D2X negative length");
 }
 
+/* ================================================================== */
+/*  Phase E — Reflection BIFs (WP-21b #33)                            */
+/*  DATATYPE / SYMBOL / DIGITS / FUZZ / FORM — AC-E1..AC-E8.          */
+/* ================================================================== */
+
+static void test_phase_e_datatype(void)
+{
+    printf("\n--- Phase E: DATATYPE ---\n");
+
+    /* AC-E1: no-option form returns NUM / CHAR. */
+    EXPECT_OK("DATATYPE('42')", "NUM", "AC-E1 DATATYPE('42') -> NUM");
+    EXPECT_OK("DATATYPE('abc')", "CHAR", "AC-E1 DATATYPE('abc') -> CHAR");
+    EXPECT_OK("DATATYPE('')", "CHAR", "DATATYPE empty -> CHAR");
+    EXPECT_OK("DATATYPE('3.14')", "NUM", "DATATYPE decimal -> NUM");
+    EXPECT_OK("DATATYPE(' 42 ')", "NUM", "DATATYPE spaces around num -> NUM");
+
+    /* AC-E2: 'W' whole-number option. */
+    EXPECT_OK("DATATYPE('42','W')", "1", "AC-E2 DATATYPE('42','W') -> 1");
+    EXPECT_OK("DATATYPE('42.5','W')", "0",
+              "AC-E2 DATATYPE('42.5','W') -> 0");
+    EXPECT_OK("DATATYPE('0','W')", "1", "DATATYPE zero is whole -> 1");
+    EXPECT_OK("DATATYPE('-7','W')", "1", "DATATYPE negative whole -> 1");
+    EXPECT_OK("DATATYPE('abc','W')", "0", "DATATYPE non-number 'W' -> 0");
+    EXPECT_OK("DATATYPE('42','w')", "1",
+              "DATATYPE lower-case option accepted");
+
+    /* AC-E3: 'S' symbol. */
+    EXPECT_OK("DATATYPE('myname','S')", "1",
+              "AC-E3 DATATYPE('myname','S') -> 1");
+    EXPECT_OK("DATATYPE('42abc','S')", "0",
+              "AC-E3 DATATYPE('42abc','S') -> 0 (leading digit)");
+    EXPECT_OK("DATATYPE('','S')", "0", "DATATYPE empty 'S' -> 0");
+    EXPECT_OK("DATATYPE('has space','S')", "0",
+              "DATATYPE 'has space','S' -> 0");
+    EXPECT_OK("DATATYPE('stem.i.j','S')", "1", "DATATYPE compound 'S' -> 1");
+
+    /* AC-E4: 'X' hex. */
+    EXPECT_OK("DATATYPE('FF','X')", "1", "AC-E4 DATATYPE('FF','X') -> 1");
+    EXPECT_OK("DATATYPE('GG','X')", "0", "AC-E4 DATATYPE('GG','X') -> 0");
+    EXPECT_OK("DATATYPE('DEAD BEEF','X')", "1",
+              "DATATYPE hex with blanks -> 1");
+
+    /* Other classifier options. */
+    EXPECT_OK("DATATYPE('abc','A')", "1", "DATATYPE alphanumeric");
+    EXPECT_OK("DATATYPE('abc!','A')", "0",
+              "DATATYPE alphanumeric rejects '!'");
+    EXPECT_OK("DATATYPE('0101','B')", "1", "DATATYPE binary");
+    EXPECT_OK("DATATYPE('012','B')", "0", "DATATYPE binary rejects '2'");
+    EXPECT_OK("DATATYPE('abc','L')", "1", "DATATYPE lowercase");
+    EXPECT_OK("DATATYPE('AbC','L')", "0", "DATATYPE lower rejects upper");
+    EXPECT_OK("DATATYPE('ABC','U')", "1", "DATATYPE uppercase");
+    EXPECT_OK("DATATYPE('AbC','M')", "1", "DATATYPE mixed alpha");
+    EXPECT_OK("DATATYPE('AbC1','M')", "0", "DATATYPE mixed rejects digit");
+}
+
+static void test_phase_e_symbol(void)
+{
+    printf("\n--- Phase E: SYMBOL ---\n");
+
+    /* AC-E6: SYMBOL(var) on set / unset / invalid. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SYMBOL fixture_open");
+            return;
+        }
+
+        int rc = run_src(&fx,
+                         "x = 5\n"
+                         "a = SYMBOL('X')\n"
+                         "b = SYMBOL('YZ')\n"
+                         "c = SYMBOL('42foo')\n"
+                         "d = SYMBOL('x')\n"
+                         "e = SYMBOL('')\n"
+                         "f = SYMBOL('has space')\n");
+        CHECK(rc == IRXPARS_OK, "SYMBOL fixture parse+run OK");
+        CHECK(var_eq(&fx, "A", "VAR"),
+              "AC-E6 SYMBOL('X') with X set -> VAR");
+        CHECK(var_eq(&fx, "B", "LIT"),
+              "AC-E6 SYMBOL('YZ') unset valid -> LIT");
+        CHECK(var_eq(&fx, "C", "BAD"),
+              "AC-E6 SYMBOL('42foo') -> BAD");
+        CHECK(var_eq(&fx, "D", "VAR"),
+              "SYMBOL lowercases 'x' before lookup -> VAR");
+        CHECK(var_eq(&fx, "E", "BAD"), "SYMBOL('') -> BAD");
+        CHECK(var_eq(&fx, "F", "BAD"), "SYMBOL('has space') -> BAD");
+        fixture_close(&fx);
+    }
+
+    /* Heap-fallback path: bif_symbol uses a 64-byte stack scratch for
+     * the uppercase copy, and falls back to irxstor() for longer names.
+     * REXX allows up to 250 chars in a symbol (SC28-1883-0 §3.2), so the
+     * heap branch is reachable. Drive a 100-char valid-but-unset name
+     * to cover both the heap copy and its free. */
+    {
+        char name[101];
+        memset(name, 'a', sizeof(name) - 1);
+        name[sizeof(name) - 1] = '\0';
+
+        char src[160];
+        sprintf(src, "x = SYMBOL('%s')\n", name);
+
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SYMBOL heap fixture_open");
+        }
+        else
+        {
+            int rc = run_src(&fx, src);
+            CHECK(rc == IRXPARS_OK, "SYMBOL heap path parse+run OK");
+            CHECK(var_eq(&fx, "X", "LIT"),
+                  "SYMBOL 100-char unset name -> LIT (heap path)");
+            fixture_close(&fx);
+        }
+    }
+}
+
+static void test_phase_e_numeric_reflection(void)
+{
+    printf("\n--- Phase E: DIGITS / FUZZ / FORM ---\n");
+
+    /* AC-E7 / AC-E8: defaults. */
+    EXPECT_OK("DIGITS()", "9", "AC-E7 DIGITS default -> 9");
+    EXPECT_OK("FUZZ()", "0", "AC-E8 FUZZ default -> 0");
+    EXPECT_OK("FORM()", "SCIENTIFIC", "AC-E8 FORM default -> SCIENTIFIC");
+
+    /* After NUMERIC changes. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "NUMERIC fixture_open");
+            return;
+        }
+        int rc = run_src(&fx,
+                         "numeric digits 15\n"
+                         "numeric fuzz 3\n"
+                         "numeric form engineering\n"
+                         "a = DIGITS()\n"
+                         "b = FUZZ()\n"
+                         "c = FORM()\n");
+        CHECK(rc == IRXPARS_OK, "NUMERIC settings apply");
+        CHECK(var_eq(&fx, "A", "15"), "DIGITS() after NUMERIC DIGITS 15");
+        CHECK(var_eq(&fx, "B", "3"), "FUZZ() after NUMERIC FUZZ 3");
+        CHECK(var_eq(&fx, "C", "ENGINEERING"),
+              "FORM() after NUMERIC FORM ENGINEERING");
+        fixture_close(&fx);
+    }
+}
+
+static void test_phase_e_errors(void)
+{
+    printf("\n--- Phase E: error paths ---\n");
+
+    /* AC-E5: invalid DATATYPE option -> SYNTAX 40.23. */
+    run_expect_fail("x = DATATYPE('x','Z')\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "AC-E5 DATATYPE invalid option -> 40.23");
+    run_expect_fail("x = DATATYPE('x','QQ')\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "DATATYPE unknown multi-char option -> 40.23");
+}
+
 int main(void)
 {
-    printf("=== WP-21a + WP-21b Phase C+D: BIFs ===\n");
+    printf("=== WP-21a + WP-21b Phase C+D+E: BIFs ===\n");
     test_phase_b();
     test_phase_c();
     test_phase_d();
@@ -1131,6 +1296,10 @@ int main(void)
     test_phase_d_roundtrips();
     test_phase_d_bcd_path();
     test_phase_d_errors();
+    test_phase_e_datatype();
+    test_phase_e_symbol();
+    test_phase_e_numeric_reflection();
+    test_phase_e_errors();
     test_error_paths();
     test_find_phrase_cap();
 

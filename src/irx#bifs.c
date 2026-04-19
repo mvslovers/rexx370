@@ -32,6 +32,8 @@
 #include "irxfunc.h"
 #include "irxlstr.h"
 #include "irxpars.h"
+#include "irxtokn.h"
+#include "irxvpool.h"
 #include "irxwkblk.h"
 #include "lstralloc.h"
 #include "lstring.h"
@@ -2488,6 +2490,206 @@ static int bif_d2x(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
+/*  Phase I — Reflection BIFs (WP-21b Phase E)                        */
+/*                                                                    */
+/*  DATATYPE / SYMBOL / DIGITS / FUZZ / FORM expose interpreter       */
+/*  state and classification rules to REXX code. They are thin        */
+/*  dispatch wrappers: _Lisnum() and irx_datatype() carry the number  */
+/*  and character-class logic; is_rexx_symbol() is the tokenizer's    */
+/*  own predicate, reused verbatim.                                   */
+/* ================================================================== */
+
+/* Copy a short literal result string into `result`. Thin wrapper so
+ * the handlers below can return 'VAR'/'LIT'/'BAD' etc. in a single
+ * expression and keep every error path on translate_lstr_rc(). */
+static int lit_to_lstr(struct lstr_alloc *a, PLstr dst, const char *s)
+{
+    size_t n = strlen(s);
+    int rc = Lfx(a, dst, n);
+    if (rc != LSTR_OK)
+    {
+        return rc;
+    }
+    if (n > 0)
+    {
+        memcpy(dst->pstr, s, n);
+    }
+    dst->len = n;
+    dst->type = LSTRING_TY;
+    return LSTR_OK;
+}
+
+static int bif_datatype(struct irx_parser *p, int argc, PLstr *argv,
+                        PLstr result)
+{
+    PLstr str = argv[0];
+
+    /* No-option form: 'NUM' if str is a valid REXX number, else 'CHAR'.
+     * Empty string is not a number — it falls through to 'CHAR'. */
+    if (argc < 2 || argv[1] == NULL || argv[1]->len == 0)
+    {
+        int is_num = (str->len > 0) && (_Lisnum(str) != LNUM_NOT_NUM);
+        return translate_lstr_rc(
+            lit_to_lstr(p->alloc, result, is_num ? "NUM" : "CHAR"));
+    }
+
+    char opt = 0;
+    int rc = irx_bif_opt_option(p, argc, argv, 1, "DATATYPE",
+                                "NWSABLMUX", 'N', &opt);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    int match = 0;
+    if (str->len > 0)
+    {
+        switch (opt)
+        {
+            case 'N':
+                match = (_Lisnum(str) != LNUM_NOT_NUM);
+                break;
+            case 'W':
+                /* Whole number: classify must come back INTEGER (no
+                 * fractional part, no exponent). _Lisnum() caches the
+                 * classification, keeping the check in sync with the
+                 * parser and arithmetic engine. */
+                match = (_Lisnum(str) == LNUM_INTEGER);
+                break;
+            case 'S':
+                match = is_rexx_symbol(str->pstr, str->len);
+                break;
+            case 'A':
+            case 'B':
+            case 'L':
+            case 'M':
+            case 'U':
+            case 'X':
+                match = irx_datatype(str, opt);
+                break;
+            default:
+                /* irx_bif_opt_option already rejected anything outside
+                 * the allowed set, so this branch is unreachable. */
+                match = 0;
+                break;
+        }
+    }
+
+    return translate_lstr_rc(
+        lit_to_lstr(p->alloc, result, match ? "1" : "0"));
+}
+
+static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
+                      PLstr result)
+{
+    (void)argc;
+    PLstr name = argv[0];
+
+    if (name->len == 0 || !is_rexx_symbol(name->pstr, name->len))
+    {
+        return translate_lstr_rc(lit_to_lstr(p->alloc, result, "BAD"));
+    }
+
+    /* vpool stores variable names as-is (parser produces the canonical
+     * upper-case form). SYMBOL() is called directly by user code with
+     * whatever casing the caller typed, so uppercase here before the
+     * lookup to match the parser's convention. */
+    unsigned char tmp_buf[64];
+    unsigned char *up = NULL;
+    int heap_up = 0;
+
+    if (name->len <= sizeof(tmp_buf))
+    {
+        up = tmp_buf;
+    }
+    else
+    {
+        void *mem = NULL;
+        if (irxstor(RXSMGET, (int)name->len, &mem, p->envblock) != 0)
+        {
+            return IRXPARS_NOMEM;
+        }
+        up = (unsigned char *)mem;
+        heap_up = 1;
+    }
+
+    size_t i;
+    for (i = 0; i < name->len; i++)
+    {
+        unsigned char c = name->pstr[i];
+        up[i] = (unsigned char)(islower(c) ? toupper(c) : c);
+    }
+
+    Lstr key;
+    key.pstr = up;
+    key.len = name->len;
+    key.maxlen = name->len;
+    key.type = LSTRING_TY;
+
+    /* vpool_exists returns 1 if the name is a set variable, 0
+     * otherwise (missing or tombstoned). It does NOT use the
+     * VPOOL_* return-code namespace. */
+    const char *text =
+        (vpool_exists(p->vpool, &key) != 0) ? "VAR" : "LIT";
+
+    int rc = lit_to_lstr(p->alloc, result, text);
+
+    if (heap_up)
+    {
+        void *p1 = up;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+
+    return translate_lstr_rc(rc);
+}
+
+/* DIGITS / FUZZ / FORM read per-environment NUMERIC state from the
+ * work block. When no work block is attached (bootstrap / some tests)
+ * the documented defaults (9 / 0 / SCIENTIFIC) apply. */
+static struct irx_wkblk_int *wkbi_from_parser(struct irx_parser *p)
+{
+    if (p->envblock == NULL || p->envblock->envblock_userfield == NULL)
+    {
+        return NULL;
+    }
+    return (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+}
+
+static int bif_digits(struct irx_parser *p, int argc, PLstr *argv,
+                      PLstr result)
+{
+    (void)argc;
+    (void)argv;
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+    long v = (wk != NULL) ? (long)wk->wkbi_digits
+                          : (long)NUMERIC_DIGITS_DEFAULT;
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, v));
+}
+
+static int bif_fuzz(struct irx_parser *p, int argc, PLstr *argv,
+                    PLstr result)
+{
+    (void)argc;
+    (void)argv;
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+    long v = (wk != NULL) ? (long)wk->wkbi_fuzz
+                          : (long)NUMERIC_FUZZ_DEFAULT;
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, v));
+}
+
+static int bif_form(struct irx_parser *p, int argc, PLstr *argv,
+                    PLstr result)
+{
+    (void)argc;
+    (void)argv;
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+    int form = (wk != NULL) ? wk->wkbi_form : NUMFORM_SCIENTIFIC;
+    const char *text =
+        (form == NUMFORM_ENGINEERING) ? "ENGINEERING" : "SCIENTIFIC";
+    return translate_lstr_rc(lit_to_lstr(p->alloc, result, text));
+}
+
+/* ================================================================== */
 /*  Registration                                                      */
 /* ================================================================== */
 
@@ -2544,6 +2746,12 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"X2D", 1, 2, bif_x2d},
     {"D2C", 1, 2, bif_d2c},
     {"D2X", 1, 2, bif_d2x},
+    /* Phase I — Reflection BIFs (WP-21b Phase E) */
+    {"DATATYPE", 1, 2, bif_datatype},
+    {"SYMBOL", 1, 1, bif_symbol},
+    {"DIGITS", 0, 0, bif_digits},
+    {"FUZZ", 0, 0, bif_fuzz},
+    {"FORM", 0, 0, bif_form},
     /* Sentinel */
     {"", 0, 0, NULL}};
 

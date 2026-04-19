@@ -15,6 +15,8 @@
 #ifndef IRXTOKN_H
 #define IRXTOKN_H
 
+#include <stddef.h>
+
 #include "irx.h"
 
 /* ================================================================== */
@@ -123,5 +125,32 @@ int irx_tokn_run(struct envblock *envblock,
  */
 void irx_tokn_free(struct envblock *envblock,
                    struct irx_token *tokens, int count) asm("IRXTOKNF");
+
+/* ================================================================== */
+/*  Symbol-character predicates (shared with DATATYPE / SYMBOL BIFs)  */
+/*                                                                    */
+/*  These are the authoritative classifiers used by the tokenizer.    */
+/*  Any consumer (e.g. the SYMBOL and DATATYPE built-ins) must reuse  */
+/*  them instead of duplicating the rules, so parser and BIF layer    */
+/*  stay in lock-step on what counts as a valid REXX symbol.          */
+/* ================================================================== */
+
+/* Allowed as the FIRST character of a symbol: letters or the REXX
+ * special starters _ @ # $ ? !  Digits and '.' are NOT symbol
+ * starters here — a run that begins with a digit or '.' is a
+ * constant symbol or number, not a variable name. */
+int irx_is_symbol_start(int c) asm("IRXISYMS");
+
+/* Allowed anywhere within a symbol: alphanumeric plus the starter
+ * specials and '.' (dots make the symbol compound). */
+int irx_is_symbol_char(int c) asm("IRXISYMC");
+
+/* Whole-string predicate: returns 1 if s[0..len-1] is a valid REXX
+ * symbol name — non-empty, first character passes irx_is_symbol_start,
+ * every remaining character passes irx_is_symbol_char. Returns 0
+ * otherwise (empty, leading digit/dot, embedded blank, etc.).
+ *
+ * Used by SYMBOL() and DATATYPE('S'). */
+int is_rexx_symbol(const unsigned char *s, size_t len) asm("IRXISSYM");
 
 #endif /* IRXTOKN_H */
