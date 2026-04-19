@@ -2582,6 +2582,56 @@ static int bif_datatype(struct irx_parser *p, int argc, PLstr *argv,
         lit_to_lstr(p->alloc, result, match ? "1" : "0"));
 }
 
+/* Copy `src` into a working buffer with ctype-based uppercasing and
+ * wrap it in an Lstr key suitable for vpool_get / vpool_set /
+ * vpool_exists. The buffer is either the caller-supplied `stack_buf`
+ * (when src->len fits) or a heap allocation via irxstor; *out_heap
+ * reports which, so the matching upper_key_free releases correctly.
+ * Returns IRXPARS_OK or IRXPARS_NOMEM. Shared by SYMBOL and VALUE,
+ * both of which must match the parser's canonical upper-case form. */
+static int upper_copy_to_key(struct irx_parser *p, PLstr src,
+                             unsigned char *stack_buf, size_t stack_len,
+                             Lstr *out_key, int *out_heap)
+{
+    unsigned char *dst;
+    if (src->len <= stack_len)
+    {
+        dst = stack_buf;
+        *out_heap = 0;
+    }
+    else
+    {
+        void *mem = NULL;
+        if (irxstor(RXSMGET, (int)src->len, &mem, p->envblock) != 0)
+        {
+            return IRXPARS_NOMEM;
+        }
+        dst = (unsigned char *)mem;
+        *out_heap = 1;
+    }
+    for (size_t i = 0; i < src->len; i++)
+    {
+        unsigned char c = src->pstr[i];
+        dst[i] = (unsigned char)(islower(c) ? toupper(c) : c);
+    }
+    out_key->pstr = dst;
+    out_key->len = src->len;
+    out_key->maxlen = src->len;
+    out_key->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+static void upper_key_free(struct irx_parser *p, Lstr *key, int heap)
+{
+    if (heap)
+    {
+        void *p1 = key->pstr;
+        irxstor(RXSMFRE, 0, &p1, p->envblock);
+    }
+}
+
+#define UPPER_KEY_STACK_BUF 64
+
 static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
                       PLstr result)
 {
@@ -2593,41 +2643,14 @@ static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
         return translate_lstr_rc(lit_to_lstr(p->alloc, result, "BAD"));
     }
 
-    /* vpool stores variable names as-is (parser produces the canonical
-     * upper-case form). SYMBOL() is called directly by user code with
-     * whatever casing the caller typed, so uppercase here before the
-     * lookup to match the parser's convention. */
-    unsigned char tmp_buf[64];
-    unsigned char *up = NULL;
-    int heap_up = 0;
-
-    if (name->len <= sizeof(tmp_buf))
-    {
-        up = tmp_buf;
-    }
-    else
-    {
-        void *mem = NULL;
-        if (irxstor(RXSMGET, (int)name->len, &mem, p->envblock) != 0)
-        {
-            return IRXPARS_NOMEM;
-        }
-        up = (unsigned char *)mem;
-        heap_up = 1;
-    }
-
-    size_t i;
-    for (i = 0; i < name->len; i++)
-    {
-        unsigned char c = name->pstr[i];
-        up[i] = (unsigned char)(islower(c) ? toupper(c) : c);
-    }
-
+    unsigned char buf[UPPER_KEY_STACK_BUF];
     Lstr key;
-    key.pstr = up;
-    key.len = name->len;
-    key.maxlen = name->len;
-    key.type = LSTRING_TY;
+    int heap = 0;
+    int rc = upper_copy_to_key(p, name, buf, sizeof(buf), &key, &heap);
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
 
     /* vpool_exists returns 1 if the name is a set variable, 0
      * otherwise (missing or tombstoned). It does NOT use the
@@ -2635,15 +2658,9 @@ static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
     const char *text =
         (vpool_exists(p->vpool, &key) != 0) ? "VAR" : "LIT";
 
-    int rc = lit_to_lstr(p->alloc, result, text);
-
-    if (heap_up)
-    {
-        void *p1 = up;
-        irxstor(RXSMFRE, 0, &p1, p->envblock);
-    }
-
-    return translate_lstr_rc(rc);
+    int lrc = lit_to_lstr(p->alloc, result, text);
+    upper_key_free(p, &key, heap);
+    return translate_lstr_rc(lrc);
 }
 
 /* DIGITS / FUZZ / FORM read per-environment NUMERIC state from the
@@ -2689,6 +2706,338 @@ static int bif_form(struct irx_parser *p, int argc, PLstr *argv,
     int form = (wk != NULL) ? wk->wkbi_form : NUMFORM_SCIENTIFIC;
     const char *text =
         (form == NUMFORM_ENGINEERING) ? "ENGINEERING" : "SCIENTIFIC";
+    return translate_lstr_rc(lit_to_lstr(p->alloc, result, text));
+}
+
+/* ================================================================== */
+/*  Phase F — Environment BIFs (WP-21b Phase F)                       */
+/* ================================================================== */
+
+/* USERID() — current user id.
+ * Delegates to the IRXUID replaceable routine (src/irx#uid.c), which
+ * writes an 8-byte blank-padded buffer. We trim trailing blanks and
+ * fall back to "MVSUSER" whenever the trim leaves an empty string —
+ * this covers both non-TSO batch (PSCB walk sees no LWA) and any
+ * future irxuid failure mode with a single, predictable sentinel. */
+static int bif_userid(struct irx_parser *p, int argc, PLstr *argv,
+                      PLstr result)
+{
+    (void)argc;
+    (void)argv;
+
+    char buf[8];
+    memset(buf, ' ', sizeof(buf));
+    (void)irxuid(buf, p->envblock);
+
+    size_t len = sizeof(buf);
+    while (len > 0 && buf[len - 1] == ' ')
+    {
+        len--;
+    }
+
+    if (len == 0)
+    {
+        return translate_lstr_rc(lit_to_lstr(p->alloc, result, "MVSUSER"));
+    }
+
+    int rc = Lfx(p->alloc, result, len);
+    if (rc != LSTR_OK)
+    {
+        return translate_lstr_rc(rc);
+    }
+    memcpy(result->pstr, buf, len);
+    result->len = len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+/* EXTERNALS() — element count of the external data queue.
+ * Stubbed to "0" until the data-stack infrastructure lands (TSK-144).
+ * The stub is spec-legal — zero is a valid answer for an empty queue
+ * — and the signature matches the real implementation, so call sites
+ * don't need to change when the stub is replaced. */
+static int bif_externals(struct irx_parser *p, int argc, PLstr *argv,
+                         PLstr result)
+{
+    (void)argc;
+    (void)argv;
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, 0L));
+}
+
+/* LINESIZE() — terminal line width.
+ * Stubbed to "80" pending WP-33 (MVS I/O Output Routing), which will
+ * route through the terminal driver and can query the actual width. */
+static int bif_linesize(struct irx_parser *p, int argc, PLstr *argv,
+                        PLstr result)
+{
+    (void)argc;
+    (void)argv;
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, 80L));
+}
+
+/* VALUE(name [, newvalue [, selector]]) — read-or-set a REXX variable.
+ *
+ *   Mode 1 — VALUE(name):
+ *     Return the current value of `name`. If the variable is unset,
+ *     return its uppercased name (standard REXX unset-variable
+ *     behaviour), matching the value a bare reference would produce.
+ *
+ *   Mode 2 — VALUE(name, newvalue):
+ *     Read the previous value (as in Mode 1), set `name` to `newvalue`,
+ *     return the previous value. Atomic from REXX's perspective —
+ *     the caller always sees the pre-update value in the return.
+ *
+ *   Mode 3 — VALUE(name, newvalue, selector):
+ *     Host-command-environment / alternate-pool access. Not implemented
+ *     in WP-21b. When `selector` is supplied and non-empty, raise
+ *     SYNTAX 40.23. An empty `selector` is treated as absent (same
+ *     convention REXX itself uses for trailing-empty arguments). */
+static int bif_value(struct irx_parser *p, int argc, PLstr *argv,
+                     PLstr result)
+{
+    PLstr name = argv[0];
+
+    /* Mode-3 rejection — selector argument is out of scope. */
+    if (argc >= 3 && argv[2] != NULL && argv[2]->len > 0)
+    {
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_OPTION_INVALID,
+                       "VALUE: selector argument not supported in WP-21b");
+        return IRXPARS_SYNTAX;
+    }
+
+    unsigned char buf[UPPER_KEY_STACK_BUF];
+    Lstr key;
+    int heap = 0;
+    int rc = upper_copy_to_key(p, name, buf, sizeof(buf), &key, &heap);
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+
+    /* Capture the previous value. VPOOL_NOT_FOUND is expected and
+     * means the variable was unset — return the uppercased name. */
+    Lstr old;
+    Lzeroinit(&old);
+    int vrc = vpool_get(p->vpool, &key, &old);
+    if (vrc != VPOOL_OK && vrc != VPOOL_NOT_FOUND)
+    {
+        Lfree(p->alloc, &old);
+        upper_key_free(p, &key, heap);
+        return (vrc == VPOOL_NOMEM) ? IRXPARS_NOMEM : IRXPARS_SYNTAX;
+    }
+
+    int lrc;
+    if (vrc == VPOOL_OK)
+    {
+        lrc = Lfx(p->alloc, result, old.len);
+        if (lrc == LSTR_OK && old.len > 0)
+        {
+            memcpy(result->pstr, old.pstr, old.len);
+        }
+    }
+    else
+    {
+        lrc = Lfx(p->alloc, result, key.len);
+        if (lrc == LSTR_OK && key.len > 0)
+        {
+            memcpy(result->pstr, key.pstr, key.len);
+        }
+    }
+    if (lrc == LSTR_OK)
+    {
+        result->len = (vrc == VPOOL_OK) ? old.len : key.len;
+        result->type = LSTRING_TY;
+    }
+    Lfree(p->alloc, &old);
+
+    if (lrc != LSTR_OK)
+    {
+        upper_key_free(p, &key, heap);
+        return translate_lstr_rc(lrc);
+    }
+
+    /* Mode 2 — apply the new value AFTER the previous one is captured
+     * in `result`. An empty newvalue is a valid "set to empty string". */
+    if (argc >= 2 && argv[1] != NULL)
+    {
+        int src_rc = vpool_set(p->vpool, &key, argv[1]);
+        if (src_rc != VPOOL_OK)
+        {
+            upper_key_free(p, &key, heap);
+            return (src_rc == VPOOL_NOMEM) ? IRXPARS_NOMEM : IRXPARS_SYNTAX;
+        }
+    }
+
+    upper_key_free(p, &key, heap);
+    return IRXPARS_OK;
+}
+
+/* Count 1-based lines in a source buffer. A trailing '\n' does NOT
+ * introduce an empty trailing line, matching REXX SOURCELINE semantics
+ * and the line numbers the tokenizer records in tok_line. */
+static int source_line_count(const unsigned char *src, size_t len)
+{
+    if (src == NULL || len == 0)
+    {
+        return 0;
+    }
+    int count = 0;
+    size_t i = 0;
+    while (i < len)
+    {
+        count++;
+        while (i < len && src[i] != '\n')
+        {
+            i++;
+        }
+        if (i < len)
+        {
+            i++;
+        }
+    }
+    return count;
+}
+
+/* Find the start offset and length of line `n` (1-based). Returns 1
+ * on success, 0 if n is out of range, source is NULL, or source is
+ * empty. The returned range excludes the terminating '\n'.
+ *
+ * `n` is `long` to avoid a silent truncation bug when a 64-bit REXX
+ * integer arrives on cross-compile hosts — an int-cast on LP64 could
+ * land back inside the valid range and return a spurious line. The
+ * internal `cur` stays int: REXX source sizes are bounded (tokens
+ * cap at 500 chars per clause, so a million-line program would still
+ * be <500MB and well under INT_MAX line count). */
+static int source_line_find(const unsigned char *src, size_t len,
+                            long n, size_t *out_start, size_t *out_len)
+{
+    if (src == NULL || len == 0 || n <= 0)
+    {
+        return 0;
+    }
+    size_t i = 0;
+    long cur = 1;
+    while (cur < n && i < len)
+    {
+        while (i < len && src[i] != '\n')
+        {
+            i++;
+        }
+        if (i < len)
+        {
+            i++;
+        }
+        cur++;
+    }
+    /* cur < n → loop exited early because source ran out; line doesn't
+     * exist. cur == n but i == len → landed past the last '\n' with no
+     * content following; also out of range. */
+    if (cur < n || i >= len)
+    {
+        return 0;
+    }
+    size_t start = i;
+    while (i < len && src[i] != '\n')
+    {
+        i++;
+    }
+    *out_start = start;
+    *out_len = i - start;
+    return 1;
+}
+
+/* SOURCELINE([n]) — query the retained REXX source.
+ *
+ *   No argument → return the total number of lines as a whole number.
+ *   One argument → return the text of line n (1-based), excluding the
+ *                  terminating newline. n must be a positive whole
+ *                  number in 1..SOURCELINE(); anything else raises
+ *                  SYNTAX 40.4 (ERR40_ARG_LENGTH).
+ *
+ * Source retention is plumbed in src/irx#exec.c; wkbi_source is set
+ * before tokenisation and cleared on cleanup. Calls outside an
+ * active exec_run see wkbi_source == NULL and behave as if the source
+ * were empty (line count 0, any n out of range). */
+static int bif_sourceline(struct irx_parser *p, int argc, PLstr *argv,
+                          PLstr result)
+{
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+    const unsigned char *src =
+        (wk != NULL) ? (const unsigned char *)wk->wkbi_source : NULL;
+    size_t src_len = (wk != NULL) ? (size_t)wk->wkbi_source_len : 0;
+
+    /* No-arg (or empty-arg) — return line count. */
+    if (argc < 1 || argv[0] == NULL || argv[0]->len == 0)
+    {
+        long count = (long)source_line_count(src, src_len);
+        return translate_lstr_rc(long_to_lstr(p->alloc, result, count));
+    }
+
+    long n = 0;
+    int rc = irx_bif_whole_positive(p, argv, 0, "SOURCELINE", &n);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    size_t line_start = 0;
+    size_t line_len = 0;
+    if (!source_line_find(src, src_len, n, &line_start, &line_len))
+    {
+        char desc[80];
+        snprintf(desc, sizeof(desc),
+                 "SOURCELINE: line %ld out of range", n);
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL,
+                       ERR40_ARG_LENGTH, desc);
+        return IRXPARS_SYNTAX;
+    }
+
+    int lrc = Lfx(p->alloc, result, line_len);
+    if (lrc != LSTR_OK)
+    {
+        return translate_lstr_rc(lrc);
+    }
+    if (line_len > 0)
+    {
+        memcpy(result->pstr, src + line_start, line_len);
+    }
+    result->len = line_len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+/* ERRORTEXT(n) — descriptive text for a SYNTAX primary code.
+ * The table itself lives in src/irx#cond.c; the BIF just validates the
+ * argument and formats the lookup result. Out-of-range n raises
+ * SYNTAX 40.23 (ERR40_OPTION_INVALID); in-range but undefined codes
+ * return the empty string, matching TSO/E behaviour. */
+static int bif_errortext(struct irx_parser *p, int argc, PLstr *argv,
+                         PLstr result)
+{
+    (void)argc;
+    long code = 0;
+    int rc = irx_bif_whole_nonneg(p, argv, 0, "ERRORTEXT", &code);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    /* Pre-check guards the (int) cast below against pathological long
+     * values; the canonical range check lives in irx_cond_errortext(). */
+    const char *text =
+        (code >= ERRORTEXT_CODE_MIN && code <= ERRORTEXT_CODE_MAX)
+            ? irx_cond_errortext((int)code)
+            : NULL;
+
+    if (text == NULL)
+    {
+        char desc[80];
+        snprintf(desc, sizeof(desc),
+                 "ERRORTEXT: code %ld out of range", code);
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL,
+                       ERR40_OPTION_INVALID, desc);
+        return IRXPARS_SYNTAX;
+    }
     return translate_lstr_rc(lit_to_lstr(p->alloc, result, text));
 }
 
@@ -2755,6 +3104,13 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"DIGITS", 0, 0, bif_digits},
     {"FUZZ", 0, 0, bif_fuzz},
     {"FORM", 0, 0, bif_form},
+    /* Phase J — Environment BIFs (WP-21b Phase F) */
+    {"USERID", 0, 0, bif_userid},
+    {"ERRORTEXT", 1, 1, bif_errortext},
+    {"EXTERNALS", 0, 0, bif_externals},
+    {"LINESIZE", 0, 0, bif_linesize},
+    {"VALUE", 1, 3, bif_value},
+    {"SOURCELINE", 0, 1, bif_sourceline},
     /* Sentinel */
     {"", 0, 0, NULL}};
 

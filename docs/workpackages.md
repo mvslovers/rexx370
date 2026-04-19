@@ -27,7 +27,7 @@ Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3
 | WP-18 | Hello World end-to-end (IRX#EXEC) | 2 | DONE (16/16) — PR #14 |
 | WP-20 | Arithmetic engine (IRXARITH) | 3 | DONE (128/128) — PR #24 |
 | WP-21a | String BIFs (IRXBIFS) | 3 | DONE (29/29 + 87/87) — PR #26 |
-| WP-21b | Misc BIFs | 3 | IN PROGRESS — Phases A–E done (PRs #28, #30, #36, #38, #39); F (#34) + H (#35) open |
+| WP-21b | Misc BIFs | 3 | IN PROGRESS — Phases A–F done (PRs #28, #30, #36, #38, #39, #42); H (#35) open |
 | WP-22 | Built-in misc functions | 3 | OPEN |
 | WP-23 | INTERPRET instruction | 3 | OPEN |
 | WP-30 | EXECIO command | 4 | OPEN |

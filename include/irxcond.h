@@ -81,4 +81,31 @@ struct irx_condition_info
 void irx_cond_raise(struct envblock *env, int code, int subcode,
                     const char *desc) asm("IRXCRAIS");
 
+/* ================================================================== */
+/*  Primary-code descriptive text lookup                              */
+/*                                                                    */
+/*  Returns the short descriptive text for a REXX SYNTAX primary      */
+/*  error code, verbatim from SC28-1883-0 Appendix A (Error Numbers   */
+/*  and Messages). Used by the ERRORTEXT() BIF.                       */
+/*                                                                    */
+/*  The strings here are the *primary-code* texts (subcode 0) — they  */
+/*  are distinct from the per-call-site descriptions passed to        */
+/*  irx_cond_raise(), which describe the specific subcode condition.  */
+/*                                                                    */
+/*   code    in ERRORTEXT_CODE_MIN .. ERRORTEXT_CODE_MAX               */
+/*   return  pointer to a static, null-terminated string:             */
+/*             - verbatim Appendix A text if the code is defined,     */
+/*             - empty string "" if the code is in range but has no   */
+/*               Appendix A entry (e.g. 1, 2, 46, 47, 50..90),        */
+/*             - NULL if code is out of range.                        */
+/* ================================================================== */
+
+/* Primary-code range that ERRORTEXT(n) accepts. Shared with the BIF so
+ * both the callee and the caller cast-safety pre-check use the same
+ * bounds; extend in one place to widen the accepted range. */
+#define ERRORTEXT_CODE_MIN 1
+#define ERRORTEXT_CODE_MAX 90
+
+const char *irx_cond_errortext(int code) asm("IRXCETXT");
+
 #endif /* IRXCOND_H */

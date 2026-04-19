@@ -20,6 +20,7 @@
 #include "irxpars.h"
 #include "irxtokn.h"
 #include "irxvpool.h"
+#include "irxwkblk.h"
 
 int irx_exec_run(const char *source, int source_len,
                  const char *args, int args_len,
@@ -33,6 +34,15 @@ int irx_exec_run(const char *source, int source_len,
     struct irx_vpool *vpool = NULL;
     struct irx_parser parser;
     int rc;
+
+    /* Save/restore slots for the source-retention fields. Populated at
+     * step 2b (after we have a live envblock + wkblk), restored on
+     * cleanup. Supports nested exec_run (e.g. the future INTERPRET
+     * instruction from WP-23) without the inner call wiping the
+     * outer's retention. */
+    void *saved_source = NULL;
+    int saved_source_len = 0;
+    int retention_saved = 0;
 
     memset(&parser, 0, sizeof(parser));
     memset(&tok_err, 0, sizeof(tok_err));
@@ -54,6 +64,24 @@ int irx_exec_run(const char *source, int source_len,
     {
         rc = 20;
         goto cleanup;
+    }
+
+    /* 2b. Retain source pointer on the work block so SOURCELINE can
+     * read it back. The caller-owned source buffer outlives the run;
+     * we save the previous retention values and restore them on
+     * cleanup so nested exec_run calls (future INTERPRET) don't
+     * clobber an outer invocation's retention. */
+    {
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)envblock->envblock_userfield;
+        if (wk != NULL)
+        {
+            saved_source = wk->wkbi_source;
+            saved_source_len = wk->wkbi_source_len;
+            retention_saved = 1;
+            wk->wkbi_source = (void *)source;
+            wk->wkbi_source_len = source_len;
+        }
     }
 
     /* 3. Tokenize --------------------------------------------------- */
@@ -148,6 +176,21 @@ cleanup:
     if (tokens != NULL)
     {
         irx_tokn_free(envblock, tokens, tok_count);
+    }
+    /* Restore the pre-call retention values before we return — the
+     * caller's source buffer stops being valid for us once control
+     * leaves here, and any outer exec_run further up the stack must
+     * see its own retention preserved. retention_saved guards against
+     * restoring stale zeros when we jumped to cleanup before step 2b. */
+    if (retention_saved && envblock != NULL)
+    {
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)envblock->envblock_userfield;
+        if (wk != NULL)
+        {
+            wk->wkbi_source = saved_source;
+            wk->wkbi_source_len = saved_source_len;
+        }
     }
     if (own_env)
     {

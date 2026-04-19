@@ -27,6 +27,7 @@
 #include "irx.h"
 #include "irxbif.h"
 #include "irxcond.h"
+#include "irxexec.h"
 #include "irxfunc.h"
 #include "irxpars.h"
 #include "irxtokn.h"
@@ -1279,9 +1280,478 @@ static void test_phase_e_errors(void)
                     "DATATYPE unknown multi-char option -> 40.23");
 }
 
+/* ================================================================== */
+/*  Phase F — Environment BIFs (WP-21b Phase F, issue #34)            */
+/* ================================================================== */
+
+/* True iff s contains at least one non-digit and at least one non-blank
+ * character — used to reject a regression where ERRORTEXT would echo
+ * the numeric code back as its own text. */
+static int looks_non_numeric_text(const char *s, size_t len)
+{
+    if (len == 0)
+    {
+        return 0;
+    }
+    int saw_non_digit = 0;
+    int saw_non_blank = 0;
+    for (size_t i = 0; i < len; i++)
+    {
+        unsigned char c = (unsigned char)s[i];
+        if (c != ' ')
+        {
+            saw_non_blank = 1;
+        }
+        if (c < '0' || c > '9')
+        {
+            saw_non_digit = 1;
+        }
+    }
+    return saw_non_blank && saw_non_digit;
+}
+
+static void errortext_check_nonempty(int code)
+{
+    char src[64];
+    snprintf(src, sizeof(src), "x = ERRORTEXT(%d)\n", code);
+    struct fixture fx;
+    if (fixture_open(&fx) != 0)
+    {
+        CHECK(0, "ERRORTEXT fixture_open");
+        return;
+    }
+    int rc = run_src(&fx, src);
+    if (rc != IRXPARS_OK)
+    {
+        CHECK(0, "ERRORTEXT(n) executes");
+        fixture_close(&fx);
+        return;
+    }
+
+    Lstr key;
+    Lstr val;
+    Lzeroinit(&key);
+    Lzeroinit(&val);
+    Lscpy(fx.alloc, &key, "X");
+    int vrc = vpool_get(fx.pool, &key, &val);
+    int ok = (vrc == VPOOL_OK) &&
+             looks_non_numeric_text((const char *)val.pstr, val.len);
+    if (!ok)
+    {
+        printf("    ERRORTEXT(%d) = '%.*s'\n",
+               code, (int)val.len, (const char *)val.pstr);
+    }
+    char label[64];
+    snprintf(label, sizeof(label),
+             "ERRORTEXT(%d) non-empty non-numeric", code);
+    CHECK(ok, label);
+    Lfree(fx.alloc, &key);
+    Lfree(fx.alloc, &val);
+    fixture_close(&fx);
+}
+
+static void test_phase_f_errortext(void)
+{
+    printf("\n--- Phase F: ERRORTEXT ---\n");
+
+    /* AC-F2 — exact match against the TSO/E-verified spec text. */
+    EXPECT_OK("ERRORTEXT(40)", "Incorrect call to routine",
+              "AC-F2 ERRORTEXT(40) exact TSO/E text");
+
+    /* Table-boundary guards — the first and last defined Appendix A
+     * entries. Catches off-by-one regressions from table reorder. */
+    EXPECT_OK("ERRORTEXT(3)", "Program is unreadable",
+              "ERRORTEXT(3) first table entry");
+    EXPECT_OK("ERRORTEXT(49)", "Interpreter failure",
+              "ERRORTEXT(49) last table entry");
+
+    /* Codes rexx370 actually raises today — verify the lookup returns
+     * something sensible (non-empty, not just the numeric code). */
+    errortext_check_nonempty(24);
+    errortext_check_nonempty(26);
+    errortext_check_nonempty(41);
+    errortext_check_nonempty(42);
+
+    /* AC-F3 — out-of-range codes raise SYNTAX 40.23. */
+    run_expect_fail("x = ERRORTEXT(0)\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "AC-F3 ERRORTEXT(0) -> 40.23");
+    run_expect_fail("x = ERRORTEXT(99)\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "AC-F3 ERRORTEXT(99) -> 40.23");
+
+    /* Upstream validation — negative or non-numeric fails in whole-number
+     * parsing before the range check runs. */
+    run_expect_fail("x = ERRORTEXT(-1)\n", SYNTAX_BAD_CALL,
+                    ERR40_NONNEG_WHOLE,
+                    "ERRORTEXT(-1) rejected as non-negative");
+    run_expect_fail("x = ERRORTEXT('ABC')\n", SYNTAX_BAD_CALL,
+                    ERR40_NONNEG_WHOLE,
+                    "ERRORTEXT('ABC') rejected as non-numeric");
+
+    /* In-range but undefined codes must return empty string, matching
+     * TSO/E behaviour for gaps (1, 2, 46, 47) and for codes 50..90. */
+    EXPECT_OK("ERRORTEXT(1)", "", "ERRORTEXT(1) undefined -> empty");
+    EXPECT_OK("ERRORTEXT(46)", "", "ERRORTEXT(46) undefined -> empty");
+    EXPECT_OK("ERRORTEXT(90)", "", "ERRORTEXT(90) undefined -> empty");
+}
+
+static void test_phase_f_userid(void)
+{
+    printf("\n--- Phase F: USERID ---\n");
+
+    /* AC-F1 — USERID returns a non-empty string. On cross-compile this
+     * is either getenv("USER") or the "USER" literal fallback; on MVS
+     * it's the trimmed PSCBUSER or the "MVSUSER" sentinel. No exact
+     * match — just non-empty and non-blank. */
+    struct fixture fx;
+    if (fixture_open(&fx) != 0)
+    {
+        CHECK(0, "USERID fixture_open");
+        return;
+    }
+    int rc = run_src(&fx, "x = USERID()\n");
+    if (rc != IRXPARS_OK)
+    {
+        CHECK(0, "AC-F1 USERID() executes");
+        fixture_close(&fx);
+        return;
+    }
+
+    Lstr key;
+    Lstr val;
+    Lzeroinit(&key);
+    Lzeroinit(&val);
+    Lscpy(fx.alloc, &key, "X");
+    int vrc = vpool_get(fx.pool, &key, &val);
+    int non_empty = (vrc == VPOOL_OK) && val.len > 0;
+    int non_blank = 0;
+    if (non_empty)
+    {
+        for (size_t i = 0; i < val.len; i++)
+        {
+            if (val.pstr[i] != ' ')
+            {
+                non_blank = 1;
+                break;
+            }
+        }
+    }
+    if (!non_empty || !non_blank)
+    {
+        printf("    USERID = '%.*s' (len=%d)\n",
+               (int)val.len, (const char *)val.pstr, (int)val.len);
+    }
+    CHECK(non_empty && non_blank, "AC-F1 USERID() non-empty non-blank");
+    Lfree(fx.alloc, &key);
+    Lfree(fx.alloc, &val);
+    fixture_close(&fx);
+}
+
+static void test_phase_f_stubs(void)
+{
+    printf("\n--- Phase F: EXTERNALS + LINESIZE stubs ---\n");
+
+    /* AC-F4 — EXTERNALS() returns '0' until data-stack lands. */
+    EXPECT_OK("EXTERNALS()", "0", "AC-F4 EXTERNALS() -> '0'");
+
+    /* AC-F8 — LINESIZE() returns '80' pending WP-33. */
+    EXPECT_OK("LINESIZE()", "80", "AC-F8 LINESIZE() -> '80'");
+}
+
+static void test_phase_f_value(void)
+{
+    printf("\n--- Phase F: VALUE ---\n");
+
+    /* AC-F6 Mode 1 — read existing variable. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE mode 1 fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "x = 5\ny = VALUE('X')\n");
+        CHECK(rc == IRXPARS_OK, "AC-F6 Mode 1 VALUE('X') executes");
+        CHECK(var_eq(&fx, "Y", "5"), "AC-F6 Mode 1 VALUE('X') -> '5'");
+        fixture_close(&fx);
+    }
+
+    /* Mode 1 — unset variable returns uppercased name. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE unset fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "y = VALUE('new_var')\n");
+        CHECK(rc == IRXPARS_OK, "VALUE unset executes");
+        CHECK(var_eq(&fx, "Y", "NEW_VAR"),
+              "VALUE('new_var') unset -> 'NEW_VAR' (uppercased)");
+        fixture_close(&fx);
+    }
+
+    /* AC-F6 Mode 2 — read old, set new, return old. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE mode 2 fixture_open");
+            return;
+        }
+        int rc = run_src(&fx,
+                         "x = 5\n"
+                         "y = VALUE('X', '7')\n"
+                         "z = VALUE('X')\n");
+        CHECK(rc == IRXPARS_OK, "AC-F6 Mode 2 VALUE('X','7') executes");
+        CHECK(var_eq(&fx, "Y", "5"),
+              "AC-F6 Mode 2 VALUE('X','7') returns previous '5'");
+        CHECK(var_eq(&fx, "Z", "7"),
+              "AC-F6 Mode 2 VALUE('X','7') sets X to '7'");
+        fixture_close(&fx);
+    }
+
+    /* Mode 2 — set a previously-unset variable. Return is the
+     * uppercased name (matches Mode 1 behaviour), set still happens. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE set-new fixture_open");
+            return;
+        }
+        int rc = run_src(&fx,
+                         "y = VALUE('NEW_VAR', 'hello')\n"
+                         "z = NEW_VAR\n");
+        CHECK(rc == IRXPARS_OK, "VALUE set-new executes");
+        CHECK(var_eq(&fx, "Y", "NEW_VAR"),
+              "VALUE set-new returns uppercased name for previously unset");
+        CHECK(var_eq(&fx, "Z", "hello"),
+              "VALUE set-new actually sets the variable");
+        fixture_close(&fx);
+    }
+
+    /* AC-F7 — Mode 3 with selector raises SYNTAX 40.23. */
+    run_expect_fail("x = 5\ny = VALUE('X', '7', 'ENVIRONMENT')\n",
+                    SYNTAX_BAD_CALL, ERR40_OPTION_INVALID,
+                    "AC-F7 VALUE with selector -> 40.23");
+
+    /* Empty selector treated as absent — must NOT raise. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE empty-selector fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "x = 5\ny = VALUE('X', '7', '')\n");
+        CHECK(rc == IRXPARS_OK,
+              "VALUE empty selector treated as absent (no raise)");
+        fixture_close(&fx);
+    }
+
+    /* Mode 2 with empty newvalue — "set to empty string" is a valid
+     * assignment, distinct from "omit the second argument". Verifies
+     * the commentary claim that empty newvalue is honoured. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "VALUE empty-newvalue fixture_open");
+            return;
+        }
+        int rc = run_src(&fx,
+                         "x = 'hello'\n"
+                         "y = VALUE('X', '')\n"
+                         "z = X\n");
+        CHECK(rc == IRXPARS_OK, "VALUE empty-newvalue executes");
+        CHECK(var_eq(&fx, "Y", "hello"),
+              "VALUE('X','') returns previous 'hello'");
+        CHECK(var_eq(&fx, "Z", ""),
+              "VALUE('X','') sets X to empty string");
+        fixture_close(&fx);
+    }
+}
+
+/* Drive bif_sourceline with a pre-populated wkbi_source. The test
+ * fixture calls irx_tokn_run / irx_pars_run directly (it does not go
+ * through irx_exec_run), so we have to inject the retained source
+ * manually — that's exactly what irx_exec_run does at step 2b of its
+ * pipeline. */
+static void sourceline_set_retention(struct fixture *fx,
+                                     const char *src)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)fx->env->envblock_userfield;
+    wk->wkbi_source = (void *)src;
+    wk->wkbi_source_len = (int)strlen(src);
+}
+
+static void test_phase_f_sourceline(void)
+{
+    printf("\n--- Phase F: SOURCELINE ---\n");
+
+    /* AC-F5 — SOURCELINE(1) returns the first line text. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE retention fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "first\nsecond\nthird");
+        int rc = run_src(&fx, "y = SOURCELINE(1)\n");
+        CHECK(rc == IRXPARS_OK, "AC-F5 SOURCELINE(1) executes");
+        CHECK(var_eq(&fx, "Y", "first"),
+              "AC-F5 SOURCELINE(1) -> 'first'");
+        fixture_close(&fx);
+    }
+
+    /* Mid-buffer line and line-count reporting. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE mid fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "first\nsecond\nthird");
+        int rc = run_src(&fx,
+                         "a = SOURCELINE(2)\n"
+                         "b = SOURCELINE(3)\n"
+                         "c = SOURCELINE()\n");
+        CHECK(rc == IRXPARS_OK, "SOURCELINE mid executes");
+        CHECK(var_eq(&fx, "A", "second"), "SOURCELINE(2) -> 'second'");
+        CHECK(var_eq(&fx, "B", "third"), "SOURCELINE(3) -> 'third'");
+        CHECK(var_eq(&fx, "C", "3"), "SOURCELINE() -> '3' line count");
+        fixture_close(&fx);
+    }
+
+    /* No retention → SOURCELINE() is 0, SOURCELINE(n) raises. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE empty fixture_open");
+            return;
+        }
+        int rc = run_src(&fx, "y = SOURCELINE()\n");
+        CHECK(rc == IRXPARS_OK, "SOURCELINE() no-retention executes");
+        CHECK(var_eq(&fx, "Y", "0"),
+              "SOURCELINE() with no retention -> '0'");
+        fixture_close(&fx);
+    }
+
+    run_expect_fail("x = SOURCELINE(1)\n", SYNTAX_BAD_CALL,
+                    ERR40_ARG_LENGTH,
+                    "SOURCELINE(1) with no retention -> 40.4");
+
+    /* Out-of-range n raises. */
+    {
+        /* Retention is module-scoped across this closure via a helper */
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE OOR fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "one\ntwo");
+        int rc = run_src(&fx, "y = SOURCELINE(3)\n");
+        CHECK(rc != IRXPARS_OK, "SOURCELINE(3) on 2-line source rejects");
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)fx.env->envblock_userfield;
+        int code = (wk && wk->wkbi_last_condition &&
+                    wk->wkbi_last_condition->valid)
+                       ? wk->wkbi_last_condition->code
+                       : 0;
+        int sub = (wk && wk->wkbi_last_condition &&
+                   wk->wkbi_last_condition->valid)
+                      ? wk->wkbi_last_condition->subcode
+                      : 0;
+        CHECK(code == SYNTAX_BAD_CALL && sub == ERR40_ARG_LENGTH,
+              "SOURCELINE(3) on 2-line source -> 40.4");
+        fixture_close(&fx);
+    }
+
+    /* n must be a positive whole number — 0, negative, non-numeric
+     * all go through the standard validation helper. */
+    run_expect_fail("x = SOURCELINE(0)\n", SYNTAX_BAD_CALL,
+                    ERR40_POSITIVE_WHOLE,
+                    "SOURCELINE(0) -> 40.12 (non-positive)");
+    run_expect_fail("x = SOURCELINE('abc')\n", SYNTAX_BAD_CALL,
+                    ERR40_POSITIVE_WHOLE,
+                    "SOURCELINE('abc') -> 40.12 (non-numeric)");
+
+    /* Huge n must NOT silently truncate into a valid line index.
+     * On cross-compile hosts (long = 64-bit, int = 32-bit) this
+     * guards against a cast-truncation bug that would land the
+     * request back inside the valid range — e.g. 2^32 + 5 -> 5
+     * and spuriously return line 5. source_line_find takes long
+     * directly, so the out-of-range check fires as expected. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE huge-n fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "one\ntwo\nthree\nfour\nfive");
+        int rc = run_src(&fx, "y = SOURCELINE(4294967301)\n");
+        CHECK(rc != IRXPARS_OK,
+              "SOURCELINE huge-n rejects (no silent truncation)");
+        fixture_close(&fx);
+    }
+
+    /* Trailing '\n' does not add a phantom empty line: "a\nb\n"
+     * counts as 2, not 3. Guards against off-by-one regression
+     * in source_line_count. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE trailing-nl fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "a\nb\n");
+        int rc = run_src(&fx, "y = SOURCELINE()\n");
+        CHECK(rc == IRXPARS_OK, "SOURCELINE trailing-nl executes");
+        CHECK(var_eq(&fx, "Y", "2"),
+              "SOURCELINE() with trailing '\\n' counts 2 (not 3)");
+        fixture_close(&fx);
+    }
+
+    /* End-to-end through irx_exec_run: proves the wkbi_source plumbing
+     * in exec.c actually populates before BIF dispatch. The source
+     * itself invokes SOURCELINE on its own text. */
+    {
+        const char *src = "x = 'one'\n"
+                          "y = 'two'\n"
+                          "out1 = SOURCELINE(1)\n"
+                          "out3 = SOURCELINE()\n";
+        struct envblock *env = NULL;
+        int rcinit = irxinit(NULL, &env);
+        CHECK(rcinit == 0, "SOURCELINE end-to-end: irxinit");
+        int rc_out = 0;
+        int rc = irx_exec_run(src, (int)strlen(src), NULL, 0,
+                              &rc_out, env);
+        CHECK(rc == 0, "SOURCELINE end-to-end: exec_run ok");
+
+        /* Verify wkbi_source was cleared after exec_run returned. */
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)env->envblock_userfield;
+        CHECK(wk->wkbi_source == NULL,
+              "SOURCELINE: wkbi_source cleared on cleanup");
+        CHECK(wk->wkbi_source_len == 0,
+              "SOURCELINE: wkbi_source_len cleared on cleanup");
+
+        irxterm(env);
+    }
+}
+
 int main(void)
 {
-    printf("=== WP-21a + WP-21b Phase C+D+E: BIFs ===\n");
+    printf("=== WP-21a + WP-21b Phase C+D+E+F: BIFs ===\n");
     test_phase_b();
     test_phase_c();
     test_phase_d();
@@ -1300,6 +1770,11 @@ int main(void)
     test_phase_e_symbol();
     test_phase_e_numeric_reflection();
     test_phase_e_errors();
+    test_phase_f_errortext();
+    test_phase_f_userid();
+    test_phase_f_stubs();
+    test_phase_f_value();
+    test_phase_f_sourceline();
     test_error_paths();
     test_find_phrase_cap();
 
