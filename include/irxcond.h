@@ -42,6 +42,8 @@ struct envblock; /* forward decl to avoid circular include */
 #define ERR40_SINGLE_CHAR     14 /* argument N must be single char    */
 #define ERR40_NUMBER_REQUIRED 21 /* argument N must be a number       */
 #define ERR40_OPTION_INVALID  23 /* argument N option not in allowed  */
+#define ERR40_BAD_BINARY      24 /* argument 1 must be a binary string (B2X) */
+#define ERR40_BAD_HEX         25 /* argument 1 must be a hex string (X2C/X2D/X2B) */
 /* reserved for WP-21b misc BIFs (raised by TRANSLATE-style table check) */
 #define ERR40_PAIRED_LENGTH 29 /* translate table lengths mismatch  */
 
