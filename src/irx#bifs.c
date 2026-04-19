@@ -2696,6 +2696,68 @@ static int bif_form(struct irx_parser *p, int argc, PLstr *argv,
 /*  Phase F — Environment BIFs (WP-21b Phase F)                       */
 /* ================================================================== */
 
+/* USERID() — current user id.
+ * Delegates to the IRXUID replaceable routine (src/irx#uid.c), which
+ * writes an 8-byte blank-padded buffer. We trim trailing blanks and
+ * fall back to "MVSUSER" whenever the trim leaves an empty string —
+ * this covers both non-TSO batch (PSCB walk sees no LWA) and any
+ * future irxuid failure mode with a single, predictable sentinel. */
+static int bif_userid(struct irx_parser *p, int argc, PLstr *argv,
+                      PLstr result)
+{
+    (void)argc;
+    (void)argv;
+
+    char buf[8];
+    memset(buf, ' ', sizeof(buf));
+    (void)irxuid(buf, p->envblock);
+
+    size_t len = sizeof(buf);
+    while (len > 0 && buf[len - 1] == ' ')
+    {
+        len--;
+    }
+
+    if (len == 0)
+    {
+        return translate_lstr_rc(lit_to_lstr(p->alloc, result, "MVSUSER"));
+    }
+
+    int rc = Lfx(p->alloc, result, len);
+    if (rc != LSTR_OK)
+    {
+        return translate_lstr_rc(rc);
+    }
+    memcpy(result->pstr, buf, len);
+    result->len = len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+/* EXTERNALS() — element count of the external data queue.
+ * Stubbed to "0" until the data-stack infrastructure lands (TSK-144).
+ * The stub is spec-legal — zero is a valid answer for an empty queue
+ * — and the signature matches the real implementation, so call sites
+ * don't need to change when the stub is replaced. */
+static int bif_externals(struct irx_parser *p, int argc, PLstr *argv,
+                         PLstr result)
+{
+    (void)argc;
+    (void)argv;
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, 0L));
+}
+
+/* LINESIZE() — terminal line width.
+ * Stubbed to "80" pending WP-33 (MVS I/O Output Routing), which will
+ * route through the terminal driver and can query the actual width. */
+static int bif_linesize(struct irx_parser *p, int argc, PLstr *argv,
+                        PLstr result)
+{
+    (void)argc;
+    (void)argv;
+    return translate_lstr_rc(long_to_lstr(p->alloc, result, 80L));
+}
+
 /* ERRORTEXT(n) — descriptive text for a SYNTAX primary code.
  * The table itself lives in src/irx#cond.c; the BIF just validates the
  * argument and formats the lookup result. Out-of-range n raises
@@ -2795,7 +2857,10 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"FUZZ", 0, 0, bif_fuzz},
     {"FORM", 0, 0, bif_form},
     /* Phase J — Environment BIFs (WP-21b Phase F) */
+    {"USERID", 0, 0, bif_userid},
     {"ERRORTEXT", 1, 1, bif_errortext},
+    {"EXTERNALS", 0, 0, bif_externals},
+    {"LINESIZE", 0, 0, bif_linesize},
     /* Sentinel */
     {"", 0, 0, NULL}};
 

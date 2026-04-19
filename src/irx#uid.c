@@ -11,6 +11,7 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "irx.h"
@@ -61,9 +62,16 @@ int irxuid(char *userid, struct envblock *envblock)
     /* Fallback: return blanks (non-TSO batch) */
     /* TODO: try ACEE/JCT extraction */
 #else
-    /* Cross-compile: use getlogin() or environment */
-    const char *user = "TESTUSER";
-    int len = (int)strlen(user);
+    (void)envblock;
+    /* Cross-compile: pull from environment, fall back to the literal
+     * "USER" when nothing is set. The 8-byte blank-padded convention
+     * is preserved so callers (bif_userid) can uniformly trim. */
+    const char *user = getenv("USER");
+    if (user == NULL || user[0] == '\0')
+    {
+        user = "USER";
+    }
+    size_t len = strlen(user);
     if (len > 8)
     {
         len = 8;

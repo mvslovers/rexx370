@@ -1395,6 +1395,69 @@ static void test_phase_f_errortext(void)
     EXPECT_OK("ERRORTEXT(90)", "", "ERRORTEXT(90) undefined -> empty");
 }
 
+static void test_phase_f_userid(void)
+{
+    printf("\n--- Phase F: USERID ---\n");
+
+    /* AC-F1 — USERID returns a non-empty string. On cross-compile this
+     * is either getenv("USER") or the "USER" literal fallback; on MVS
+     * it's the trimmed PSCBUSER or the "MVSUSER" sentinel. No exact
+     * match — just non-empty and non-blank. */
+    struct fixture fx;
+    if (fixture_open(&fx) != 0)
+    {
+        CHECK(0, "USERID fixture_open");
+        return;
+    }
+    int rc = run_src(&fx, "x = USERID()\n");
+    if (rc != IRXPARS_OK)
+    {
+        CHECK(0, "AC-F1 USERID() executes");
+        fixture_close(&fx);
+        return;
+    }
+
+    Lstr key;
+    Lstr val;
+    Lzeroinit(&key);
+    Lzeroinit(&val);
+    Lscpy(fx.alloc, &key, "X");
+    int vrc = vpool_get(fx.pool, &key, &val);
+    int non_empty = (vrc == VPOOL_OK) && val.len > 0;
+    int non_blank = 0;
+    if (non_empty)
+    {
+        for (size_t i = 0; i < val.len; i++)
+        {
+            if (val.pstr[i] != ' ')
+            {
+                non_blank = 1;
+                break;
+            }
+        }
+    }
+    if (!non_empty || !non_blank)
+    {
+        printf("    USERID = '%.*s' (len=%d)\n",
+               (int)val.len, (const char *)val.pstr, (int)val.len);
+    }
+    CHECK(non_empty && non_blank, "AC-F1 USERID() non-empty non-blank");
+    Lfree(fx.alloc, &key);
+    Lfree(fx.alloc, &val);
+    fixture_close(&fx);
+}
+
+static void test_phase_f_stubs(void)
+{
+    printf("\n--- Phase F: EXTERNALS + LINESIZE stubs ---\n");
+
+    /* AC-F4 — EXTERNALS() returns '0' until data-stack lands. */
+    EXPECT_OK("EXTERNALS()", "0", "AC-F4 EXTERNALS() -> '0'");
+
+    /* AC-F8 — LINESIZE() returns '80' pending WP-33. */
+    EXPECT_OK("LINESIZE()", "80", "AC-F8 LINESIZE() -> '80'");
+}
+
 int main(void)
 {
     printf("=== WP-21a + WP-21b Phase C+D+E+F: BIFs ===\n");
@@ -1417,6 +1480,8 @@ int main(void)
     test_phase_e_numeric_reflection();
     test_phase_e_errors();
     test_phase_f_errortext();
+    test_phase_f_userid();
+    test_phase_f_stubs();
     test_error_paths();
     test_find_phrase_cap();
 
