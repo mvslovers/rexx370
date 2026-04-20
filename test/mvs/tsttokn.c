@@ -1,12 +1,18 @@
 /* ------------------------------------------------------------------ */
-/*  test_tokenizer.c - WP-10 tokenizer unit tests                     */
+/*  tsttokn.c - WP-10 tokenizer unit tests (TSTTOKN load module)      */
 /*                                                                    */
 /*  Build (Linux/gcc cross-compile):                                  */
-/*    gcc -I include -Wall -Wextra -std=gnu99 -o test/test_tokenizer  */
-/*        test/test_tokenizer.c \                                     */
-/*        'src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \        */
-/*        'src/irx#anch.c'  'src/irx#uid.c'  'src/irx#msid.c' \        */
-/*        'src/irx#tokn.c'                                             */
+/*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
+/*        -Wall -Wextra -std=gnu99 -o test/test_tokenizer \           */
+/*        test/mvs/tsttokn.c 'src/irx#tokn.c' 'src/irx#stor.c' \      */
+/*        ../lstring370/src/'lstr#cor.c'                              */
+/*                                                                    */
+/*  Build (MVS via mbt):                                              */
+/*    mbt build --target TSTTOKN                                      */
+/*                                                                    */
+/*  Invocation on MVS:                                                */
+/*    TSO:    CALL 'hlq.LOAD(TSTTOKN)'                                */
+/*    Batch:  // EXEC PGM=TSTTOKN                                     */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */

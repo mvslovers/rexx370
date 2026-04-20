@@ -162,12 +162,13 @@ mbt build                          # full build
 mbt build --target irxjcl          # specific module
 ```
 
-Cross-compile for local testing (Linux/gcc):
+Cross-compile for local testing (Linux/gcc) — see the full recipe in
+the Testing section further down. Quick form:
+
 ```bash
-gcc -I./include -Wall -Wextra -std=gnu99 -o test/test_FOO \
-    test/test_FOO.c \
-    'src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
-    'src/irx#anch.c' 'src/irx#uid.c' 'src/irx#msid.c'
+gcc -I include -I contrib/lstring370-0.1.0-dev/include \
+    -Wall -Wextra -std=gnu99 -o /tmp/tstfoo test/mvs/tstfoo.c \
+    'src/irx#'*.c ../lstring370/src/'lstr#'*.c
 ```
 
 Note: `#` in filenames must be quoted in shell commands.
@@ -179,7 +180,10 @@ submodule name and maps to a valid PDS member name on MVS.
 
 Headers: `include/name.h` — plain names, no prefix convention.
 
-Tests: `test/test_name.c`
+Tests: `test/mvs/tstname.c` — lowercase, no `#`, stem ≤ 8 chars
+(PDS member `TSTNAME`). Each test is both a Linux/gcc unit test and
+an MVS standalone load module (entry via `@@CRT0`, `main()` returns
+RC=0/1).
 
 | File | Member | Purpose |
 |------|--------|---------|
@@ -223,7 +227,7 @@ because of global variables. We do not repeat that mistake.
 - Multiple concurrent REXX environments must be able to coexist
   in the same address space without interfering
 
-**The one exception:** The cross-compile test harness (`test/test_*.c`)
+**The one exception:** The cross-compile test harness (`test/mvs/tst*.c`)
 may define `void *_simulated_ectenvbk` as a global to simulate the
 MVS TCB. This is test-only, never in production code.
 
@@ -320,103 +324,73 @@ source code or comparing characters:
 
 ## Testing
 
-Every work package produces a `test/test_*.c` file that runs on
-Linux/gcc without MVS. Tests use a simple CHECK macro:
+Every work package produces a `test/mvs/tst*.c` source file that
+doubles as (a) a Linux/gcc cross-compile unit test and (b) an MVS
+standalone load module (`TST*` member via `mbt build`). Tests use a
+simple CHECK macro:
 
 ```c
-#define CHECK(cond, msg) ...  /* see test/test_tokenizer.c */
+#define CHECK(cond, msg) ...  /* see test/mvs/tsttokn.c */
 ```
 
-The common dependency set for cross-compile tests is:
+### MVS build
 
 ```bash
-LSTRING_SRC=../lstring370/src/'lstr#cor.c'
-LSTRING_INC=-I contrib/lstring370-0.1.0-dev/include
-PHASE1_SRC='src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
-           'src/irx#anch.c' 'src/irx#uid.c'  'src/irx#msid.c' \
-           'src/irx#cond.c' 'src/irx#bif.c'  'src/irx#bifs.c'
-PHASE2_SRC='src/irx#io.c' 'src/irx#lstr.c' 'src/irx#tokn.c' \
-           'src/irx#vpol.c' 'src/irx#pars.c' 'src/irx#ctrl.c'
+mbt build --target TSTTOKN      # or TSTANCH, TSTVPOL, ..., TSTBIFS
+# Then invoke on MVS:
+#   TSO:   CALL 'hlq.LOAD(TSTTOKN)'
+#   Batch: // EXEC PGM=TSTTOKN
 ```
 
-Run all tests (Phase 1–2):
+Each test module is declared as a `[[link.module]]` in `project.toml`
+with the full Phase 1 + Phase 2 + EXEC + ARIT chain (TSTTOKN is the
+one exception — minimal dependencies).
+
+### Linux cross-compile
+
+The superset below links every test correctly. The minimum dep set
+for a given test is narrower in principle, but `irx#bifs.c` pulls in
+`irx#arith.c` and `irx#pars.c`, and `irx#init.c` pulls in `irx#io.c`,
+so for practical purposes the superset is the right default.
 
 ```bash
-# Tokenizer (WP-10) — 70/70
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_tokenizer test/test_tokenizer.c \
-    'src/irx#tokn.c' $LSTRING_SRC
-./test/test_tokenizer
+LSTRING_INC="-I contrib/lstring370-0.1.0-dev/include"
+LSTRING_SRC="../lstring370/src/lstr#cor.c  ../lstring370/src/lstr#cvt.c \
+             ../lstring370/src/lstr#fmt.c  ../lstring370/src/lstr#srch.c \
+             ../lstring370/src/lstr#sub.c  ../lstring370/src/lstr#wrd.c \
+             ../lstring370/src/lstr#xlt.c"
+PHASE1_SRC="src/irx#init.c src/irx#term.c src/irx#stor.c \
+            src/irx#anch.c src/irx#uid.c  src/irx#msid.c \
+            src/irx#cond.c src/irx#bif.c  src/irx#bifs.c"
+PHASE2_SRC="src/irx#io.c   src/irx#lstr.c src/irx#tokn.c \
+            src/irx#vpol.c src/irx#pars.c src/irx#ctrl.c"
+ALL_SRC="$PHASE1_SRC $PHASE2_SRC src/irx#exec.c src/irx#arith.c $LSTRING_SRC"
 
-# Variable pool (WP-12) — 47/47
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_vpool test/test_vpool.c \
-    $PHASE1_SRC 'src/irx#lstr.c' 'src/irx#tokn.c' 'src/irx#vpol.c' \
-    $LSTRING_SRC
-./test/test_vpool
+run() {
+    gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
+        -o /tmp/$1 "test/mvs/$1.c" $ALL_SRC && /tmp/$1
+}
 
-# Parser (WP-13) — 39/39
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_parser test/test_parser.c \
-    $PHASE1_SRC 'src/irx#lstr.c' 'src/irx#tokn.c' \
-    'src/irx#vpol.c' 'src/irx#pars.c' $LSTRING_SRC
-./test/test_parser
-
-# SAY / I/O (WP-14) — 27/27
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_say test/test_say.c \
-    $PHASE1_SRC $PHASE2_SRC $LSTRING_SRC
-./test/test_say
-
-# lstring adapter (WP-11b) — 50/50
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_irxlstr test/test_irxlstr.c \
-    $PHASE1_SRC 'src/irx#lstr.c' $LSTRING_SRC
-./test/test_irxlstr
-
-# Control flow (WP-15) — 62/62
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_control test/test_control.c \
-    $PHASE1_SRC $PHASE2_SRC $LSTRING_SRC
-./test/test_control
-
-# Hello World end-to-end (WP-18) — 16/16
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_hello test/test_hello.c \
-    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC
-./test/test_hello
-
-# PARSE instruction (WP-16) — 74/74
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_parse test/test_parse.c \
-    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' $LSTRING_SRC
-./test/test_parse
-
-# Arithmetic engine (WP-20) — 128/128
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_arith test/test_arith.c \
-    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
-./test/test_arith
-
-# BIF registry (WP-21a) — 29/29
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_bif test/test_bif.c \
-    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
-./test/test_bif
-
-# All §4 BIFs end-to-end (WP-21a + WP-21b) — 410/410
-gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_bifs test/test_bifs.c \
-    $PHASE1_SRC $PHASE2_SRC 'src/irx#exec.c' 'src/irx#arith.c' $LSTRING_SRC
-./test/test_bifs
+run tstphas1    # Phase 1 smoke tests                (38/38)
+run tsttokn     # Tokenizer (WP-10)                  (70/70)
+run tstlstr     # lstring adapter (WP-11b)           (50/50)
+run tstvpol     # Variable pool (WP-12)              (47/47)
+run tstprsr     # Parser (WP-13)                     (39/39)
+run tstsay      # SAY / I/O (WP-14)                  (27/27)
+run tstctrl     # Control flow (WP-15)               (62/62)
+run tstparse    # PARSE instruction (WP-16)          (74/74)
+run tstproc     # PROCEDURE EXPOSE (WP-17)           (53/53)
+run tsthelo     # Hello-world end-to-end (WP-18)     (16/16)
+run tstanrm     # ECTENVBK anchor read-mostly        (24/24)
+run tstarit     # Arithmetic engine (WP-20)          (128/128)
+run tstarext    # Direct IRXARITH API (WP-20 + B)    (113/113)
+run tstbif      # BIF registry (WP-21a)              (29/29)
+run tstbifs     # All §4 BIFs (WP-21a + WP-21b)      (410/410)
 ```
 
-Additional test binaries (same dependency sets as above; check each
-file's header comment for the exact invocation):
-
-- `test/test_arith_extended` — direct IRXARITH API tests (WP-20 + WP-21b Phase B) — 113/113
-- `test/test_procedure` — PROCEDURE EXPOSE (WP-17) — 53/53
-- `test/test_phase1` — Phase 1 control-block smoke tests — 38/38
+Note: `TSTANCH` (the ENVBLOCK anchor smoketest) is linked on MVS as
+a standalone load module but is invoked from TSO/Batch — it does not
+have a runnable Linux cross-compile entry of its own.
 
 Full matrix: 14 binaries, **1156 tests green** as of WP-21b Phase H close-out.
 

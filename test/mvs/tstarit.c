@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_arith.c - WP-20 Arithmetic Engine end-to-end tests           */
+/*  tstarit.c - WP-20 Arithmetic Engine end-to-end tests           */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */

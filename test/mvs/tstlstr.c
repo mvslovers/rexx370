@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_irxlstr.c - WP-11b REXX lstring adapter tests                */
+/*  tstlstr.c - WP-11b REXX lstring adapter tests                */
 /*                                                                    */
 /*  Tests the pure-C parts of irx#lstr.c that don't require the       */
 /*  full lstring370 library to be linked (allocator wiring,           */
@@ -16,7 +16,6 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,7 +60,7 @@ static int tests_failed = 0;
 static Lstr make_lstr(const char *cstr)
 {
     Lstr s;
-    s.pstr = (unsigned char *)(uintptr_t)cstr;
+    s.pstr = (unsigned char *)(unsigned long)cstr;
     s.len = strlen(cstr);
     s.maxlen = s.len;
     s.type = LSTRING_TY;

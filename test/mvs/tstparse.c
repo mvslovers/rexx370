@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_parse.c - WP-16 PARSE instruction acceptance tests           */
+/*  tstparse.c - WP-16 PARSE instruction acceptance tests           */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */

@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  tst#anch.c - TSTANCH: ENVBLOCK anchor smoketest pseudomodule      */
+/*  tstanch.c - TSTANCH: ENVBLOCK anchor smoketest pseudomodule      */
 /*                                                                    */
 /*  Runs both in TSO (CALL 'TSTANCH') and in Batch (EXEC PGM=TSTANCH).*/
 /*  Cross-compile-friendly — links on Linux/gcc against the rexx370   */

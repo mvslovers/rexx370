@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_vpool.c - WP-12 variable pool unit tests                     */
+/*  tstvpol.c - WP-12 variable pool unit tests                     */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -15,7 +15,6 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
