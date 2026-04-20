@@ -43,6 +43,7 @@
 # Build system
 .env
 *.jcl
+!test/mvs/*.jcl
 .build-warnings
 .mbt/
 contrib/
