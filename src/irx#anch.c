@@ -119,20 +119,29 @@ void anch_push(struct envblock *new_env)
     struct envblock **slot = ectenvbk_slot();
     if (slot == NULL)
     {
-        /* Batch (no ECT reachable) — we still record the absence in
-         * the ENVBLOCK so the cleanup path can be symmetric. */
-        new_env->rexx370_prev = NULL;
+        /* Batch — no anchor reachable. Only populate the local
+         * ENVBLOCK field so the symmetric cleanup path still works. */
         new_env->envblock_ectptr = NULL;
         return;
     }
 
-    new_env->rexx370_prev = *slot;
 #ifdef __MVS__
     new_env->envblock_ectptr = (char *)slot - ECTENVBK;
 #else
     new_env->envblock_ectptr = NULL;
 #endif
-    *slot = new_env;
+
+    /* Read-mostly anchor per CON-1 §6.1: only claim the ECTENVBK
+     * slot when it is NULL. Any non-NULL value means another REXX
+     * (on MVS 3.8j that is typically a parallel BREXX environment,
+     * or an earlier rexx370 environment that is still live) already
+     * owns the anchor — leave it alone. The caller manages the new
+     * ENVBLOCK pointer explicitly via the IRXINIT return value, per
+     * SC28-1883-0 §15 for reentrant environments. */
+    if (*slot == NULL)
+    {
+        *slot = new_env;
+    }
 }
 
 void anch_pop(struct envblock *env)
@@ -145,16 +154,15 @@ void anch_pop(struct envblock *env)
     struct envblock **slot = ectenvbk_slot();
     if (slot == NULL)
     {
-        /* Batch — nothing was installed; nothing to restore. */
         return;
     }
 
-    /* Lenient pop: only unwind when we're still on top. A caller
-     * that terminates environments out of LIFO order loses their
-     * rexx370_prev link by design; the spec doesn't define nested
-     * non-LIFO termination and IBM's IRXTERM is likewise lenient. */
+    /* Only clear when we are still the anchor holder. Any other
+     * value means either we never wrote the slot (another REXX was
+     * already there at push time) or something else has taken over
+     * since — leave the slot unchanged in both cases. */
     if (*slot == env)
     {
-        *slot = env->rexx370_prev;
+        *slot = NULL;
     }
 }

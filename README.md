@@ -31,7 +31,8 @@ designed to be interface-compatible with the TSO/E Version 2 REXX specification
 rexx370/
   inc/            C headers
     irx.h           IBM-compatible control block definitions
-    irxanchor.h     ECTENVBK anchor API (environment push/pop)
+    irxanchor.h     ECTENVBK anchor API (read-mostly: claim when NULL,
+                    clear only when still holding)
     irxwkblk.h      Internal Work Block (per-environment interpreter state)
     irxfunc.h       Service function prototypes
   src/            C source (CRENT370)
