@@ -27,9 +27,15 @@
 void *_simulated_ectenvbk = NULL;
 #endif
 
+/* Forward-declare the ECTENVBK slot accessor implemented in
+ * src/irx#anch.c. Used by CHECK_IF_REACHABLE below to decide whether
+ * the read-mostly anchor assertions can hold on this run. */
+struct envblock **ectenvbk_slot(void);
+
 static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
+static int tests_skipped = 0;
 
 #define CHECK(cond, msg)                 \
     do                                   \
@@ -45,6 +51,28 @@ static int tests_failed = 0;
             tests_failed++;              \
             printf("  FAIL: %s\n", msg); \
         }                                \
+    } while (0)
+
+/* Assertions that check anch_curr() against a non-NULL ENVBLOCK only
+ * hold when the ECTENVBK slot is reachable so anch_push can actually
+ * write it. ectenvbk_slot() returns non-NULL on host (the slot is the
+ * `_simulated_ectenvbk` global) and on MVS under TSO (the
+ * PSA→ASCB→ASXB→LWA→ECT walk completes); it returns NULL on pure
+ * batch. Skip rather than fail when unreachable. Assertions that
+ * check anch_curr() == NULL hold in both modes and run
+ * unconditionally. */
+#define CHECK_IF_REACHABLE(cond, msg)                            \
+    do                                                           \
+    {                                                            \
+        if (ectenvbk_slot() != NULL)                             \
+        {                                                        \
+            CHECK(cond, msg);                                    \
+        }                                                        \
+        else                                                     \
+        {                                                        \
+            tests_skipped++;                                     \
+            printf("  SKIP: %s (no ECT slot reachable)\n", msg); \
+        }                                                        \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -118,17 +146,19 @@ static void test_single_env(void)
               "wkblk back-pointer to envblock is correct");
     }
 
-    /* Validate ECTENVBK anchor */
-    struct envblock *found = anch_curr();
-    CHECK(found == envblk, "anch_curr returns our envblock");
+    /* Validate ECTENVBK anchor (TSO only — anch_push is a no-op when
+     * the slot is unreachable, so anch_curr stays NULL in batch). */
+    CHECK_IF_REACHABLE(anch_curr() == envblk,
+                       "anch_curr returns our envblock");
 
     /* IRXTERM */
     rc = irxterm(envblk);
     CHECK(rc == 0, "irxterm returns 0");
 
-    /* Verify cleanup */
-    found = anch_curr();
-    CHECK(found == NULL, "anch_curr returns NULL after term");
+    /* anch_curr is NULL in both modes after term: TSO because
+     * anch_pop cleared the slot, batch because the slot was never
+     * written. Run unconditionally. */
+    CHECK(anch_curr() == NULL, "anch_curr returns NULL after term");
 }
 
 /* ------------------------------------------------------------------ */
@@ -160,9 +190,11 @@ static void test_multiple_envs(void)
     rc = irxinit(NULL, &env3);
     CHECK(rc == 0 && env3 != NULL, "env3 created");
 
-    /* Read-mostly: env1 got the slot, env2/env3 never touched it. */
-    CHECK(anch_curr() == env1,
-          "anch_curr holds the first claimant (env1)");
+    /* Read-mostly: env1 got the slot, env2/env3 never touched it.
+     * The "still env1" checks below are TSO-only — see CHECK_IF_REACHABLE
+     * comment near the top of the file. */
+    CHECK_IF_REACHABLE(anch_curr() == env1,
+                       "anch_curr holds the first claimant (env1)");
 
     CHECK(env1 != env2 && env2 != env3,
           "all envblocks are distinct");
@@ -171,13 +203,13 @@ static void test_multiple_envs(void)
      * slot, so their terminates are no-ops at the anchor. */
     rc = irxterm(env3);
     CHECK(rc == 0, "env3 terminated");
-    CHECK(anch_curr() == env1,
-          "after env3 term, anchor still env1");
+    CHECK_IF_REACHABLE(anch_curr() == env1,
+                       "after env3 term, anchor still env1");
 
     rc = irxterm(env2);
     CHECK(rc == 0, "env2 terminated");
-    CHECK(anch_curr() == env1,
-          "after env2 term, anchor still env1");
+    CHECK_IF_REACHABLE(anch_curr() == env1,
+                       "after env2 term, anchor still env1");
 
     rc = irxterm(env1);
     CHECK(rc == 0, "env1 terminated");
@@ -235,16 +267,19 @@ static void test_uid_msgid(void)
 int main(void)
 {
     printf("=== REXX/370 Phase 1 Smoke Test ===\n");
+    printf("    mode: %s\n", anch_tso() ? "TSO (ECT reachable)"
+                                        : "batch (no ECT — anchor "
+                                          "checks will skip)");
 
     test_single_env();
     test_multiple_envs();
     test_uid_msgid();
 
-    printf("\n=== Results: %d/%d passed",
-           tests_passed, tests_run);
+    printf("\n=== Results: passed=%d run=%d skipped=%d",
+           tests_passed, tests_run, tests_skipped);
     if (tests_failed > 0)
     {
-        printf(", %d FAILED", tests_failed);
+        printf(" FAILED=%d", tests_failed);
     }
     printf(" ===\n");
 
