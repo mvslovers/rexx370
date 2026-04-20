@@ -11,7 +11,6 @@
 #define IRXFUNC_H
 
 #include "irx.h"
-#include "irxrab.h"
 #include "irxwkblk.h"
 #include "lstring.h"
 
@@ -19,28 +18,12 @@
 /*  Phase 1: Foundation Services                                      */
 /* ================================================================== */
 
-/* --- RAB Management (TCB -> TCBUSER -> RAB -> ENVBLOCK chain) --- */
-
-/* Get or create the RAB for the current task */
-int irx_rab_obtain(struct irx_rab **rab_ptr) asm("IRXRABOB");
-
-/* Release the RAB for the current task */
-int irx_rab_release(struct irx_rab *rab) asm("IRXRABRL");
-
-/* Add an environment node to the RAB chain */
-int irx_rab_add_env(struct irx_rab *rab,
-                    struct irx_env_node *node) asm("IRXRABAD");
-
-/* Remove an environment node from the RAB chain */
-int irx_rab_remove_env(struct irx_rab *rab,
-                       struct irx_env_node *node) asm("IRXRABRM");
-
 /* --- Environment Lifecycle --- */
 
 /* IRXINIT - Initialize a Language Processor Environment
  * Creates ENVBLOCK, PARMBLOCK, IRXEXTE, Work Block Extension,
  * internal Work Block, and hooks everything together.
- * Registers the environment in the RAB chain.
+ * Publishes the ENVBLOCK on ECTENVBK (or records batch state).
  *
  * Parameters:
  *   parms       - Initialization parameters (or NULL for defaults)
@@ -51,8 +34,8 @@ int irx_rab_remove_env(struct irx_rab *rab,
 int irxinit(void *parms, struct envblock **envblock_ptr);
 
 /* IRXTERM - Terminate a Language Processor Environment
- * Frees all storage associated with the environment,
- * removes it from the RAB chain.
+ * Frees all storage associated with the environment and pops it
+ * off ECTENVBK (lenient if another environment was pushed on top).
  *
  * Parameters:
  *   envblock_ptr - Pointer to ENVBLOCK to terminate
@@ -149,12 +132,6 @@ int irxjcl(void *cppl_or_parm);
 
 /* Get the irx_wkblk_int for a given ENVBLOCK */
 struct irx_wkblk_int *irx_get_wkblk(struct envblock *envblock);
-
-/* Find the current (most recent) environment */
-struct envblock *irx_find_env(void);
-
-/* Locate ENVBLOCK by traversing the RAB chain */
-struct envblock *irx_find_env_by_name(const char *name);
 
 /* Validate an ENVBLOCK (check eye-catcher, pointers) */
 int irx_validate_envblock(struct envblock *envblock);

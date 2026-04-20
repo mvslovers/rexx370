@@ -13,7 +13,7 @@ Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3
 |----|-------|-------|--------|
 | WP-01 | Project skeleton + headers | 1 | DONE |
 | WP-02 | IRXSTOR, IRXUID, IRXMSGID | 1 | DONE |
-| WP-03 | RAB management | 1 | DONE |
+| WP-03 | ECTENVBK anchor (IRX#ANCH) | 1 | DONE (superseded original RAB design; see CON-1 §6.1) |
 | WP-04 | IRXINIT + IRXTERM | 1 | DONE |
 | WP-05 | Phase 1 smoke test | 1 | DONE (38/38) |
 | WP-10 | Tokenizer (IRX#TOKN) | 2 | DONE (70/70) — PR #2 |
@@ -445,7 +445,7 @@ Cross-compile test (Linux/gcc):
 # Standard dependency sets (expand as needed):
 LSTRING_INC="-I contrib/lstring370-0.1.0-dev/include"
 LSTRING_SRC="../lstring370/src/lstr#cor.c"
-PHASE1="src/irx#init.c src/irx#term.c src/irx#stor.c src/irx#rab.c src/irx#uid.c src/irx#msid.c"
+PHASE1="src/irx#init.c src/irx#term.c src/irx#stor.c src/irx#anch.c src/irx#uid.c src/irx#msid.c"
 PHASE2="src/irx#io.c src/irx#lstr.c src/irx#tokn.c src/irx#vpol.c src/irx#pars.c src/irx#ctrl.c"
 
 gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
@@ -464,7 +464,7 @@ Header files use plain names in `include/` directory.
 | `src/irx#init.c` | IRX#INIT | IRXINIT implementation |
 | `src/irx#term.c` | IRX#TERM | IRXTERM implementation |
 | `src/irx#stor.c` | IRX#STOR | Storage management |
-| `src/irx#rab.c` | IRX#RAB | RAB chain management |
+| `src/irx#anch.c` | IRX#ANCH | ECTENVBK anchor (push/pop discipline) |
 | `src/irx#uid.c` | IRX#UID | User ID routine |
 | `src/irx#msid.c` | IRX#MSID | Message ID routine |
 | `src/irx#tokn.c` | IRX#TOKN | Tokenizer (WP-10) |

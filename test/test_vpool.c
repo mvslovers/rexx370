@@ -25,7 +25,7 @@
 #include "lstring.h"
 
 #ifndef __MVS__
-void *_simulated_tcbuser = NULL;
+void *_simulated_ectenvbk = NULL;
 #endif
 
 static int tests_run = 0;

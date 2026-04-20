@@ -19,7 +19,10 @@ https://www.notion.so/3283d9938787811ba3f4d3308b254cad
 
 Key points:
 - **ENVBLOCK** is the anchor for each Language Processor Environment
-- **TCB → TCBUSER → RAB → ENVBLOCK** chain manages environments per task
+- **ECTENVBK** (offset +30 in the TSO ECT) anchors the current ENVBLOCK;
+  `rexx370_prev` at ENVBLOCK+304 chains prior environments for push/pop.
+  In batch (no ECT) the slot is NULL and IRXINIT still succeeds
+  locally — see `include/irxanchor.h`
 - **IRXEXTE** (Vector of External Entry Points) holds all replaceable
   routine pointers — SAY, PULL, I/O, Host Command, etc.
 - **irx_wkblk_int** (our internal Work Block) holds all per-environment
@@ -161,7 +164,7 @@ Cross-compile for local testing (Linux/gcc):
 gcc -I./include -Wall -Wextra -std=gnu99 -o test/test_FOO \
     test/test_FOO.c \
     'src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
-    'src/irx#rab.c' 'src/irx#uid.c' 'src/irx#msid.c'
+    'src/irx#anch.c' 'src/irx#uid.c' 'src/irx#msid.c'
 ```
 
 Note: `#` in filenames must be quoted in shell commands.
@@ -180,7 +183,7 @@ Tests: `test/test_name.c`
 | `src/irx#init.c` | IRX#INIT | IRXINIT — environment initialization |
 | `src/irx#term.c` | IRX#TERM | IRXTERM — environment termination |
 | `src/irx#stor.c` | IRX#STOR | Storage management replaceable routine |
-| `src/irx#rab.c` | IRX#RAB | RAB chain management |
+| `src/irx#anch.c` | IRX#ANCH | ECTENVBK anchor (push/pop discipline) |
 | `src/irx#uid.c` | IRX#UID | User ID replaceable routine |
 | `src/irx#msid.c` | IRX#MSID | Message ID replaceable routine |
 | `src/irx#tokn.c` | IRX#TOKN | Tokenizer (WP-10) |
@@ -218,7 +221,7 @@ because of global variables. We do not repeat that mistake.
   in the same address space without interfering
 
 **The one exception:** The cross-compile test harness (`test/test_*.c`)
-may define `void *_simulated_tcbuser` as a global to simulate the
+may define `void *_simulated_ectenvbk` as a global to simulate the
 MVS TCB. This is test-only, never in production code.
 
 ## Memory management
@@ -327,7 +330,7 @@ The common dependency set for cross-compile tests is:
 LSTRING_SRC=../lstring370/src/'lstr#cor.c'
 LSTRING_INC=-I contrib/lstring370-0.1.0-dev/include
 PHASE1_SRC='src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \
-           'src/irx#rab.c'  'src/irx#uid.c'  'src/irx#msid.c' \
+           'src/irx#anch.c' 'src/irx#uid.c'  'src/irx#msid.c' \
            'src/irx#cond.c' 'src/irx#bif.c'  'src/irx#bifs.c'
 PHASE2_SRC='src/irx#io.c' 'src/irx#lstr.c' 'src/irx#tokn.c' \
            'src/irx#vpol.c' 'src/irx#pars.c' 'src/irx#ctrl.c'

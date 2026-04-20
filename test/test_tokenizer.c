@@ -5,7 +5,7 @@
 /*    gcc -I include -Wall -Wextra -std=gnu99 -o test/test_tokenizer  */
 /*        test/test_tokenizer.c \                                     */
 /*        'src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \        */
-/*        'src/irx#rab.c'  'src/irx#uid.c'  'src/irx#msid.c' \        */
+/*        'src/irx#anch.c'  'src/irx#uid.c'  'src/irx#msid.c' \        */
 /*        'src/irx#tokn.c'                                             */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
@@ -16,13 +16,13 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxanchor.h"
 #include "irxfunc.h"
-#include "irxrab.h"
 #include "irxtokn.h"
 #include "irxwkblk.h"
 
 #ifndef __MVS__
-void *_simulated_tcbuser = NULL;
+void *_simulated_ectenvbk = NULL;
 #endif
 
 static int tests_run = 0;

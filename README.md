@@ -31,14 +31,14 @@ designed to be interface-compatible with the TSO/E Version 2 REXX specification
 rexx370/
   inc/            C headers
     irx.h           IBM-compatible control block definitions
-    irxrab.h        REXX Anchor Block (environment chain management)
+    irxanchor.h     ECTENVBK anchor API (environment push/pop)
     irxwkblk.h      Internal Work Block (per-environment interpreter state)
     irxfunc.h       Service function prototypes
   src/            C source (CRENT370)
     irxstor.c       Storage Management Replaceable Routine
     irxinit.c       IRXINIT - Environment Initialization
     irxterm.c       IRXTERM - Environment Termination
-    irxrab.c        RAB management (TCB->TCBUSER chain)
+    irx#anch.c      ECTENVBK anchor: push on IRXINIT, pop on IRXTERM
     irxuid.c        User ID Replaceable Routine
     irxmsgid.c      Message ID Replaceable Routine
   mac/            HLASM macros and DSECTs

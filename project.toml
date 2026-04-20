@@ -63,7 +63,39 @@ include = [
   "IRX#INIT",
   "IRX#TERM",
   "IRX#STOR",
-  "IRX#RAB",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+# ---------------------------------------------------------------
+# TSTANCH - ENVBLOCK anchor smoketest pseudomodule
+# Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
+# Pulls in the full phase-1/phase-2 object set so IRXINIT and
+# IRXTERM link cleanly; it exits with RC=0 on push/pop success.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTANCH"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TST#ANCH",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
   "IRX#UID",
   "IRX#MSID",
   "IRX#COND",
@@ -94,6 +126,6 @@ version_files = ["VERSION"]
 
 [artifacts]
 headers = true
-header_files = ["irx.h", "irxrab.h", "irxwkblk.h", "irxfunc.h",
+header_files = ["irx.h", "irxanchor.h", "irxwkblk.h", "irxfunc.h",
                 "irxbif.h", "irxbifs.h", "irxcond.h"]
 loads = true
