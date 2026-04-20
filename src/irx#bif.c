@@ -11,6 +11,7 @@
 /* ------------------------------------------------------------------ */
 
 #include <ctype.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -297,7 +298,19 @@ static int parse_whole(PLstr s, long *out)
         {
             return -1;
         }
-        v = v * BIF_RADIX + (long)(c - '0');
+        long digit = (long)(c - '0');
+        /* Reject values that would overflow LONG_MAX during the
+         * multiply-add. Without this check, c2asm370's 32-bit long
+         * silently wraps a 10-digit input like 4294967301 to 5,
+         * which then looks like a valid small line number to
+         * callers like SOURCELINE. Check uses only safe arithmetic
+         * (LONG_MAX - digit can't underflow because digit ≤ 9 and
+         * LONG_MAX ≥ 2^31-1 on every supported target). */
+        if (v > (LONG_MAX - digit) / BIF_RADIX)
+        {
+            return -1;
+        }
+        v = v * BIF_RADIX + digit;
     }
     *out = neg ? -v : v;
     return 0;

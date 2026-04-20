@@ -1716,16 +1716,28 @@ static void test_phase_f_sourceline(void)
     run_expect_fail("x = SOURCELINE(0)\n", SYNTAX_BAD_CALL,
                     ERR40_POSITIVE_WHOLE,
                     "SOURCELINE(0) -> 40.12 (non-positive)");
+    run_expect_fail("x = SOURCELINE(-1)\n", SYNTAX_BAD_CALL,
+                    ERR40_POSITIVE_WHOLE,
+                    "SOURCELINE(-1) -> 40.12 (negative)");
     run_expect_fail("x = SOURCELINE('abc')\n", SYNTAX_BAD_CALL,
                     ERR40_POSITIVE_WHOLE,
                     "SOURCELINE('abc') -> 40.12 (non-numeric)");
 
     /* Huge n must NOT silently truncate into a valid line index.
-     * On cross-compile hosts (long = 64-bit, int = 32-bit) this
-     * guards against a cast-truncation bug that would land the
-     * request back inside the valid range — e.g. 2^32 + 5 -> 5
-     * and spuriously return line 5. source_line_find takes long
-     * directly, so the out-of-range check fires as expected. */
+     *
+     * Without overflow detection in parse_whole, a 10-digit input
+     * like 4294967301 (= 2^32 + 5) wraps modulo 2^32 on c2asm370's
+     * 32-bit long and lands at 5, which is a valid line number in
+     * the 5-line test source — the BIF would return line 5 silently.
+     * The fix rejects any value whose multiply-add would exceed
+     * LONG_MAX, so the whole-number parser returns an error and
+     * irx_bif_whole_positive raises SYNTAX 40.12.
+     *
+     * On 64-bit hosts the pre-overflow check never fires for these
+     * inputs; the values parse cleanly as longs and are rejected
+     * downstream by source_line_find's out-of-range check with
+     * SYNTAX 40.4. The assertion just checks "rejects" so both
+     * paths pass. */
     {
         struct fixture fx;
         if (fixture_open(&fx) != 0)
@@ -1737,6 +1749,43 @@ static void test_phase_f_sourceline(void)
         int rc = run_src(&fx, "y = SOURCELINE(4294967301)\n");
         CHECK(rc != IRXPARS_OK,
               "SOURCELINE huge-n rejects (no silent truncation)");
+        fixture_close(&fx);
+    }
+
+    /* INT_MAX + 1 = 2147483648. On 32-bit long targets this is the
+     * first value that overflows signed long — the pre-overflow
+     * check in parse_whole must fire here. On 64-bit hosts the
+     * value parses as long and is rejected as out-of-range for the
+     * 5-line source. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE INT_MAX+1 fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "one\ntwo\nthree\nfour\nfive");
+        int rc = run_src(&fx, "y = SOURCELINE(2147483648)\n");
+        CHECK(rc != IRXPARS_OK,
+              "SOURCELINE(INT_MAX+1) rejects");
+        fixture_close(&fx);
+    }
+
+    /* Large but within int32 — must reject as line-index out of
+     * range (40.4), not as a parse overflow. Locks down that the
+     * overflow check doesn't fire prematurely on values that are
+     * representable as long. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) != 0)
+        {
+            CHECK(0, "SOURCELINE 999999999 fixture_open");
+            return;
+        }
+        sourceline_set_retention(&fx, "one\ntwo\nthree\nfour\nfive");
+        int rc = run_src(&fx, "y = SOURCELINE(999999999)\n");
+        CHECK(rc != IRXPARS_OK,
+              "SOURCELINE(999999999) rejects as out-of-range");
         fixture_close(&fx);
     }
 
