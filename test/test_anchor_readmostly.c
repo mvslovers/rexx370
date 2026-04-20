@@ -1,21 +1,25 @@
 /* ------------------------------------------------------------------ */
-/*  test_anchor_readmostly.c - Case (b) verification for CON-1 §6.1   */
+/*  test_anchor_readmostly.c - Read-mostly ECTENVBK protection tests  */
 /*                                                                    */
-/*  The read-mostly ECTENVBK anchor has three distinguishable         */
-/*  states. TSTANCH exercises state (a) (slot is NULL at entry) and   */
-/*  state (c) (slot ends up holding our env) — but in the common     */
-/*  "fresh login" case those two paths are byte-identical to what     */
-/*  an old-style push/pop implementation would do. The test below    */
-/*  pins down state (b) explicitly: another REXX already owns the    */
-/*  anchor when IRXINIT runs.                                         */
+/*  CON-1 §6.1 defines three observable states the ECTENVBK slot can  */
+/*  be in, and a distinct read-mostly response to each. The tests     */
+/*  below pin down all three as a single self-contained artefact so   */
+/*  future reviewers can point at one file for the anchor contract:   */
 /*                                                                    */
-/*  Under read-mostly we must observe:                                */
-/*    - IRXINIT succeeds and returns a valid ENVBLOCK                 */
-/*    - ECTENVBK stays at the pre-existing value — not overwritten   */
-/*    - IRXTERM is lenient: because ECTENVBK never equalled our env, */
-/*      the terminate path does not clear the slot                    */
+/*    (a) Empty-slot baseline — the "fresh login" case. IRXINIT       */
+/*        claims the slot; IRXTERM clears it back to NULL.            */
 /*                                                                    */
-/*  A push/pop implementation would fail both of the slot checks.    */
+/*    (b) BREXX-simulated non-NULL slot — another REXX owns the       */
+/*        anchor. IRXINIT must NOT overwrite it; IRXTERM must be      */
+/*        lenient because the slot never pointed at our env.          */
+/*                                                                    */
+/*    (c) Own-env stacking — a first IRXINIT claimed the slot; a      */
+/*        second IRXINIT on top must not disturb it. IRXTERM on the   */
+/*        inner env is a no-op at the anchor; only the terminate of   */
+/*        the first claimant actually clears the slot.                */
+/*                                                                    */
+/*  An old push/pop implementation would fail cases (b) and (c);      */
+/*  read-mostly passes all three.                                     */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -61,42 +65,115 @@ static int tests_failed = 0;
         }                                \
     } while (0)
 
-/* Pin ECTENVBK to a sentinel that cannot collide with any real
- * ENVBLOCK address returned by the host malloc. */
+/* Sentinel for Case (b) — any value that cannot collide with a real
+ * ENVBLOCK address returned by the host allocator. */
 static void *const SENTINEL = (void *)(unsigned long)0xDEAD0001UL;
 
-int main(void)
+/* ------------------------------------------------------------------ */
+/*  Case (a) — empty-slot baseline                                    */
+/* ------------------------------------------------------------------ */
+
+static void case_a_empty_slot_baseline(void)
 {
     struct envblock *env = NULL;
     int rc;
 
-    printf("=== Read-mostly ECTENVBK — Case (b): slot already owned ===\n");
+    printf("\n--- Case (a): empty-slot baseline ---\n");
 
-    /* Seed the fake anchor. On the host this is the storage the
-     * anchor API reads/writes directly; on MVS the same test would
-     * need a different injection point, which is out of scope for
-     * this cross-compile unit. */
+    _simulated_ectenvbk = NULL;
+    CHECK(anch_curr() == NULL, "precondition: anch_curr() == NULL");
+
+    rc = irxinit(NULL, &env);
+    CHECK(rc == 0, "irxinit returns 0");
+    CHECK(env != NULL, "irxinit produced an ENVBLOCK");
+    CHECK(anch_curr() == env,
+          "slot claimed: anch_curr() == env (was NULL at push)");
+
+    rc = irxterm(env);
+    CHECK(rc == 0, "irxterm returns 0");
+    CHECK(anch_curr() == NULL,
+          "slot cleared: anch_curr() == NULL (env was still holder)");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Case (b) — BREXX-simulated non-NULL slot                          */
+/* ------------------------------------------------------------------ */
+
+static void case_b_simulated_brexx_owns_slot(void)
+{
+    struct envblock *env = NULL;
+    int rc;
+
+    printf("\n--- Case (b): BREXX-simulated non-NULL slot ---\n");
+
     _simulated_ectenvbk = SENTINEL;
     CHECK(anch_curr() == SENTINEL, "pre-seed: anch_curr() == SENTINEL");
 
     rc = irxinit(NULL, &env);
     CHECK(rc == 0, "irxinit returns 0");
     CHECK(env != NULL, "irxinit produced an ENVBLOCK");
-
     CHECK(anch_curr() == SENTINEL,
-          "ECTENVBK NOT overwritten (read-mostly guard holds)");
+          "slot NOT overwritten (read-mostly guard holds)");
     CHECK(env != (struct envblock *)SENTINEL,
           "returned env is distinct from the pre-existing anchor");
 
     rc = irxterm(env);
     CHECK(rc == 0, "irxterm returns 0");
-
     CHECK(anch_curr() == SENTINEL,
-          "ECTENVBK still untouched after irxterm (lenient pop)");
+          "slot still SENTINEL after irxterm (lenient pop)");
 
-    /* Restore the slot so any follow-up harness starts clean. */
     _simulated_ectenvbk = NULL;
     CHECK(anch_curr() == NULL, "post-cleanup: anch_curr() == NULL");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Case (c) — own-env stacking                                       */
+/* ------------------------------------------------------------------ */
+
+static void case_c_own_env_stacking(void)
+{
+    struct envblock *outer = NULL;
+    struct envblock *inner = NULL;
+    int rc;
+
+    printf("\n--- Case (c): own-env stacking ---\n");
+
+    _simulated_ectenvbk = NULL;
+    CHECK(anch_curr() == NULL, "precondition: anch_curr() == NULL");
+
+    rc = irxinit(NULL, &outer);
+    CHECK(rc == 0 && outer != NULL, "outer irxinit returned a valid env");
+    CHECK(anch_curr() == outer,
+          "outer claimed the slot (was NULL at push)");
+
+    rc = irxinit(NULL, &inner);
+    CHECK(rc == 0 && inner != NULL, "inner irxinit returned a valid env");
+    CHECK(inner != outer, "inner env is distinct from outer");
+    CHECK(anch_curr() == outer,
+          "slot still outer (inner read-mostly-skipped the write)");
+
+    rc = irxterm(inner);
+    CHECK(rc == 0, "inner irxterm returns 0");
+    CHECK(anch_curr() == outer,
+          "slot still outer (inner was not the holder; lenient pop)");
+
+    rc = irxterm(outer);
+    CHECK(rc == 0, "outer irxterm returns 0");
+    CHECK(anch_curr() == NULL,
+          "slot cleared (outer was the holder)");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main                                                              */
+/* ------------------------------------------------------------------ */
+
+int main(void)
+{
+    printf("=== Read-mostly ECTENVBK protection tests (CON-1 §6.1) ===\n");
+
+    case_a_empty_slot_baseline();
+    case_b_simulated_brexx_owns_slot();
+    case_c_own_env_stacking();
 
     printf("\n=== Results: %d/%d passed",
            tests_passed, tests_run);
