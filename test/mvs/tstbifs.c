@@ -315,6 +315,27 @@ static void test_phase_f(void)
      * (digits are always contiguous). Locks down that the codepage
      * fix above doesn't accidentally regress contiguous ranges. */
     EXPECT_OK("LENGTH(XRANGE('0','9'))", "10", "XRANGE digits 10");
+
+    /* Empirical proof that bif_xrange returns a true byte range,
+     * not an alphabet-based pseudo-range. Position 10 of
+     * XRANGE('A','Z') falls in the EBCDIC alphabet gap between
+     * 'I' = 0xC9 and 'J' = 0xD1, so the expected byte is 0xCA — a
+     * non-letter. An alphabet-iterating implementation would yield
+     * 'J' = 0xD1 there, not 0xCA. On ASCII the same position is
+     * 'J' = 0x4A (no gap). Endpoint asserts at 1 and len bracket
+     * the range. */
+    EXPECT_OK("SUBSTR(XRANGE('A','Z'),1,1)", "A",
+              "XRANGE byte 1 is 'A'");
+#ifdef __MVS__
+    EXPECT_OK("C2X(SUBSTR(XRANGE('A','Z'),10,1))", "CA",
+              "XRANGE byte 10 is EBCDIC gap 0xCA (not 'J')");
+#else
+    EXPECT_OK("C2X(SUBSTR(XRANGE('A','Z'),10,1))", "4A",
+              "XRANGE byte 10 is ASCII 'J' 0x4A");
+#endif
+    EXPECT_OK("SUBSTR(XRANGE('A','Z'),LENGTH(XRANGE('A','Z')),1)",
+              "Z", "XRANGE last byte is 'Z'");
+
     EXPECT_OK("LENGTH(XRANGE())", "256", "XRANGE default 256");
 }
 
