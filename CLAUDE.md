@@ -19,10 +19,13 @@ https://www.notion.so/3283d9938787811ba3f4d3308b254cad
 
 Key points:
 - **ENVBLOCK** is the anchor for each Language Processor Environment
-- **ECTENVBK** (offset +30 in the TSO ECT) anchors the current ENVBLOCK;
-  `rexx370_prev` at ENVBLOCK+304 chains prior environments for push/pop.
-  In batch (no ECT) the slot is NULL and IRXINIT still succeeds
-  locally — see `include/irxanchor.h`
+- **ECTENVBK** (offset +30 in the TSO ECT) anchors the current ENVBLOCK
+  under read-mostly discipline: IRXINIT writes the slot only when it is
+  NULL, IRXTERM clears it only when it still points to the terminating
+  env. Any other value (e.g. a coexisting BREXX/370 environment on the
+  same ECT) is left untouched. In batch (no ECT reachable) the slot is
+  never written and IRXINIT still succeeds locally. See CON-1 §6.1 and
+  `include/irxanchor.h`
 - **IRXEXTE** (Vector of External Entry Points) holds all replaceable
   routine pointers — SAY, PULL, I/O, Host Command, etc.
 - **irx_wkblk_int** (our internal Work Block) holds all per-environment

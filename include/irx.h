@@ -81,16 +81,7 @@ struct envblock
         } _envblock_struct2;
     } _envblock_union2;
 
-    /* rexx370 anchor chain pointer.
-     *
-     * Lives at offset +304 (0x130) inside the IBM-reserved tail of the
-     * ENVBLOCK (SC28-1883-0/-4 leave +304..+319 reserved). On IRXINIT we
-     * save the previous ECTENVBK value here and install ourselves; on
-     * IRXTERM we restore it. See CON-1 §3.1 for the full layout and
-     * §6.1 for the push/pop discipline. */
-    struct envblock *rexx370_prev;
-
-    int _filler3[3]; /* +308..+319 reserved                            */
+    int _filler3[4]; /* +304..+319 reserved for rexx370 future use     */
 };
 
 #define ENVBLOCK_ID           "ENVBLOCK"

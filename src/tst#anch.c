@@ -7,16 +7,20 @@
 /*  content through printf (crent370 maps to PUTLINE/WTO depending on */
 /*  how the module is invoked).                                       */
 /*                                                                    */
-/*  The purpose is not to exercise the interpreter but to verify the  */
-/*  ECTENVBK anchor discipline end-to-end: push on IRXINIT, anchor    */
-/*  is observable at ECTENVBK+30, rexx370_prev captures the previous  */
-/*  value, anch_pop restores it on IRXTERM. When ECT is unreachable */
-/*  (batch), everything stays zero and both calls still succeed.      */
+/*  Verifies the read-mostly ECTENVBK anchor described in CON-1 §6.1  */
+/*  end-to-end, starting from an empty slot (state (a)):              */
+/*   - IRXINIT sees ECTENVBK == NULL and claims it.                   */
+/*   - envblock_ectptr is populated with the ECT address so later     */
+/*     reflection routines have a cheap back-pointer.                 */
+/*   - IRXTERM clears ECTENVBK because we are still the holder.       */
+/*  In batch (ECT not reachable) the slot is never written; IRXINIT   */
+/*  and IRXTERM still succeed with local-field-only semantics.        */
 /*                                                                    */
 /*  Exit codes:                                                       */
-/*     0 — push/pop observed symmetric behavior                       */
-/*     8 — anchor semantics violation (current != env after push,     */
-/*         anchor not cleared after pop, or rexx370_prev corrupted)   */
+/*     0 — anchor behavior observed correct                           */
+/*     8 — anchor semantics violation (slot written despite           */
+/*         non-NULL, slot not cleared after pop, or batch path did    */
+/*         not reach the expected zero-field state)                   */
 /*    16 — IRXINIT or IRXTERM failed                                  */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
@@ -81,7 +85,6 @@ static void dump_state(const char *label, struct envblock *env)
     {
         printf("    envblock addr  = %p\n", (void *)env);
         printf("    envblock_ectptr= %p\n", env->envblock_ectptr);
-        printf("    rexx370_prev   = %p\n", (void *)env->rexx370_prev);
     }
 }
 
@@ -112,26 +115,25 @@ int main(void)
 
     if (anch_walk() != NULL)
     {
-        /* TSO-ish path: ECT reachable, anchor must be current. */
-        if (anch_curr() != env)
+        /* TSO-ish path: slot was empty at entry, so read-mostly
+         * claimed it. Our env must now be the anchor. */
+        if (initial_anchor == NULL && anch_curr() != env)
         {
-            printf("FAIL: ECTENVBK was not updated to our envblock\n");
+            printf("FAIL: ECTENVBK was not claimed for our envblock\n");
             exit_rc = RC_ANCHOR_BROKEN;
         }
-        if (env->rexx370_prev != initial_anchor)
+        if (initial_anchor != NULL && anch_curr() != initial_anchor)
         {
-            printf("FAIL: rexx370_prev did not capture previous anchor\n");
+            printf("FAIL: ECTENVBK was overwritten despite non-NULL slot\n");
             exit_rc = RC_ANCHOR_BROKEN;
         }
     }
     else
     {
-        /* Batch path: no ECT, no anchor state, but envblock still
-         * allocated locally. rexx370_prev and envblock_ectptr must
-         * both be NULL per anch_push semantics. */
-        if (env->rexx370_prev != NULL || env->envblock_ectptr != NULL)
+        /* Batch path: no ECT; local-only push, slot stays untouched. */
+        if (env->envblock_ectptr != NULL)
         {
-            printf("FAIL: batch envblock has non-NULL anchor fields\n");
+            printf("FAIL: batch envblock_ectptr is non-NULL\n");
             exit_rc = RC_ANCHOR_BROKEN;
         }
         if (anch_curr() != NULL)
@@ -151,15 +153,19 @@ int main(void)
 
     dump_state("after irxterm", NULL);
 
+    /* After pop: slot must equal the initial_anchor. Either we
+     * claimed and then cleared (initial was NULL), or we never
+     * wrote it to begin with (initial was non-NULL) — in both
+     * cases the slot is back to its entry value. */
     if (anch_curr() != initial_anchor)
     {
-        printf("FAIL: ECTENVBK was not restored to initial value\n");
+        printf("FAIL: ECTENVBK not back at its initial value\n");
         exit_rc = RC_ANCHOR_BROKEN;
     }
 
     if (exit_rc == 0)
     {
-        printf("PASS: anchor push/pop symmetric; exiting rc=0\n");
+        printf("PASS: anchor behavior correct; exiting rc=0\n");
     }
     return exit_rc;
 }

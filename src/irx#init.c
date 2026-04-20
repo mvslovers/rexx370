@@ -24,18 +24,17 @@
 #include "irxpars.h"
 #include "irxwkblk.h"
 
-/* Lock the CON-1 §3.1 layout on MVS. The IBM reserved tail ends at
- * +320 and rexx370_prev sits at +304, inside that tail. Any drift
- * trips the compile (array of size -1) — preferable to debugging an
- * S0C4 on Hercules.
+/* Lock the CON-1 §3.1 total ENVBLOCK size on MVS — the IBM-reserved
+ * tail at +304..+319 must stay intact so the physical layout remains
+ * byte-exact against SC28-1883-0/-4 and z/OS 2.5. Any drift trips the
+ * compile (array of size -1) — preferable to debugging an S0C4 on
+ * Hercules.
  *
  * Only meaningful on the real target: host builds use 8-byte pointers
  * and therefore have a different physical layout, which is irrelevant
  * since host tests never exchange binaries with MVS. _Static_assert
  * is C11, c2asm370 is gnu99 — use the typedef-array idiom instead. */
 #ifdef __MVS__
-typedef char envblock_prev_at_304
-    [(offsetof(struct envblock, rexx370_prev) == 304) ? 1 : -1];
 typedef char envblock_size_is_320
     [(sizeof(struct envblock) == 320) ? 1 : -1];
 #endif

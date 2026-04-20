@@ -133,6 +133,13 @@ static void test_single_env(void)
 
 /* ------------------------------------------------------------------ */
 /*  Test 2: Multiple concurrent environments                          */
+/*                                                                    */
+/*  Under the read-mostly anchor (CON-1 §6.1) only the first IRXINIT  */
+/*  claims ECTENVBK; later IRXINITs observe a non-NULL slot and       */
+/*  leave it alone. IRXTERM is lenient and only clears when the slot */
+/*  still equals the terminating env. So regardless of the order of   */
+/*  the IRXTERMs, the slot stays pinned to env1 until env1 itself is  */
+/*  terminated.                                                       */
 /* ------------------------------------------------------------------ */
 
 static void test_multiple_envs(void)
@@ -153,23 +160,24 @@ static void test_multiple_envs(void)
     rc = irxinit(NULL, &env3);
     CHECK(rc == 0 && env3 != NULL, "env3 created");
 
-    /* Most recent should be env3 */
-    CHECK(anch_curr() == env3,
-          "anch_curr returns most recent (env3)");
+    /* Read-mostly: env1 got the slot, env2/env3 never touched it. */
+    CHECK(anch_curr() == env1,
+          "anch_curr holds the first claimant (env1)");
 
     CHECK(env1 != env2 && env2 != env3,
           "all envblocks are distinct");
 
-    /* Terminate in reverse order */
+    /* Terminate in reverse order. env3 and env2 were never in the
+     * slot, so their terminates are no-ops at the anchor. */
     rc = irxterm(env3);
     CHECK(rc == 0, "env3 terminated");
-    CHECK(anch_curr() == env2,
-          "after env3 term, current is env2");
+    CHECK(anch_curr() == env1,
+          "after env3 term, anchor still env1");
 
     rc = irxterm(env2);
     CHECK(rc == 0, "env2 terminated");
     CHECK(anch_curr() == env1,
-          "after env2 term, current is env1");
+          "after env2 term, anchor still env1");
 
     rc = irxterm(env1);
     CHECK(rc == 0, "env1 terminated");
