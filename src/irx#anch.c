@@ -62,7 +62,12 @@ int anch_tso(void)
     return (ppa->ppaflag & (PPAFLAG_TSOFG | PPAFLAG_TSOBG)) != 0;
 }
 
-static struct envblock **ectenvbk_slot(void)
+/* Intentionally non-static: the test harness forward-declares this
+ * helper (see test/mvs/tstanrm.c) so Case-b and Case-c on MVS can
+ * seed the real ECTENVBK slot instead of the unused host-only
+ * simulation variable. Production callers stay on anch_push /
+ * anch_pop / anch_curr. */
+struct envblock **ectenvbk_slot(void)
 {
     void *ect = anch_walk();
     if (ect == NULL)
@@ -79,7 +84,9 @@ static struct envblock **ectenvbk_slot(void)
  * burden off the test harness — we cast here). */
 extern void *_simulated_ectenvbk;
 
-static struct envblock **ectenvbk_slot(void)
+/* Non-static for symmetry with the MVS branch; the test harness never
+ * calls this on host (it goes through _simulated_ectenvbk directly). */
+struct envblock **ectenvbk_slot(void)
 {
     return (struct envblock **)&_simulated_ectenvbk;
 }
