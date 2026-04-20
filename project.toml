@@ -15,7 +15,7 @@ dsorg = "PO"
 recfm = "FB"
 lrecl = 80
 blksize = 19040
-space = ["TRK", 50, 20, 30]
+space = ["TRK", 200, 50, 50]
 
 [mvs.build.datasets.punch]
 suffix = "OBJECT"
@@ -39,7 +39,7 @@ dsorg = "PO"
 recfm = "U"
 lrecl = 0
 blksize = 15040
-space = ["TRK", 20, 10, 10]
+space = ["TRK", 150, 50, 30]
 
 [dependencies]
 "mvslovers/crent370" = ">=1.0.9"
