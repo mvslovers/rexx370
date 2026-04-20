@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_irxlstr.c - WP-11b REXX lstring adapter tests                */
+/*  tstlstr.c - WP-11b REXX lstring adapter tests                */
 /*                                                                    */
 /*  Tests the pure-C parts of irx#lstr.c that don't require the       */
 /*  full lstring370 library to be linked (allocator wiring,           */

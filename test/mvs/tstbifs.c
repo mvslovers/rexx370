@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_bifs.c - WP-21a string BIF unit tests                        */
+/*  tstbifs.c - WP-21a string BIF unit tests                        */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */

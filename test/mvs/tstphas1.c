@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_phase1.c - Phase 1 Smoke Test                                */
+/*  tstphas1.c - Phase 1 Smoke Test                                */
 /*                                                                    */
 /*  Verifies the REXX/370 Phase 1 foundation:                        */
 /*  - IRXINIT creates a valid environment                             */

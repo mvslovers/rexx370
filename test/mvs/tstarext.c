@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_arith_extended.c - WP-21b Phase B tests for the new public    */
+/*  tstarext.c - WP-21b Phase B tests for the new public    */
 /*  IRXARITH string-oriented helpers: trunc, format, from_digits,      */
 /*  to_digits. These are direct C-API tests; they do not drive the     */
 /*  parser.                                                            */

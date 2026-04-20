@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_procedure.c - WP-17 PROCEDURE EXPOSE acceptance tests        */
+/*  tstproc.c - WP-17 PROCEDURE EXPOSE acceptance tests        */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */

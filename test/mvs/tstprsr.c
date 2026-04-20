@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_parser.c - WP-13 parser + expression evaluator unit tests    */
+/*  tstprsr.c - WP-13 parser + expression evaluator unit tests    */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */

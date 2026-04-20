@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_anchor_readmostly.c - Read-mostly ECTENVBK protection tests  */
+/*  tstanrm.c - Read-mostly ECTENVBK protection tests  */
 /*                                                                    */
 /*  CON-1 §6.1 defines three observable states the ECTENVBK slot can  */
 /*  be in, and a distinct read-mostly response to each. The tests     */

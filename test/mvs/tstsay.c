@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_say.c - WP-14 SAY instruction + IRXINOUT unit tests          */
+/*  tstsay.c - WP-14 SAY instruction + IRXINOUT unit tests          */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */

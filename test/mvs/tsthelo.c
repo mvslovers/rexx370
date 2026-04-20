@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_hello.c - WP-18 Hello World End-to-End integration tests     */
+/*  tsthelo.c - WP-18 Hello World End-to-End integration tests     */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */

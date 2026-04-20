@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  test_control.c - WP-15 Control Flow unit tests                    */
+/*  tstctrl.c - WP-15 Control Flow unit tests                    */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
