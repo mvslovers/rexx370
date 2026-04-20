@@ -23,7 +23,7 @@ dsorg = "PO"
 recfm = "FB"
 lrecl = 80
 blksize = 19040
-space = ["TRK", 30, 10, 30]
+space = ["TRK", 200, 50, 60]
 
 [mvs.build.datasets.ncalib]
 suffix = "NCALIB"
@@ -31,7 +31,7 @@ dsorg = "PO"
 recfm = "U"
 lrecl = 0
 blksize = 19069
-space = ["TRK", 30, 10, 30]
+space = ["TRK", 300, 100, 60]
 
 [mvs.build.datasets.syslmod]
 suffix = "LOAD"
