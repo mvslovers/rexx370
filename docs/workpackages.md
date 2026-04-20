@@ -3,19 +3,20 @@
 Work package definitions for agent-driven implementation.
 Each WP is self-contained with inputs, outputs, acceptance criteria.
 
-Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3f4d3308b254cad)
+Reference: [Architecture Design v0.2.0](https://www.notion.so/3283d9938787811ba3f4d3308b254cad)
 
 ---
 
 ## Status
 
 | WP | Title | Phase | Status |
-|----|-------|-------|--------|
+|---|---|---|---|
 | WP-01 | Project skeleton + headers | 1 | DONE |
 | WP-02 | IRXSTOR, IRXUID, IRXMSGID | 1 | DONE |
-| WP-03 | ECTENVBK anchor (IRX#ANCH) | 1 | DONE (superseded original RAB design; see CON-1 §6.1) |
+| WP-03 | ECTENVBK anchor (IRX#ANCH) | 1 | DONE — ECTENVBK read-mostly discipline per CON-1 §6.1 (PR #45, PR #46 d868b46) |
 | WP-04 | IRXINIT + IRXTERM | 1 | DONE |
 | WP-05 | Phase 1 smoke test | 1 | DONE (38/38) |
+| WP-06 | Anchor protection tests | 1 | DONE — Case-(a)/(b)/(c) verification in test/test_anchor_readmostly.c; PR #46 d868b46 |
 | WP-10 | Tokenizer (IRX#TOKN) | 2 | DONE (70/70) — PR #2 |
 | WP-11b | LString adapter (IRX#LSTR) | 2 | DONE (50/50) — PR #4 |
 | WP-12 | Variable pool (IRX#VPOL) | 2 | DONE (47/47) — PR #6 |
@@ -54,29 +55,24 @@ Reference: [Architecture Design v0.1.0](https://www.notion.so/3283d9938787811ba3
 
 ### Context
 
-The tokenizer converts REXX source text into a stream of tokens.
-It runs once per exec load (single-pass). The token stream is stored
-in the `irx_wkblk_int.wkbi_tokens` pointer.
+The tokenizer converts REXX source text into a stream of tokens. It runs once per exec load (single-pass). The token stream is stored in the `irx_wkblk_int.wkbi_tokens` pointer.
 
 ### Inputs
 
 - Architecture Design v0.1.0, Section 7.2 (Token types table)
 - SC28-1883-0, Chapter 2 (Structure and Syntax) — defines valid tokens
 - `inc/irxwkblk.h` — where token stream is anchored
-- Knowledge source: `brexx370/src/nextsymb.c` (704 LOC) — reference
-  for token classification logic, BUT must be reimplemented without
-  global state (all state in a tokenizer context struct)
+- Knowledge source: `brexx370/src/nextsymb.c` (704 LOC) — reference for token classification logic, BUT must be reimplemented without global state (all state in a tokenizer context struct)
 
 ### Outputs
 
-- `inc/irxtokn.h` — Token type definitions, tokenizer context struct,
-  function prototypes
+- `inc/irxtokn.h` — Token type definitions, tokenizer context struct, function prototypes
 - `src/irxtokn.c` — Tokenizer implementation
 - `test/test_tokenizer.c` — Unit tests
 
 ### Token Types (from Architecture Design)
 
-```
+```text
 01  TOK_SYMBOL       FRED, A.B.C, X12
 02  TOK_STRING       'hello', "world"
 03  TOK_NUMBER       42, 3.14, 1E5
@@ -96,21 +92,15 @@ in the `irx_wkblk_int.wkbi_tokens` pointer.
 
 ### Token Structure
 
-Each token needs: type (byte), flags (byte), line number (int),
-column (short), pointer to token text in source, length of token text.
-Tokens should be stored in a contiguous array (not linked list) for
-cache efficiency on the interpreter hot path.
+Each token needs: type (byte), flags (byte), line number (int), column (short), pointer to token text in source, length of token text. Tokens should be stored in a contiguous array (not linked list) for cache efficiency on the interpreter hot path.
 
 ### Constraints
 
 - **Reentrant**: All state in a context struct, no globals
-- **EBCDIC**: Source is EBCDIC on MVS 3.8j. Use character classification
-  that works for both EBCDIC (MVS) and ASCII (cross-compile testing)
-- **Comments**: `/* ... */` are stripped, but their line counts must
-  be preserved for PARSE SOURCE / SOURCELINE / TRACE
+- **EBCDIC**: Source is EBCDIC on MVS 3.8j. Use character classification that works for both EBCDIC (MVS) and ASCII (cross-compile testing)
+- **Comments**: `/* ... */` are stripped, but their line counts must be preserved for PARSE SOURCE / SOURCELINE / TRACE
 - **Continuation**: comma at end of clause continues to next line
-- **String delimiters**: both `'...'` and `"..."`, with doubling for
-  escape (`'it''s'` = `it's`)
+- **String delimiters**: both `'...'` and `"..."`, with doubling for escape (`'it''s'` = `it's`)
 - **REXX identifier**: first record `/*...REXX...*/` identifies as REXX
 
 ### Acceptance Criteria
@@ -135,10 +125,7 @@ cache efficiency on the interpreter hot path.
 
 ### Context
 
-REXX strings are typeless — they carry their value, length, maximum
-allocated length, and an optional cached numeric type. The LString
-library provides all string operations that built-in functions and
-the interpreter need.
+REXX strings are typeless — they carry their value, length, maximum allocated length, and an optional cached numeric type. The LString library provides all string operations that built-in functions and the interpreter need.
 
 ### Inputs
 
@@ -155,6 +142,7 @@ the interpreter need.
 ### What to Port (Phase 2 subset)
 
 Core operations needed for the interpreter:
+
 - `Lfx()` — allocate/grow string buffer
 - `Lscpy()`, `Lstrcpy()` — copy from C string / Lstr
 - `Lcat()`, `Lstrcat()` — concatenate
@@ -168,6 +156,7 @@ Core operations needed for the interpreter:
 - `Lprint()` — output (for SAY)
 
 String functions for BIFs (can be added incrementally):
+
 - LEFT, RIGHT, SUBSTR, COPIES, REVERSE, STRIP, SPACE
 - WORD, WORDS, SUBWORD, WORDINDEX, WORDLENGTH, WORDPOS
 - POS, LASTPOS, INDEX
@@ -178,13 +167,9 @@ String functions for BIFs (can be added incrementally):
 
 ### Constraints
 
-- **Reentrant**: The Lstr structure is self-contained (no globals).
-  The only global in brexx370 is the `Lerror` callback — this must
-  be replaced with a per-environment error handler from `irx_wkblk_int`.
-- **Memory**: All allocation must go through `irxstor()` (not direct
-  malloc). The Lfx/LPMALLOC macros need to be adapted.
-- **EBCDIC**: String comparison must work correctly on EBCDIC.
-  brexx370 already handles this.
+- **Reentrant**: The Lstr structure is self-contained (no globals). The only global in brexx370 is the `Lerror` callback — this must be replaced with a per-environment error handler from `irx_wkblk_int`.
+- **Memory**: All allocation must go through `irxstor()` (not direct malloc). The Lfx/LPMALLOC macros need to be adapted.
+- **EBCDIC**: String comparison must work correctly on EBCDIC. brexx370 already handles this.
 
 ### Acceptance Criteria
 
@@ -205,10 +190,7 @@ String functions for BIFs (can be added incrementally):
 
 ### Context
 
-The Variable Pool stores all REXX variables for an exec. It uses a
-hash table for O(1) average lookup. Each exec invocation has its own
-pool; PROCEDURE creates a new pool with an optional EXPOSE list.
-Compound variables (stems) are resolved by deriving the tail value.
+The Variable Pool stores all REXX variables for an exec. It uses a hash table for O(1) average lookup. Each exec invocation has its own pool; PROCEDURE creates a new pool with an optional EXPOSE list. Compound variables (stems) are resolved by deriving the tail value.
 
 ### Inputs
 
@@ -228,90 +210,70 @@ Compound variables (stems) are resolved by deriving the tail value.
 
 - `vpool_create(parent, expose_list)` — Create new variable pool
 - `vpool_destroy(pool)` — Free a variable pool
-- `vpool_set(pool, name, value)` — Set a variable
-- `vpool_get(pool, name, value)` — Get a variable (NOVALUE if unset)
-- `vpool_drop(pool, name)` — Drop a variable
-- `vpool_next(pool, cursor)` — Iterate (for SHVNEXTV)
-- `vpool_exists(pool, name)` — Check existence (for SYMBOL())
+- `vpool_set(pool, name, value)` — SET a variable
+- `vpool_get(pool, name)` — FETCH a variable (returns NULL if unset)
+- `vpool_drop(pool, name)` — DROP a variable
+- `vpool_expose(pool, name, parent)` — Add variable to EXPOSE list
+- `vpool_iterate(pool, callback, userdata)` — Walk all variables
+
+### Compound Variables
+
+For `A.B.C`:
+
+1. First resolve `B.C` (may involve further expansion)
+2. Concatenate with 'A.' prefix to form derived name
+3. Look up derived name in pool
 
 ### Constraints
 
-- Hash table with chaining (not open addressing) for predictable perf
-- Compound variable resolution: `stem.i.j` →
-  1. Resolve value of `i`, resolve value of `j`
-  2. Derive name: `STEM.` + value_of_i + `.` + value_of_j
-  3. Look up derived name; if not found, return STEM. default value
-- EXPOSE: When PROCEDURE EXPOSE lists a variable, the new pool's
-  entry for that variable points to the parent pool's entry
-- NOVALUE: If SIGNAL ON NOVALUE is active and a variable is accessed
-  that has never been set, raise the NOVALUE condition
-- All state in the pool structure, no globals
+- **Reentrant**: Pool pointer passed explicitly, no globals
+- **Memory**: All allocation through `irxstor()`
+- **EBCDIC**: Variable names are uppercased (REXX convention)
+- **Performance**: Hash table resizing handled automatically
 
 ### Acceptance Criteria
 
-1. Set/Get/Drop for simple variables
-2. Compound variable resolution (stem.1, stem.i where i='FOO')
-3. PROCEDURE creates isolated scope
-4. EXPOSE correctly shares named variables with parent
-5. NOVALUE detection
-6. Iteration (NEXT) visits all variables exactly once
-7. Hash table handles 10000 variables without degradation
-8. No global state
+1. Set/get/drop of simple variables works
+2. Compound variables resolved correctly
+3. PROCEDURE EXPOSE creates child pool with shared variables
+4. Hash collisions handled correctly
+5. 10,000 variables: get/set in < 1ms per operation
+6. No memory leaks
 
 ---
 
-## WP-13: Parser + Expression Evaluator (IRXPARS)
+## WP-13: Parser + Evaluator
 
 **Phase:** 2 — Interpreter Core
-**Priority:** After WP-10 + WP-12
+**Priority:** After WP-10, WP-11, WP-12
 **Estimated LOC:** ~1500
 
 ### Context
 
-The parser processes the token stream from WP-10 and executes
-REXX clauses. REXX is interpreted — there is no separate AST or
-bytecode compilation step (unlike brexx370 which compiles to bytecode).
-Each clause is classified and dispatched: assignment, keyword
-instruction, label, command, or null clause.
+The Parser consumes the token stream produced by the tokenizer and executes REXX clauses directly (no explicit AST — tree-walker pattern works on the token array). The Evaluator handles expressions within clauses (arithmetic, comparison, concatenation, function calls).
 
-Expression evaluation implements REXX operator precedence:
-prefix (\ + -), **, * / // %, + -, || (abuttal) blank,
-comparison operators, & (AND), | && (OR XOR).
+For Phase 2 we need: assignment, SAY, simple expressions, variable references. DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL come in WP-15; PARSE comes in WP-16; PROCEDURE in WP-17.
 
 ### Inputs
 
+- Architecture Design v0.1.0, Section 7.4
+- SC28-1883-0, Chapters 2, 5, 6 (syntax, instructions, expressions)
+- Knowledge source: `brexx370/src/rexx.c` (~1000 LOC of parser)
+- `irxwkblk.h` — parser context struct
 - Token stream from WP-10
 - Variable pool from WP-12
-- LString library from WP-11
-- SC28-1883-0, Chapter 2 (Structure/Syntax), Chapter 6 (Numbers)
-- Knowledge source: `brexx370/src/interpre.c` (1887 LOC),
-  `brexx370/src/compile.c` (1951 LOC), `brexx370/src/expr.c` (439 LOC)
 
 ### Outputs
 
-- `inc/irxpars.h` — Parser/evaluator context, prototypes
-- `src/irxpars.c` — Parser + expression evaluator
-- `test/test_parser.c` — Unit tests
-
-### Design Decision: Direct Interpretation vs Bytecode
-
-The architecture document says "tokenize in one pass, execute clause
-by clause." This means direct interpretation of the token stream,
-NOT compilation to bytecode like brexx370 does. This is simpler,
-closer to IBM's original implementation, and avoids the complex
-compile-state globals that made brexx370 non-reentrant.
-
-For performance, frequently-executed DO loops can cache the token
-position for fast re-entry without re-scanning.
+- `inc/irxpars.h` — Parser context struct, function prototypes
+- `src/irxpars.c` — Parser + Evaluator (minimal for Phase 2)
+- `test/test_parse.c` — Unit tests
 
 ### Constraints
 
 - All state in parser context struct (no globals)
-- Expression evaluation must handle: string comparison, numeric
-  comparison, strict comparison (==, \==), concatenation (||, blank,
-  abuttal), all arithmetic operators
-- Function calls in expressions: `func(arg1, arg2)` — check internal
-  labels first, then BIFs, then external
+- Expression evaluation must handle: string comparison, numeric comparison, strict comparison (==, ==), concatenation (||, blank, abuttal), all arithmetic operators
+- Function calls in expressions: `func(arg1, arg2)` — check internal labels first, then BIFs, then external
 - Operator precedence must match SC28-1883-0 exactly
 
 ### Acceptance Criteria
@@ -320,8 +282,7 @@ position for fast re-entry without re-scanning.
 2. `x = 'hello' 'world'` evaluates to 'hello world' (blank concat)
 3. `x = a || b` evaluates correctly (explicit concat)
 4. Correct operator precedence: `2 + 3 * 4` = '14'
-5. String comparison: `'abc' = 'ABC'` is true (REXX is case-insensitive
-   for comparison by default)
+5. String comparison: `'abc' = 'ABC'` is true (REXX is case-insensitive for comparison by default)
 6. Strict comparison: `'abc' == 'ABC'` is false
 7. Function calls in expressions: `length('hello')` = '5'
 8. Nested parentheses: `(2 + 3) * (4 + 5)` = '45'
@@ -337,12 +298,9 @@ position for fast re-entry without re-scanning.
 
 ### Context
 
-The I/O Replaceable Routine handles all interpreter I/O. For Phase 2,
-we need RXFWRITE (SAY) and RXFWRITERR (error messages). PULL and
-dataset I/O come in Phase 4.
+The I/O Replaceable Routine handles all interpreter I/O. For Phase 2, we need RXFWRITE (SAY) and RXFWRITERR (error messages). PULL and dataset I/O come in Phase 4.
 
-This is also the key embeddability hook: by replacing the I/O routine,
-HTTPD can redirect SAY to HTTP response, ISPF to TPUT, etc.
+This is also the key embeddability hook: by replacing the I/O routine, HTTPD can redirect SAY to HTTP response, ISPF to TPUT, etc.
 
 ### Inputs
 
@@ -441,6 +399,7 @@ mbt build --target irxjcl   # build specific module
 ```
 
 Cross-compile test (Linux/gcc):
+
 ```bash
 # Standard dependency sets (expand as needed):
 LSTRING_INC="-I contrib/lstring370-0.1.0-dev/include"
@@ -455,84 +414,52 @@ gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
 
 ### File Naming Convention
 
-Source files use `prefix#module.c` (e.g., `irx#init.c`).
-The `#` maps to a valid PDS member name character on MVS.
-Header files use plain names in `include/` directory.
+Source files use `prefix#module.c` (e.g., `irx#init.c`). The `#` maps to a valid PDS member name character on MVS. Header files use plain names in `include/` directory.
 
 | Source File | PDS Member | Purpose |
 |---|---|---|
 | `src/irx#init.c` | IRX#INIT | IRXINIT implementation |
 | `src/irx#term.c` | IRX#TERM | IRXTERM implementation |
 | `src/irx#stor.c` | IRX#STOR | Storage management |
-| `src/irx#anch.c` | IRX#ANCH | ECTENVBK anchor (push/pop discipline) |
+| `src/irx#anch.c` | IRX#ANCH | ECTENVBK anchor (read-mostly discipline) |
 | `src/irx#uid.c` | IRX#UID | User ID routine |
 | `src/irx#msid.c` | IRX#MSID | Message ID routine |
 | `src/irx#tokn.c` | IRX#TOKN | Tokenizer (WP-10) |
 | `src/irx#lstr.c` | IRX#LSTR | lstring370 adapter (WP-11b) |
 | `src/irx#vpol.c` | IRX#VPOL | Variable pool (WP-12) |
 | `src/irx#pars.c` | IRX#PARS | Parser/Evaluator (WP-13) |
-| `src/irx#io.c`   | IRX#IO   | Default I/O routine IRXINOUT (WP-14) |
+| `src/irx#io.c` | IRX#IO | Default I/O routine IRXINOUT (WP-14) |
 | `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
 
 ### crent370 APIs
 
-**Memory:** Use `calloc()`/`free()` from `<stdlib.h>` for regular
-heap storage. Use `getmain(size, subpool)`/`freemain(addr, size, subpool)`
-from `<clibos.h>` for specific subpool allocation.
-In REXX/370, all allocation goes through `irxstor()` which wraps
-the above — never call calloc/getmain directly from other modules.
+**Memory:** Use `calloc()`/`free()` from `<stdlib.h>` for regular heap storage. Use `getmain(size, subpool)`/`freemain(addr, size, subpool)` from `<clibos.h>` for specific subpool allocation. In REXX/370, all allocation goes through `irxstor()` which wraps the above — never call calloc/getmain directly from other modules.
 
-**Console output:** `wtof()` from `<clibwto.h>` — formatted WTO.
-Use for operator messages (IRX0001I etc.)
+**Console output:** `wtof()` from `<clibwto.h>` — formatted WTO. Use for operator messages (IRX0001I etc.)
 
-**Thread management:** `<clibthrd.h>` and `<clibthdi.h>` — not needed
-for Phase 1-2, but relevant for future multi-threaded embedding.
+**Thread management:** `<clibthrd.h>` and `<clibthdi.h>` — not needed for Phase 1-2, but relevant for future multi-threaded embedding.
 
 **ESTAE recovery:** `<clibstae.h>` — Phase 6+ for ESTAE/abend recovery.
 
-**OS services:** `<clibos.h>` — getmain, freemain, BLDL, LOAD, LINK,
-OPEN/CLOSE, GET/PUT, TGET/TPUT, WTO/WTOR wrappers.
+**OS services:** `<clibos.h>` — getmain, freemain, BLDL, LOAD, LINK, OPEN/CLOSE, GET/PUT, TGET/TPUT, WTO/WTOR wrappers.
 
-**Dataset I/O:** `<osio.h>`, `<osdcb.h>` — DCB/BSAM/QSAM.
-Needed for Phase 4 (EXECIO).
+**Dataset I/O:** `<osio.h>`, `<osdcb.h>` — DCB/BSAM/QSAM. Needed for Phase 4 (EXECIO).
 
 ### General Rules
 
-1. **No globals.** Every piece of mutable state lives in a struct
-   passed as parameter. If you're tempted to write `static` or
-   `extern` for mutable data, put it in `irx_wkblk_int` or a
-   sub-struct pointed to by it.
-
-2. **Memory via irxstor.** Never call calloc/free directly outside
-   of `irx#stor.c`. Always `irxstor(RXSMGET, ...)` /
-   `irxstor(RXSMFRE, ...)`.
-
-3. **Eye-catchers.** Every control block starts with an eye-catcher.
-   Always validate eye-catchers before accessing block fields.
-
-4. **IBM compatibility.** Never modify the layout of structs defined
-   in `irx.h`. Our extensions go in `irxwkblk.h` or new headers.
-
-5. **EBCDIC awareness.** Use character classification functions that
-   work on both ASCII and EBCDIC. Don't hardcode ASCII values.
-
-6. **Error paths.** Every allocation must have a corresponding
-   deallocation on the error path. Use the ALLOC/cleanup pattern
-   from irx#init.c.
-
-7. **Testing.** Every WP produces a test file. Tests must be
-   runnable on the cross-compile platform (Linux/gcc) without MVS.
-
-8. **Comments in english.** All code comments and documentation in
-   English. German only for user-facing documentation (manual etc.)
+1. **No globals.** Every piece of mutable state lives in a struct passed as parameter. If you're tempted to write `static` or `extern` for mutable data, put it in `irx_wkblk_int` or a sub-struct pointed to by it.
+2. **Memory via irxstor.** Never call calloc/free directly outside of `irx#stor.c`. Always `irxstor(RXSMGET, ...)` / `irxstor(RXSMFRE, ...)`.
+3. **Eye-catchers.** Every control block starts with an eye-catcher. Always validate eye-catchers before accessing block fields.
+4. **IBM compatibility.** Never modify the layout of structs defined in `irx.h`. Our extensions go in `irxwkblk.h` or new headers.
+5. **EBCDIC awareness.** Use character classification functions that work on both ASCII and EBCDIC. Don't hardcode ASCII values.
+6. **Error paths.** Every allocation must have a corresponding deallocation on the error path. Use the ALLOC/cleanup pattern from irx#init.c.
+7. **Testing.** Every WP produces a test file. Tests must be runnable on the cross-compile platform (Linux/gcc) without MVS.
+8. **Comments in english.** All code comments and documentation in English. German only for user-facing documentation (manual etc.)
 
 ### Reference Material
 
-- IBM TSO/E V2 REXX Reference: SC28-1883-0
-  Available at: https://vtda.org (search for SC28-1883)
-- Architecture Design v0.1.0: Notion page CON-1
-  https://www.notion.so/3283d9938787811ba3f4d3308b254cad
-- BREXX/370 source: https://github.com/mvslovers/brexx370
-  (knowledge source for REXX BIF logic — reimplemented clean)
-- crent370: https://github.com/mvslovers/crent370
-- mbt build tool: https://github.com/mvslovers/mbt
+- IBM TSO/E V2 REXX Reference: SC28-1883-0. Available at: [https://vtda.org](https://vtda.org) (search for SC28-1883)
+- Architecture Design v0.2.0: Notion page CON-1 [https://www.notion.so/3283d9938787811ba3f4d3308b254cad](https://www.notion.so/3283d9938787811ba3f4d3308b254cad)
+- BREXX/370 source: [https://github.com/mvslovers/brexx370](https://github.com/mvslovers/brexx370) (knowledge source for REXX BIF logic — reimplemented clean)
+- crent370: [https://github.com/mvslovers/crent370](https://github.com/mvslovers/crent370)
+- mbt build tool: [https://github.com/mvslovers/mbt](https://github.com/mvslovers/mbt)

@@ -3,8 +3,8 @@
 **Project:** REXX/370 — Interface-compatible REXX interpreter for MVS 3.8j
 **Compatibility:** TSO/E Version 2 REXX (SC28-1883-0, December 1988)
 **Target platform:** MVS 3.8j / Hercules / MVS/CE
-**Version:** 0.1.1-DRAFT
-**Date:** 16 April 2026
+**Version:** 0.2.0-DRAFT
+**Date:** 20 April 2026
 
 ---
 
@@ -89,32 +89,52 @@ All control blocks must be byte-exact with the TSO/E V2 REXX layouts.
 
 ## 3.1 Environment Block (ENVBLOCK)
 
-Anchor for a Language Processor Environment. Ref: chapter 14, p. 323.
+Anchor for a Language Processor Environment. Ref: SC28-1883-0 chapter 14, p. 323; cross-verified against SC28-1883-4 (Aug 1991) and [z/OS 2.5 online](https://www.ibm.com/docs/en/zos/2.5.0?topic=environment-format-block-envblock).
+
+Offsets 0..303 are byte-exact with all IBM editions from SC28-1883-0 (Dec 1988) through z/OS 2.5. Bytes 304..319 are reserved in every documented IBM edition and have remained so for 37+ years; rexx370 keeps them as private reserved space for future use. Total length stays at 320 bytes, matching `ENVBLOCK_LENGTH`.
 
 | Offset | Length | Field | Description |
 |---|---|---|---|
-| +00 | 4 | `ENVBLOCK_ID` | Eye-catcher: 'ENVB' |
-| +04 | 4 | `ENVBLOCK_LENGTH` | Block length |
-| +08 | 4 | `ENVBLOCK_VERSION` | Version number |
-| +0C | 4 | `ENVBLOCK_PARMBLOCK` | Pointer to PARMBLOCK |
-| +10 | 4 | `ENVBLOCK_WKBLKEXT` | Pointer to Work Block Extension |
-| +14 | 4 | `ENVBLOCK_IRXEXTE` | Pointer to REXX Vector of External Entry Points |
-| +18 | 4 | `ENVBLOCK_NEXT` | Pointer to next ENVBLOCK |
-| +1C | 4 | `ENVBLOCK_PREV` | Pointer to previous ENVBLOCK |
-| +20 | 4 | `ENVBLOCK_USERFIELD` | User field (for exits) |
+| +00 | 8 | `ENVBLOCK_ID` | Eye-catcher: 'ENVBLOCK' (character) |
+| +08 | 4 | `ENVBLOCK_VERSION` | Version: '0100' (character) |
+| +0C | 4 | `ENVBLOCK_LENGTH` | Block length (= 320) |
+| +10 | 4 | `ENVBLOCK_PARMBLOCK` | Pointer to PARMBLOCK |
+| +14 | 4 | `ENVBLOCK_USERFIELD` | User field (caller-supplied to IRXINIT) |
+| +18 | 4 | `ENVBLOCK_WORKBLOK_EXT` | Pointer to Work Block Extension |
+| +1C | 4 | `ENVBLOCK_IRXEXTE` | Pointer to REXX Vector of External Entry Points |
+| +20 | 4 | `ENVBLOCK_ERROR_CALL` | Address of routine that issued the first error |
+| +24 | 4 | — | Reserved |
+| +28 | 8 | `ENVBLOCK_ERROR_MSGID` | Message ID of first error (character) |
+| +30 | 80 | `ENVBLOCK_PRIMARY_ERROR_MESSAGE` | Primary error message text |
+| +80 | 160 | `ENVBLOCK_ALTERNATE_ERROR_MESSAGE` | Alternate error message text |
+| +120 | 4 | `ENVBLOCK_COMPGMTB` | Compiler programming table (= 0 in rexx370) |
+| +124 | 4 | `ENVBLOCK_ATTNROUT_PARMPTR` | Attention handler control block (= 0 in rexx370 Phase 1) |
+| +128 | 4 | `ENVBLOCK_ECTPTR` | Back-pointer to the ECT this env is anchored in; populated for TSO envs, 0 otherwise |
+| +12C | 4 | `ENVBLOCK_INFO_FLAGS` | Status bits. Bit 0 (TERMA_CLEANUP) = abnormal termination in progress (set by IRXTERMA). Bits 1..31 reserved |
+| +130 | 16 | — | rexx370-private, reserved for future use. Lives in the IBM-reserved range 304..319 that has been undocumented in every edition from SC28-1883-0 (Dec 1988) through z/OS 2.5 (2024) |
 
 ```hlasm
 ENVBLOCK DSECT
-ENVBID   DS    CL4          Eye-catcher 'ENVB'
-ENVBLEN  DS    F            Length of ENVBLOCK
-ENVBVER  DS    F            Version number
-ENVBPARM DS    A            -> PARMBLOCK
-ENVBWKEX DS    A            -> Work Block Extension
-ENVBIRXE DS    A            -> REXX External Entry Point Vector
-ENVBNEXT DS    A            -> Next ENVBLOCK in chain
-ENVBPREV DS    A            -> Previous ENVBLOCK in chain
-ENVBUSER DS    A            User field
-ENVBSIZE EQU   *-ENVBLOCK   Size of ENVBLOCK
+ENVBID     DS    CL8          Eye-catcher 'ENVBLOCK'
+ENVBVER    DS    CL4          Version '0100'
+ENVBLEN    DS    F            Length of ENVBLOCK (=320)
+ENVBPARM   DS    A            -> PARMBLOCK
+ENVBUSER   DS    A            User field (caller-supplied)
+ENVBWKEX   DS    A            -> Work Block Extension
+ENVBIRXE   DS    A            -> REXX Vector of External Entry Points
+ENVBECAL   DS    A            Error call routine address
+           DS    F            Reserved
+ENVBEMID   DS    CL8          Error message ID
+ENVBEMSG   DS    CL80         Primary error message
+ENVBAMSG   DS    CL160        Alternate error message
+ENVBCPGM   DS    A            Compiler programming table (=0 in rexx370)
+ENVBATTN   DS    A            Attention handler CB (=0 in rexx370)
+ENVBECTP   DS    A            -> ECT (TSO envs only, 0 otherwise)
+ENVBINFO   DS    F            INFO_FLAGS; bit 0 = TERMA_CLEANUP
+*          rexx370 private; IBM bytes 304..319 are reserved in every
+*          SC28-1883 edition from Dec 1988 through z/OS 2.5.
+           DS    CL16         Reserved for rexx370 future use
+ENVBSIZE   EQU   *-ENVBLOCK   Total size = 320
 ```
 
 ## 3.2 Parameter Block (PARMBLOCK)
@@ -326,29 +346,43 @@ Standard prefix: 'IRX'.
 
 ## 6.1 Environment anchor (ECTENVBK)
 
-Each REXX Language Processor Environment is anchored in the TSO
-Environment Control Table (ECT) at offset +30 (ECTENVBK). IRXINIT
-pushes the new ENVBLOCK onto that slot, saving the previous value in
-`ENVBLOCK+304 (rexx370_prev)`. IRXTERM restores it — leniently: if
-another environment was pushed on top out of LIFO order, the pop
-becomes a no-op on the ECT slot and only our local storage is freed.
+Each REXX Language Processor Environment is anchored in the TSO Environment Control Table (ECT) at offset +30 (`ECTENVBK`) — not in TCBUSER. The ECT lies in user-accessible TSO work storage and is problem-state-writable; TCBUSER would require APF authorization and offers no behavioural advantage on MVS 3.8j. A separate anchor control block (RAB) is not required and not used.
 
-Cold-path walk on MVS 3.8j (offsets per IBM macros, validated on
-Hercules since 2019):
+### Read-mostly discipline
+
+rexx370 follows a **read-mostly** discipline for `ECTENVBK`: IRXINIT writes the slot only when it is NULL (no other REXX has claimed it); subsequent IRXINIT calls return the new ENVBLOCK pointer to the caller without touching the anchor. IRXTERM clears the slot only if it still points at the terminating ENVBLOCK; otherwise it leaves the anchor alone.
+
+The motivation is **coexistence with other REXX implementations on the same task**, not default-environment protection. MVS 3.8j ships without IBM REXX, so there is no automatic default environment for rexx370 to protect. ECTENVBK can be in exactly three real states on this platform:
+
+- (a) **NULL** — nobody has taken the slot yet; safe for us to claim.
+- (b) **Non-NULL, pointing at a BREXX environment** currently active on this task — BREXX would crash if we overwrote its anchor.
+- (c) **Non-NULL, pointing at an earlier rexx370 environment we set ourselves** — we already hold that pointer through the IRXINIT return value.
+
+"Only write when `ECTENVBK == 0`" is the correct rule in all three cases. See CON-1 §6.1 and §14.2 for the full rationale, and SC28-1883-0 §15 for the caller-managed pointer-passing contract for reentrant environments.
+
+### Cold-path walk
+
+To discover the ECT (and whether we're in a TSO context at all), rexx370 walks the standard TSO control-block chain. Offsets are from IBM macros (SYS1.MACLIB / Data Areas manuals), not from SC28-1883:
 
 ```text
 PSA  + PSAAOLD  (0x224) -> ASCB
 ASCB + ASCBASXB (0x06C) -> ASXB
 ASXB + ASXBLWA  (0x014) -> LWA
 LWA  + LWAPECT  (0x020) -> ECT
-ECT  + ECTENVBK (0x030) -> ENVBLOCK
+ECT  + ECTENVBK (0x030) -> ENVBLOCK (current anchor)
 ```
 
-In batch environments any link (typically LWA) can be NULL; the walk
-returns NULL and `anchor_push` reduces to populating local fields in
-the ENVBLOCK. TSO detection goes through `CLIBCRT.crtflag` with the
-`CRTFLAG_TSO` bit. See `include/irxanchor.h` and `src/irx#anch.c` for
-the anchor API and CON-1 §3.1/§6.1 for the spec references.
+This walk is empirically validated by BREXX/370 (in production on Hercules MVS 3.8j since 2019) and re-verified for rexx370 in PR #45 across TSO-foreground, TSO-background, and pure-batch scenarios. In batch any link (typically `ASXBLWA`) can be NULL — the walk returns NULL, and IRXINIT reduces to allocating a local ENVBLOCK returned by reference.
+
+### Hot path and `ENVBLOCK_ECTPTR`
+
+Once initialized, the ENVBLOCK pointer is passed as an explicit parameter (register 0 in the IBM ABI, `p->envblock` in rexx370's C-internal convention) to every service routine, replaceable routine, and BIF. The cold-path walk runs at most once per IRXINIT. `ENVBLOCK_ECTPTR` (offset +296) is populated during IRXINIT so routines holding an ENVBLOCK pointer can reach the ECT without re-walking PSA — useful for IRXUID and future ACEE-based replaceable routines.
+
+### Non-TSO environments
+
+For batch jobs started by JES2 (future Phase 5 IRXJCL), no persistent anchor exists. The ENVBLOCK is created locally by IRXJCL; `ECTENVBK` and `ENVBLOCK_ECTPTR` stay 0. The pointer is passed by reference through all IRXxxxx service calls as parameter — SC28-1883-0-compliant, since every IRXxxxx signature includes an ENVBLOCK pointer argument.
+
+See `include/irxanchor.h` and `src/irx#anch.c` for the anchor API, and CON-1 §3.1 / §6.1 for the spec-level definition.
 
 ## 6.2 Environment types
 
@@ -357,6 +391,17 @@ the anchor API and CON-1 §3.1/§6.1 for the spec references.
 | TSO/E integrated | Yes (TSOFL=1) | TSO foreground/background |
 | Non-TSO/E | No (TSOFL=0) | Batch, started tasks |
 | ISPF integrated | Yes + ISPF flags | ISPF environment (future) |
+
+### Type detection
+
+IRXINIT determines the type via a two-tier strategy:
+
+1. **Explicit caller override.** If the caller passes a non-NULL PARMBLOCK with the flags field set, those flags are authoritative.
+2. **Auto-detection fallback.** With a NULL PARMBLOCK, IRXINIT detects from the runtime context:
+   - **TSO / non-TSO:** `anch_tso()` tests `CLIBPPA.ppaflag & (PPAFLAG_TSOFG | PPAFLAG_TSOBG)` via `__ppaget()`. `PPAFLAG_TSOFG` marks TSO foreground (interactive READY prompt), `PPAFLAG_TSOBG` marks TSO background (batch job driving IKJEFT01 / IRXJCL). Pure batch (`EXEC PGM=...` directly, no TSO TMP) leaves both clear. The structurally equivalent check is `anch_walk() != NULL` — if the cold-path walk succeeds an ECT exists; in pure batch `ASXBLWA` is NULL and the walk returns NULL. Both indicators yield the same truth value on MVS 3.8j; the anchor library uses the walk as its gate because it directly reflects the structural fact we care about.
+   - **ISPF (future):** `BLDL` for `ISPQRY`; if found, `CALL ISPQRY` and check return code. Phase 1 is TSO-only; ISPF detection is documented here and implemented when ISPF support enters scope.
+
+**Empirical finding (TSK-3463 Phase C, 20 April 2026, PR #45):** the similarly-named bits in `CLIBCRT.crtflag` (the per-task runtime struct) carry identical field names but are never populated by crent370 startup — TSO detection lives at the process level (CLIBPPA), not per-task (CLIBCRT). The three scenarios validated on Hercules MVS 3.8j: TSO-foreground `ppaflag=0xC0` (TSOFG+TSOBG set, walk non-NULL), TSO-background `ppaflag=0x40` (TSOBG only, walk non-NULL), pure batch `ppaflag=0x00` (both clear, walk NULL).
 
 ## 6.3 Initialization (IRXINIT)
 
@@ -367,9 +412,20 @@ the anchor API and CON-1 §3.1/§6.1 for the spec references.
 5. Build REXX Vector of External Entry Points (load Module Name Table, resolve each replaceable routine via BLDL/LOAD, store addresses in the vector)
 6. Initialize Host Command Environment Table (default entries: TSO, MVS, LINK, ATTACH)
 7. Initialize Function Package Table
-8. Publish ENVBLOCK on ECTENVBK via `anchor_push` (batch: local-only)
+8. Anchor initialization (see §6.1): for TSO environments, populate `ENVBLOCK_ECTPTR` (+296) with the ECT address obtained from the cold-path walk. If `ECTENVBK` is currently 0, also write the new ENVBLOCK's address to `ECTENVBK`. If `ECTENVBK` is non-zero, leave it alone — the caller is responsible for tracking the new pointer explicitly per the SC28 reentrant-env contract. For non-TSO environments this step is a no-op.
 9. Call initialization exit (if defined)
 10. Return ENVBLOCK pointer to caller
+
+## 6.4 Termination (IRXTERM)
+
+Mirror of §6.3:
+
+1. Call termination exit (if defined) — Phase 6
+2. Anchor cleanup (see §6.1): for TSO environments, if `ECTENVBK` currently points at this ENVBLOCK, clear it to 0. If the terminating ENVBLOCK is not the one in `ECTENVBK` — the typical case for explicit `IRXINIT`/`IRXTERM` from caller code, where the new ENVBLOCK never occupied the anchor slot — `ECTENVBK` is left unchanged. For non-TSO environments this step is a no-op.
+3. Free Function Package Table, Host Command Environment Table, REXX Vector of External Entry Points
+4. Free Work Block Extension
+5. Free PARMBLOCK
+6. Free ENVBLOCK
 
 ---
 
@@ -511,6 +567,7 @@ All SAA Procedures Language functions must be implemented: ABBREV, ABS, ADDRESS,
 | SYNTAX | Language syntax error during execution |
 
 **SIGNAL ON:** transfers control to a label (like GOTO). Any active DO/SELECT structures are terminated.
+
 **CALL ON:** calls a label as a subroutine. Surrounding structures remain intact.
 
 The condition reporting infrastructure (wkbi_last_condition slot, error codes in include/irxcond.h) is established as part of WP-20 (see section 7.3.4). The full trap handler mechanism comes in WP-61.
@@ -534,12 +591,15 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 | IRXHCMD | Host command | 4 |
 | IRXSTK | Data stack | 4 |
 | IRXSTOR | Storage mgmt | 1 |
+| IRX#ANCH | ECTENVBK anchor (read-mostly) | 1 |
 | IRXUID | User ID | 1 |
 | IRXMSGID | Message ID | 1 |
 | IRXTOKN | Tokenizer | 2 |
 | IRXPARS | Parser/evaluator (20K) | 2 |
 | IRXARITH | Arithmetic (12K) | 3 |
-| IRXBIF | Built-in fns (30K) | 3 |
+| IRX#COND | Condition reporting (shared) | 3 |
+| IRX#BIF | BIF registry infrastructure | 3 |
+| IRX#BIFS | Built-in functions — string + numeric/conversion/reflection/environment (~30K) | 3 |
 | IRXEFN | TSO/E ext fns | 7 |
 | IRXCMD | REXX commands | 4 |
 | IRXMSG | Messages | 7 |
@@ -553,7 +613,7 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 - [x] Control block DSECTs
 - [x] IRXINIT / IRXTERM
 - [x] Storage management
-- [x] Environment chain management
+- [x] Environment anchor management (ECTENVBK, read-mostly discipline)
 
 ## Phase 2: interpreter core
 
@@ -605,6 +665,16 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 
 - **C as implementation language (Phase 2+):** Confirmed by completed Phase 2 (16 April 2026). The entire interpreter chain is implemented in C. Decision confirmed as part of the WP-20 discussion (point B1). The original option "Phase 1–2 HLASM only, evaluate from Phase 3" was already not taken in Phase 1.
 - **24-bit memory handling for arithmetic:** Through the `NUMERIC DIGITS` cap of 1,000 (see section 7.3), the arithmetic engine's memory footprint stays in the kilobyte range even with multiple concurrent intermediate results. Overlay not required. Decided as part of the WP-20 discussion (point B2).
+- **Environment anchor on MVS 3.8j — read-mostly ECTENVBK (20 April 2026).** rexx370 anchors the REXX environment in the TSO ECT (`ECTENVBK` slot, IKJECT offset `0x30`), not in TCBUSER. The write discipline is read-mostly: `ECTENVBK` is set at most once (when the slot is 0) and never overwritten thereafter by rexx370. Subsequent explicit IRXINIT calls return an ENVBLOCK pointer without touching the anchor; IRXTERM clears `ECTENVBK` only when it still points at the terminating ENVBLOCK. Motivation is coexistence with BREXX (which shares the same slot on MVS 3.8j), not default-environment protection — MVS 3.8j ships without IBM REXX, so the only way `ECTENVBK` is ever non-zero is because BREXX or an earlier rexx370 put it there, and in both cases "do not overwrite" is the correct rule. ENVBLOCK offsets 0..303 are byte-exact with SC28-1883-0, SC28-1883-4, and z/OS 2.5; the +304..+319 range stays fully reserved. Problem-state-writable; follows the BREXX/370 anchor pattern in production on Hercules since 2019. Fully implemented and verified as of 20 April 2026: PR #45 shipped Phase A/B (push/pop baseline); the read-mostly switchover followed; PR #46 (commit d868b46) added `test/test_anchor_readmostly.c` covering (a) empty-slot baseline, (b) BREXX-simulated non-NULL slot — read-mostly correctly does not overwrite, (c) own-env stacking — second IRXINIT does not disturb the first anchor. MVS smoketests via TSTANCH remain green in all three TSO/batch scenarios. See §3.1 and §6.1.
+- **Environment type detection — `ppaflag` primary, cold-path walk as structural proxy (20 April 2026).** `anch_tso()` tests `CLIBPPA.ppaflag & (PPAFLAG_TSOFG | PPAFLAG_TSOBG)` via `__ppaget()`. The structurally equivalent check is `anch_walk() != NULL`; the anchor library uses the walk as its gate. Empirical finding: the similarly-named bits in `CLIBCRT.crtflag` (per-task runtime struct) are never populated by crent370 startup and must not be used — TSO detection lives at the process level (CLIBPPA), not per-task. Validated in PR #45 across three scenarios (TSO foreground, TSO background, pure batch). See §6.2.
+
+## 14.3 Design principles (emergent)
+
+**Reference interpreter behaviour is authoritative; the spec is supporting evidence.** When SC28-1883-0 and the deployed TSO/E V2 REXX implementation diverge, the reference interpreter wins. rexx370's compatibility target is byte-exact interface compatibility with the IBM implementation on MVS, not with a deductive reading of the spec.
+
+This principle emerged during WP-21b Phase C review. Both reviewers argued from SC28-1883-0 Appendix E that `MAX(,1)` (omitted operand) and `MAX('', 1)` (empty-string operand) should raise distinct SYNTAX conditions (40.1 and 41.1 respectively). Empirical test against TSO/E REXX on MVS showed both forms produce `IRX0040I` (SYNTAX 40, "Incorrect call to routine"). The deductive reading was wrong; the current behaviour (both → 40.1) is byte-compatible and correct.
+
+**Operational consequence:** for contested edge cases, verify against the reference interpreter before filing as a defect. This is especially relevant for phases still ahead — EXECIO return codes, host-command integration, STEM semantics — where spec and implementation are known to diverge in subtle ways.
 
 ---
 
