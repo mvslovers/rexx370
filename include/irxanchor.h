@@ -17,7 +17,7 @@
 /*     ECT  + ECTENVBK  (0x030) -> ENVBLOCK                           */
 /*                                                                    */
 /*  In batch any link in this chain can be NULL (LWA is typical);     */
-/*  anchor_walk_to_ect() returns NULL and anchor_push/pop become      */
+/*  anch_walk() returns NULL and anch_push/pop become      */
 /*  local-state-only operations on the ENVBLOCK itself.               */
 /*                                                                    */
 /*  Ref: CON-1 §3.1 (ENVBLOCK layout), §6.1 (push/pop discipline).    */
@@ -30,18 +30,24 @@
 
 #include "irx.h"
 
+/* c2asm370 truncates snake_case C names to 8 chars with underscores
+ * mapped to `@`. Without explicit asm() names, anch_push and
+ * anch_pop both collapse to ANCHOR@P and IFOX00 rejects the
+ * duplicate ENTRY. Give every exported symbol a distinct, MVS-friendly
+ * 8-char external name. */
+
 /* Cold-path walk PSA -> ASCB -> ASXB -> LWA -> ECT.
  * Returns ECT address, or NULL if any link in the chain is NULL
  * (typical in batch, where LWA is not established). */
-void *anchor_walk_to_ect(void);
+void *anch_walk(void) asm("ANCHWALK");
 
 /* TSO detection via crent370's CLIBCRT.crtflag (CRTFLAG_TSO bit).
  * On non-MVS builds, returns 0 (cross-compile = batch-like). */
-int anchor_is_tso(void);
+int anch_tso(void) asm("ANCHISTS");
 
 /* Read ECTENVBK — the currently installed ENVBLOCK, or NULL if none
  * (batch, or between push/pop sequences). */
-struct envblock *anchor_get_current(void);
+struct envblock *anch_curr(void) asm("ANCHCURR");
 
 /* Push new_env onto the anchor. Saves the previous ECTENVBK in
  * new_env->rexx370_prev, populates new_env->envblock_ectptr with the
@@ -50,17 +56,17 @@ struct envblock *anchor_get_current(void);
  *
  * In batch (no ECT): sets new_env->rexx370_prev = NULL and
  * new_env->envblock_ectptr = NULL; ECTENVBK is not touched. IRXINIT
- * still succeeds — anchor_get_current() will continue to return NULL.
+ * still succeeds — anch_curr() will continue to return NULL.
  *
  * This function is infallible; any structural problem has already
  * been screened by IRXINIT's storage allocation. */
-void anchor_push(struct envblock *new_env);
+void anch_push(struct envblock *new_env) asm("ANCHPUSH");
 
 /* Pop env from the anchor. Lenient: only restores rexx370_prev into
  * ECTENVBK when env is still the current anchor. Mismatches are a
  * no-op (a Phase-6 diagnostic hook may be wired in later).
  *
  * In batch, this is always a no-op. */
-void anchor_pop(struct envblock *env);
+void anch_pop(struct envblock *env) asm("ANCHPOP");
 
 #endif /* IRXANCHOR_H */

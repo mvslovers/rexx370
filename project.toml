@@ -49,17 +49,23 @@ space = ["TRK", 20, 10, 10]
 naming = "fixed"
 
 # ---------------------------------------------------------------
-# IRXJCL - Batch entry point (PGM=IRXJCL)
-# The main REXX interpreter for batch execution.
-# Contains IRXINIT/IRXTERM and all Phase 1+ modules.
+# TSTANCH - ENVBLOCK anchor smoketest pseudomodule
+# Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
+# Pulls in the full phase-1/phase-2 object set so IRXINIT and
+# IRXTERM link cleanly; it exits with RC=0 on push/pop success.
+#
+# Listed before IRXJCL so the TSTANCH load module links even while
+# the full IRXJCL CSECT (the batch entry point) has not been
+# implemented yet — IRXJCL's link step is expected to fail at this
+# phase, TSTANCH must not be blocked by it.
 # ---------------------------------------------------------------
 [[link.module]]
-name = "IRXJCL"
+name = "TSTANCH"
 entry = "@@CRT0"
 options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
-  "IRXJCL",
+  "TST#ANCH",
   "IRX#INIT",
   "IRX#TERM",
   "IRX#STOR",
@@ -79,19 +85,21 @@ include = [
   "IRX#ARIT",
 ]
 
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
 # ---------------------------------------------------------------
-# TSTANCH - ENVBLOCK anchor smoketest pseudomodule
-# Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
-# Pulls in the full phase-1/phase-2 object set so IRXINIT and
-# IRXTERM link cleanly; it exits with RC=0 on push/pop success.
+# IRXJCL - Batch entry point (PGM=IRXJCL)
+# The main REXX interpreter for batch execution.
+# Contains IRXINIT/IRXTERM and all Phase 1+ modules.
 # ---------------------------------------------------------------
 [[link.module]]
-name = "TSTANCH"
+name = "IRXJCL"
 entry = "@@CRT0"
 options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
-  "TST#ANCH",
+  "IRXJCL",
   "IRX#INIT",
   "IRX#TERM",
   "IRX#STOR",

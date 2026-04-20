@@ -10,7 +10,7 @@
 /*  The purpose is not to exercise the interpreter but to verify the  */
 /*  ECTENVBK anchor discipline end-to-end: push on IRXINIT, anchor    */
 /*  is observable at ECTENVBK+30, rexx370_prev captures the previous  */
-/*  value, anchor_pop restores it on IRXTERM. When ECT is unreachable */
+/*  value, anch_pop restores it on IRXTERM. When ECT is unreachable */
 /*  (batch), everything stays zero and both calls still succeed.      */
 /*                                                                    */
 /*  Exit codes:                                                       */
@@ -28,6 +28,10 @@
 #include "irxanchor.h"
 #include "irxfunc.h"
 
+#ifdef __MVS__
+#include "clibppa.h"
+#endif
+
 #ifndef __MVS__
 void *_simulated_ectenvbk = NULL;
 #endif
@@ -39,12 +43,40 @@ enum
     RC_IRX_FAILED = 16,
 };
 
+/* Dump the crent370 process-level runtime flag byte. crent370's
+ * @@CRT0 startup populates PPAFLAG_TSOFG / PPAFLAG_TSOBG via the MVS
+ * EXTRACT SVC (FIELDS=TSO/PSB); the similarly-named bits in
+ * CLIBCRT.crtflag are never written and were misleading us earlier.
+ * This helper prints the raw byte plus each decoded bit so we can
+ * confirm the right detection strategy against real Hercules runs. */
+static void dump_ppaflag(void)
+{
+#ifdef __MVS__
+    CLIBPPA *ppa = __ppaget();
+    if (ppa == NULL)
+    {
+        printf("  ppaflag        = <no CLIBPPA>\n");
+        return;
+    }
+    unsigned char f = (unsigned char)ppa->ppaflag;
+    printf("  ppaflag        = 0x%02X  [TSOFG=%d TSOBG=%d TIN=%d TOUT=%d TERR=%d]\n",
+           f,
+           (f & PPAFLAG_TSOFG) ? 1 : 0,
+           (f & PPAFLAG_TSOBG) ? 1 : 0,
+           (f & PPAFLAG_TIN) ? 1 : 0,
+           (f & PPAFLAG_TOUT) ? 1 : 0,
+           (f & PPAFLAG_TERR) ? 1 : 0);
+#else
+    printf("  ppaflag        = N/A (host build)\n");
+#endif
+}
+
 static void dump_state(const char *label, struct envblock *env)
 {
     printf("  [%s]\n", label);
-    printf("    ECTENVBK slot  = %p\n", (void *)anchor_get_current());
-    printf("    is_tso         = %d\n", anchor_is_tso());
-    printf("    walk_to_ect    = %p\n", anchor_walk_to_ect());
+    printf("    ECTENVBK slot  = %p\n", (void *)anch_curr());
+    printf("    is_tso         = %d\n", anch_tso());
+    printf("    walk_to_ect    = %p\n", anch_walk());
     if (env != NULL)
     {
         printf("    envblock addr  = %p\n", (void *)env);
@@ -61,7 +93,9 @@ int main(void)
 
     printf("=== TSTANCH — REXX/370 anchor smoketest ===\n");
 
-    initial_anchor = anchor_get_current();
+    dump_ppaflag();
+
+    initial_anchor = anch_curr();
     printf("  initial ECTENVBK = %p\n", (void *)initial_anchor);
 
     rc = irxinit(NULL, &env);
@@ -76,10 +110,10 @@ int main(void)
 
     int exit_rc = 0;
 
-    if (anchor_walk_to_ect() != NULL)
+    if (anch_walk() != NULL)
     {
         /* TSO-ish path: ECT reachable, anchor must be current. */
-        if (anchor_get_current() != env)
+        if (anch_curr() != env)
         {
             printf("FAIL: ECTENVBK was not updated to our envblock\n");
             exit_rc = RC_ANCHOR_BROKEN;
@@ -94,15 +128,15 @@ int main(void)
     {
         /* Batch path: no ECT, no anchor state, but envblock still
          * allocated locally. rexx370_prev and envblock_ectptr must
-         * both be NULL per anchor_push semantics. */
+         * both be NULL per anch_push semantics. */
         if (env->rexx370_prev != NULL || env->envblock_ectptr != NULL)
         {
             printf("FAIL: batch envblock has non-NULL anchor fields\n");
             exit_rc = RC_ANCHOR_BROKEN;
         }
-        if (anchor_get_current() != NULL)
+        if (anch_curr() != NULL)
         {
-            printf("FAIL: batch anchor_get_current returned non-NULL\n");
+            printf("FAIL: batch anch_curr returned non-NULL\n");
             exit_rc = RC_ANCHOR_BROKEN;
         }
     }
@@ -117,7 +151,7 @@ int main(void)
 
     dump_state("after irxterm", NULL);
 
-    if (anchor_get_current() != initial_anchor)
+    if (anch_curr() != initial_anchor)
     {
         printf("FAIL: ECTENVBK was not restored to initial value\n");
         exit_rc = RC_ANCHOR_BROKEN;

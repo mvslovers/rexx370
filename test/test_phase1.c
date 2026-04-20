@@ -119,16 +119,16 @@ static void test_single_env(void)
     }
 
     /* Validate ECTENVBK anchor */
-    struct envblock *found = anchor_get_current();
-    CHECK(found == envblk, "anchor_get_current returns our envblock");
+    struct envblock *found = anch_curr();
+    CHECK(found == envblk, "anch_curr returns our envblock");
 
     /* IRXTERM */
     rc = irxterm(envblk);
     CHECK(rc == 0, "irxterm returns 0");
 
     /* Verify cleanup */
-    found = anchor_get_current();
-    CHECK(found == NULL, "anchor_get_current returns NULL after term");
+    found = anch_curr();
+    CHECK(found == NULL, "anch_curr returns NULL after term");
 }
 
 /* ------------------------------------------------------------------ */
@@ -154,8 +154,8 @@ static void test_multiple_envs(void)
     CHECK(rc == 0 && env3 != NULL, "env3 created");
 
     /* Most recent should be env3 */
-    CHECK(anchor_get_current() == env3,
-          "anchor_get_current returns most recent (env3)");
+    CHECK(anch_curr() == env3,
+          "anch_curr returns most recent (env3)");
 
     CHECK(env1 != env2 && env2 != env3,
           "all envblocks are distinct");
@@ -163,17 +163,17 @@ static void test_multiple_envs(void)
     /* Terminate in reverse order */
     rc = irxterm(env3);
     CHECK(rc == 0, "env3 terminated");
-    CHECK(anchor_get_current() == env2,
+    CHECK(anch_curr() == env2,
           "after env3 term, current is env2");
 
     rc = irxterm(env2);
     CHECK(rc == 0, "env2 terminated");
-    CHECK(anchor_get_current() == env1,
+    CHECK(anch_curr() == env1,
           "after env2 term, current is env1");
 
     rc = irxterm(env1);
     CHECK(rc == 0, "env1 terminated");
-    CHECK(anchor_get_current() == NULL,
+    CHECK(anch_curr() == NULL,
           "after env1 term, no environments remain");
 }
 

@@ -13,7 +13,7 @@
 #include "irxanchor.h"
 
 #ifdef __MVS__
-#include "clibcrt.h"
+#include "clibppa.h"
 
 /* Low-core / control-block offsets per IBM macros — see header.
  * Named after the IBM fields so reviewers can cross-check the walk
@@ -35,7 +35,7 @@ static void *deref_at(void *base, int offset)
     return *(void **)((char *)base + offset);
 }
 
-void *anchor_walk_to_ect(void)
+void *anch_walk(void)
 {
     void *ascb = *(void **)PSAAOLD;
     void *asxb = deref_at(ascb, ASCBASXB);
@@ -44,19 +44,27 @@ void *anchor_walk_to_ect(void)
     return ect;
 }
 
-int anchor_is_tso(void)
+int anch_tso(void)
 {
-    CLIBCRT *crt = __crtget();
-    if (crt == NULL)
+    CLIBPPA *ppa = __ppaget();
+    if (ppa == NULL)
     {
         return 0;
     }
-    return (crt->crtflag & CRTFLAG_TSO) != 0;
+    /* Both bits count as "TSO-capable": PPAFLAG_TSOFG is the TSO
+     * foreground (ready-prompt / CALL); PPAFLAG_TSOBG is TSO
+     * background (batch job driving IKJEFT01). Pure batch
+     * (EXEC PGM=... directly) leaves both clear.
+     *
+     * Note: the sibling CLIBCRT.crtflag bits carry the same names
+     * but are never written by crent370 startup — detection lives
+     * in the process-level CLIBPPA, not the per-task CLIBCRT. */
+    return (ppa->ppaflag & (PPAFLAG_TSOFG | PPAFLAG_TSOBG)) != 0;
 }
 
 static struct envblock **ectenvbk_slot(void)
 {
-    void *ect = anchor_walk_to_ect();
+    void *ect = anch_walk();
     if (ect == NULL)
     {
         return NULL;
@@ -76,7 +84,7 @@ static struct envblock **ectenvbk_slot(void)
     return (struct envblock **)&_simulated_ectenvbk;
 }
 
-void *anchor_walk_to_ect(void)
+void *anch_walk(void)
 {
     /* Nothing consumes the raw ECT pointer on host builds, but the
      * push/pop path expects non-NULL when a slot is available. We
@@ -84,14 +92,14 @@ void *anchor_walk_to_ect(void)
     return (void *)&_simulated_ectenvbk;
 }
 
-int anchor_is_tso(void)
+int anch_tso(void)
 {
     return 0;
 }
 
 #endif /* __MVS__ */
 
-struct envblock *anchor_get_current(void)
+struct envblock *anch_curr(void)
 {
     struct envblock **slot = ectenvbk_slot();
     if (slot == NULL)
@@ -101,7 +109,7 @@ struct envblock *anchor_get_current(void)
     return *slot;
 }
 
-void anchor_push(struct envblock *new_env)
+void anch_push(struct envblock *new_env)
 {
     if (new_env == NULL)
     {
@@ -127,7 +135,7 @@ void anchor_push(struct envblock *new_env)
     *slot = new_env;
 }
 
-void anchor_pop(struct envblock *env)
+void anch_pop(struct envblock *env)
 {
     if (env == NULL)
     {

@@ -62,7 +62,7 @@ int irxterm(struct envblock *envblk)
     /* 3. Unpublish from ECTENVBK. Lenient: if someone pushed another
      * environment on top out of LIFO order, we leave the anchor alone
      * and merely free our local storage. */
-    anchor_pop(envblk);
+    anch_pop(envblk);
 
     /* 4. Free internal Work Block */
     wkbi = (struct irx_wkblk_int *)envblk->envblock_userfield;
