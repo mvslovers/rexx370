@@ -344,8 +344,8 @@ Run all tests (Phase 1–2):
 ```bash
 # Tokenizer (WP-10) — 70/70
 gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-    -o test/test_tokenizer test/test_tokenizer.c \
-    'src/irx#tokn.c' $LSTRING_SRC
+    -o test/test_tokenizer test/mvs/tsttokn.c \
+    'src/irx#tokn.c' 'src/irx#stor.c' $LSTRING_SRC
 ./test/test_tokenizer
 
 # Variable pool (WP-12) — 47/47

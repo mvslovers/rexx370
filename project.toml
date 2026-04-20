@@ -7,7 +7,7 @@ type = "application"
 cflags = ["-std=gnu99", "-I./include"]
 
 [build.sources]
-c_dirs = ["src/"]
+c_dirs = ["src/", "test/mvs/"]
 
 [mvs.build.datasets.source]
 suffix = "SOURCE"
@@ -124,6 +124,31 @@ include = [
   "IRX#CTRL",
   "IRX#EXEC",
   "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
+# TSTTOKN - WP-10 tokenizer unit tests (pilot MVS test load module).
+# Standalone load module built from test/mvs/tsttokn.c. Runs the
+# tokenizer test suite on MVS. Same dep_includes rationale as TSTANCH.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTTOKN)'
+#   Batch  :  EXEC PGM=TSTTOKN
+#
+# Exit code: 0 on success, 1 on any test failure.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTTOKN"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTTOKN",
+  "IRX#TOKN",
+  "IRX#STOR",
 ]
 
 [link.module.dep_includes]
