@@ -18,13 +18,13 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxanchor.h"
 #include "irxfunc.h"
-#include "irxrab.h"
 #include "irxwkblk.h"
 
-/* Cross-compile: expose simulated TCBUSER from irxrab.c */
+/* Cross-compile: expose simulated ECTENVBK slot consumed by irx#anch.c */
 #ifndef __MVS__
-void *_simulated_tcbuser = NULL;
+void *_simulated_ectenvbk = NULL;
 #endif
 
 static int tests_run = 0;
@@ -118,17 +118,17 @@ static void test_single_env(void)
               "wkblk back-pointer to envblock is correct");
     }
 
-    /* Validate RAB chain */
-    struct envblock *found = irx_find_env();
-    CHECK(found == envblk, "irx_find_env returns our envblock");
+    /* Validate ECTENVBK anchor */
+    struct envblock *found = anch_curr();
+    CHECK(found == envblk, "anch_curr returns our envblock");
 
     /* IRXTERM */
     rc = irxterm(envblk);
     CHECK(rc == 0, "irxterm returns 0");
 
     /* Verify cleanup */
-    found = irx_find_env();
-    CHECK(found == NULL, "irx_find_env returns NULL after term");
+    found = anch_curr();
+    CHECK(found == NULL, "anch_curr returns NULL after term");
 }
 
 /* ------------------------------------------------------------------ */
@@ -154,8 +154,8 @@ static void test_multiple_envs(void)
     CHECK(rc == 0 && env3 != NULL, "env3 created");
 
     /* Most recent should be env3 */
-    CHECK(irx_find_env() == env3,
-          "irx_find_env returns most recent (env3)");
+    CHECK(anch_curr() == env3,
+          "anch_curr returns most recent (env3)");
 
     CHECK(env1 != env2 && env2 != env3,
           "all envblocks are distinct");
@@ -163,17 +163,17 @@ static void test_multiple_envs(void)
     /* Terminate in reverse order */
     rc = irxterm(env3);
     CHECK(rc == 0, "env3 terminated");
-    CHECK(irx_find_env() == env2,
+    CHECK(anch_curr() == env2,
           "after env3 term, current is env2");
 
     rc = irxterm(env2);
     CHECK(rc == 0, "env2 terminated");
-    CHECK(irx_find_env() == env1,
+    CHECK(anch_curr() == env1,
           "after env2 term, current is env1");
 
     rc = irxterm(env1);
     CHECK(rc == 0, "env1 terminated");
-    CHECK(irx_find_env() == NULL,
+    CHECK(anch_curr() == NULL,
           "after env1 term, no environments remain");
 }
 

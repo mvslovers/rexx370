@@ -324,11 +324,31 @@ Standard prefix: 'IRX'.
 
 # 6. Language Processor Environments
 
-## 6.1 Environment anchor (TCB-based)
+## 6.1 Environment anchor (ECTENVBK)
+
+Each REXX Language Processor Environment is anchored in the TSO
+Environment Control Table (ECT) at offset +30 (ECTENVBK). IRXINIT
+pushes the new ENVBLOCK onto that slot, saving the previous value in
+`ENVBLOCK+304 (rexx370_prev)`. IRXTERM restores it — leniently: if
+another environment was pushed on top out of LIFO order, the pop
+becomes a no-op on the ECT slot and only our local storage is freed.
+
+Cold-path walk on MVS 3.8j (offsets per IBM macros, validated on
+Hercules since 2019):
 
 ```text
-TCB -> TCBUSER -> REXX Anchor Block (RAB) -> first ENVBLOCK
+PSA  + PSAAOLD  (0x224) -> ASCB
+ASCB + ASCBASXB (0x06C) -> ASXB
+ASXB + ASXBLWA  (0x014) -> LWA
+LWA  + LWAPECT  (0x020) -> ECT
+ECT  + ECTENVBK (0x030) -> ENVBLOCK
 ```
+
+In batch environments any link (typically LWA) can be NULL; the walk
+returns NULL and `anchor_push` reduces to populating local fields in
+the ENVBLOCK. TSO detection goes through `CLIBCRT.crtflag` with the
+`CRTFLAG_TSO` bit. See `include/irxanchor.h` and `src/irx#anch.c` for
+the anchor API and CON-1 §3.1/§6.1 for the spec references.
 
 ## 6.2 Environment types
 
@@ -347,7 +367,7 @@ TCB -> TCBUSER -> REXX Anchor Block (RAB) -> first ENVBLOCK
 5. Build REXX Vector of External Entry Points (load Module Name Table, resolve each replaceable routine via BLDL/LOAD, store addresses in the vector)
 6. Initialize Host Command Environment Table (default entries: TSO, MVS, LINK, ATTACH)
 7. Initialize Function Package Table
-8. Insert ENVBLOCK into environment chain (RAB)
+8. Publish ENVBLOCK on ECTENVBK via `anchor_push` (batch: local-only)
 9. Call initialization exit (if defined)
 10. Return ENVBLOCK pointer to caller
 

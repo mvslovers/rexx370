@@ -81,7 +81,16 @@ struct envblock
         } _envblock_struct2;
     } _envblock_union2;
 
-    int _filler3[4]; /* reserved                       */
+    /* rexx370 anchor chain pointer.
+     *
+     * Lives at offset +304 (0x130) inside the IBM-reserved tail of the
+     * ENVBLOCK (SC28-1883-0/-4 leave +304..+319 reserved). On IRXINIT we
+     * save the previous ECTENVBK value here and install ourselves; on
+     * IRXTERM we restore it. See CON-1 §3.1 for the full layout and
+     * §6.1 for the push/pop discipline. */
+    struct envblock *rexx370_prev;
+
+    int _filler3[3]; /* +308..+319 reserved                            */
 };
 
 #define ENVBLOCK_ID           "ENVBLOCK"
@@ -290,8 +299,7 @@ struct parmblock
 
         struct
         {
-            int _tsofl : 1,
-                : 1,
+            int _tsofl : 1, : 1,
                 _cmdsofl : 1,
                 _funcsofl : 1,
                 _nostkfl : 1,
@@ -312,8 +320,7 @@ struct parmblock
                 _noloaddd : 1,
                 _nomsgwto : 1,
                 _nomsgio : 1,
-                _rostorfl : 1,
-                : 1;
+                _rostorfl : 1, : 1;
             unsigned char _filler2;
         } _parmblock_struct1;
     } _parmblock_union1;
@@ -325,8 +332,7 @@ struct parmblock
 
         struct
         {
-            int _tsofl_mask : 1,
-                : 1,
+            int _tsofl_mask : 1, : 1,
                 _cmdsofl_mask : 1,
                 _funcsofl_mask : 1,
                 _nostkfl_mask : 1,
@@ -347,8 +353,7 @@ struct parmblock
                 _noloaddd_mask : 1,
                 _nomsgwto_mask : 1,
                 _nomsgio_mask : 1,
-                _rostorfl_mask : 1,
-                : 1;
+                _rostorfl_mask : 1, : 1;
             unsigned char _filler3;
         } _parmblock_struct2;
     } _parmblock_union2;
@@ -539,8 +544,7 @@ struct workblok_ext
         {
             int _workext_command : 1,
                 _workext_function : 1,
-                _workext_subroutine : 1,
-                : 5;
+                _workext_subroutine : 1, : 5;
             unsigned char _filler1[3];
         } _workext_struct1;
     } _workext_union1;
@@ -586,8 +590,7 @@ struct dsib_info
                 _dsib_put_flag : 1,
                 _dsib_mode_flag : 1,
                 _dsib_cc_flag : 1;
-            int _dsib_trc_flag : 1,
-                : 7;
+            int _dsib_trc_flag : 1, : 7;
             unsigned char _filler2[2];
         } _dsib_struct1;
     } _dsib_union1;

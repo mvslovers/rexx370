@@ -6,7 +6,7 @@
 /*        -Wall -Wextra -std=gnu99 -o test/test_parser \               */
 /*        test/test_parser.c \                                         */
 /*        'src/irx#init.c' 'src/irx#term.c' 'src/irx#stor.c' \         */
-/*        'src/irx#rab.c'  'src/irx#uid.c'  'src/irx#msid.c' \         */
+/*        'src/irx#anch.c'  'src/irx#uid.c'  'src/irx#msid.c' \         */
 /*        'src/irx#lstr.c' 'src/irx#tokn.c' 'src/irx#vpol.c' \         */
 /*        'src/irx#pars.c' \                                           */
 /*        ../lstring370/src/'lstr#cor.c'                              */
@@ -30,7 +30,7 @@
 #include "lstring.h"
 
 #ifndef __MVS__
-void *_simulated_tcbuser = NULL;
+void *_simulated_ectenvbk = NULL;
 #endif
 
 static int tests_run = 0;

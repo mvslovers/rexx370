@@ -4,24 +4,41 @@
 /*  Creates and initializes all control blocks for a REXX             */
 /*  environment: ENVBLOCK, PARMBLOCK, IRXEXTE, Work Block Extension,  */
 /*  internal Work Block, SUBCOMTB, and hooks everything together.     */
-/*  Registers the environment in the RAB chain.                       */
+/*  Publishes the ENVBLOCK at ECTENVBK via anch_push().             */
 /*                                                                    */
-/*  Ref: SC28-1883-0, Chapter 15 (IRXINIT)                           */
-/*  Ref: Architecture Design v0.1.0, Section 6.3                     */
+/*  Ref: SC28-1883-0, Chapter 15 (IRXINIT)                            */
+/*  Ref: CON-1 §3.1 (ENVBLOCK layout), §6.3 (IRXINIT flow)            */
 /*                                                                    */
-/*  (c) 2026 mvslovers - REXX/370 Project                            */
+/*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */
 
+#include <stddef.h>
 #include <string.h>
 
 #include "irx.h"
+#include "irxanchor.h"
 #include "irxbif.h"
 #include "irxbifs.h"
 #include "irxfunc.h"
 #include "irxio.h"
 #include "irxpars.h"
-#include "irxrab.h"
 #include "irxwkblk.h"
+
+/* Lock the CON-1 §3.1 layout on MVS. The IBM reserved tail ends at
+ * +320 and rexx370_prev sits at +304, inside that tail. Any drift
+ * trips the compile (array of size -1) — preferable to debugging an
+ * S0C4 on Hercules.
+ *
+ * Only meaningful on the real target: host builds use 8-byte pointers
+ * and therefore have a different physical layout, which is irrelevant
+ * since host tests never exchange binaries with MVS. _Static_assert
+ * is C11, c2asm370 is gnu99 — use the typedef-array idiom instead. */
+#ifdef __MVS__
+typedef char envblock_prev_at_304
+    [(offsetof(struct envblock, rexx370_prev) == 304) ? 1 : -1];
+typedef char envblock_size_is_320
+    [(sizeof(struct envblock) == 320) ? 1 : -1];
+#endif
 
 /* Default host command environments */
 #define DEFAULT_HOSTENV_TSO  "TSO     "
@@ -68,6 +85,7 @@ static int init_parmblock(struct parmblock **pb_out,
     memset(pb->parmblock_ffff, 0xFF, 8);
 
     /* TODO: If user_parms provided, merge flags/masks from it */
+    (void)user_parms;
 
     *pb_out = pb;
     return 0;
@@ -241,47 +259,37 @@ cleanup:
 /* ================================================================== */
 /*  irxinit - Initialize a Language Processor Environment             */
 /*                                                                    */
-/*  Sequence (per Architecture Design v0.1.0, Section 6.3):           */
-/*   1. Obtain/create RAB for current task                            */
-/*   2. Allocate ENVBLOCK                                             */
-/*   3. Allocate and populate PARMBLOCK                               */
-/*   4. Allocate Work Block Extension (IBM standard)                  */
-/*   5. Build IRXEXTE (resolve replaceable routines)                  */
-/*   6. Initialize SUBCOMTB (host command environments)               */
-/*   7. Initialize internal Work Block (interpreter state)            */
-/*   8. Create irx_env_node and register in RAB chain                 */
-/*   9. Call initialization exit (if defined) — Phase 6               */
-/*  10. Return ENVBLOCK pointer to caller                             */
+/*  Sequence (per CON-1 §6.3):                                        */
+/*   1. Allocate ENVBLOCK                                             */
+/*   2. Allocate and populate PARMBLOCK                               */
+/*   3. Allocate Work Block Extension (IBM standard)                  */
+/*   4. Build IRXEXTE (resolve replaceable routines)                  */
+/*   5. Initialize SUBCOMTB (host command environments)               */
+/*   6. Initialize internal Work Block (interpreter state)            */
+/*   7. Publish envblock on ECTENVBK via anch_push()                */
+/*   8. Call initialization exit (if defined) — Phase 6               */
+/*   9. Return ENVBLOCK pointer to caller                             */
 /*                                                                    */
-/*  Returns: 0=OK, 20=init error, 28=storage error                   */
+/*  Returns: 0=OK, 20=init error, 28=storage error                    */
 /* ================================================================== */
 
 int irxinit(void *parms, struct envblock **envblock_ptr)
 {
     int rc = 0;
 
-    struct irx_rab *rab = NULL;
     struct envblock *envblk = NULL;
     struct parmblock *pb = NULL;
     struct workblok_ext *wkext = NULL;
     struct irxexte *exte = NULL;
     struct subcomtb_header *subcmd = NULL;
     struct irx_wkblk_int *wkbi = NULL;
-    struct irx_env_node *node = NULL;
 
     if (envblock_ptr == NULL)
     {
         return 20;
     }
 
-    /* 1. Obtain RAB */
-    rc = irx_rab_obtain(&rab);
-    if (rc != 0)
-    {
-        return 28;
-    }
-
-    /* 2. Allocate ENVBLOCK */
+    /* 1. Allocate ENVBLOCK (zero-filled by irxstor) */
     {
         void *storage = NULL;
         rc = irxstor(RXSMGET, (int)sizeof(struct envblock),
@@ -293,12 +301,11 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         envblk = (struct envblock *)storage;
     }
 
-    /* Populate ENVBLOCK eye-catcher and version */
     memcpy(envblk->envblock_id, ENVBLOCK_ID, 8);
     memcpy(envblk->envblock_version, ENVBLOCK_VERSION_0100, 4);
     envblk->envblock_length = (int)sizeof(struct envblock);
 
-    /* 3. PARMBLOCK */
+    /* 2. PARMBLOCK */
     rc = init_parmblock(&pb, parms, envblk);
     if (rc != 0)
     {
@@ -306,7 +313,7 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
     }
     envblk->envblock_parmblock = pb;
 
-    /* 4. Work Block Extension (IBM standard) */
+    /* 3. Work Block Extension (IBM standard) */
     {
         void *storage = NULL;
         rc = irxstor(RXSMGET, (int)sizeof(struct workblok_ext),
@@ -319,7 +326,7 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
     }
     envblk->envblock_workblok_ext = wkext;
 
-    /* 5. IRXEXTE */
+    /* 4. IRXEXTE */
     rc = init_irxexte(&exte, envblk);
     if (rc != 0)
     {
@@ -327,14 +334,14 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
     }
     envblk->envblock_irxexte = exte;
 
-    /* 6. SUBCOMTB (host command environments) */
+    /* 5. SUBCOMTB (host command environments) */
     rc = init_subcomtb(&subcmd, pb, envblk);
     if (rc != 0)
     {
         goto cleanup;
     }
 
-    /* 7. Internal Work Block (interpreter state) */
+    /* 6. Internal Work Block (interpreter state) */
     rc = init_wkblk_int(&wkbi, envblk);
     if (rc != 0)
     {
@@ -344,7 +351,7 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
     /* Link internal work block via envblock_userfield */
     envblk->envblock_userfield = wkbi;
 
-    /* 7a. BIF registry and core registrations */
+    /* 6a. BIF registry and core registrations */
     {
         struct irx_bif_registry *reg = NULL;
         rc = irx_bif_create(envblk, &reg);
@@ -361,43 +368,18 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         }
     }
 
-    /* 8. Create env_node and register in RAB */
-    {
-        void *storage = NULL;
-        rc = irxstor(RXSMGET, (int)sizeof(struct irx_env_node),
-                     &storage, envblk);
-        if (rc != 0)
-        {
-            goto cleanup;
-        }
-        node = (struct irx_env_node *)storage;
-    }
+    /* 7. Publish envblock on ECTENVBK (TSO) or record batch state */
+    anch_push(envblk);
 
-    memcpy(node->node_id, ENVNODE_ID, 4);
-    node->node_length = (int)sizeof(struct irx_env_node);
-    node->node_envblock = envblk;
-    node->node_flags = ENVNODE_ACTIVE;
+    /* 8. Init exit — deferred to Phase 6 */
 
-    rc = irx_rab_add_env(rab, node);
-    if (rc != 0)
-    {
-        goto cleanup;
-    }
-
-    /* 9. Init exit — deferred to Phase 6 */
-
-    /* 10. Success */
+    /* 9. Success */
     *envblock_ptr = envblk;
     return 0;
 
 cleanup:
-    /* Reverse-order cleanup of whatever was allocated */
-    /* Note: irxstor handles NULL gracefully */
-    if (node != NULL)
-    {
-        void *p = node;
-        irxstor(RXSMFRE, 0, &p, envblk);
-    }
+    /* Reverse-order cleanup of whatever was allocated.
+     * Note: irxstor handles NULL gracefully. */
     if (wkbi != NULL)
     {
         void *p = wkbi;
