@@ -39,7 +39,7 @@ dsorg = "PO"
 recfm = "U"
 lrecl = 0
 blksize = 15040
-space = ["TRK", 150, 50, 30]
+space = ["TRK", 600, 100, 60]
 
 [dependencies]
 "mvslovers/crent370" = ">=1.0.9"
