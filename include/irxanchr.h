@@ -1,0 +1,188 @@
+/* ------------------------------------------------------------------ */
+/*  irxanchr.h - REXX/370 Environment Anchor                          */
+/*                                                                    */
+/*  Consolidated header for both the ECT-slot anchor API              */
+/*  (ECTENVBK read-mostly discipline, CON-1 §6.1) and the            */
+/*  IRXANCHR static environment anchor table (WP-I1a.1/WP-I1a.3).    */
+/*                                                                    */
+/*  === Part 1: ECT-Anchor API ===                                    */
+/*                                                                    */
+/*  A REXX Language Processor Environment is anchored in the TSO ECT  */
+/*  at offset +30 (ECTENVBK). rexx370 treats that slot as read-mostly */
+/*  per CON-1 §6.1: at any point it is in one of three states —       */
+/*                                                                    */
+/*    (a) NULL            no REXX environment active; rexx370 may     */
+/*                        claim the slot on IRXINIT                   */
+/*                                                                    */
+/*    (b) non-rexx370     another REXX holds the anchor (on MVS 3.8j  */
+/*                        typically BREXX/370, but the slot is also   */
+/*                        compatible with any other env). rexx370     */
+/*                        leaves the slot untouched and the caller    */
+/*                        tracks its own ENVBLOCK via the IRXINIT     */
+/*                        return value                                */
+/*                                                                    */
+/*    (c) our own env     we claimed the slot earlier; IRXTERM may    */
+/*                        clear it back to NULL                       */
+/*                                                                    */
+/*  Cold-path walk on MVS 3.8j (validated on Hercules since 2019,     */
+/*  offsets from IBM macros):                                         */
+/*                                                                    */
+/*     PSA + PSAAOLD    (0x224) -> ASCB                               */
+/*     ASCB + ASCBASXB  (0x06C) -> ASXB                               */
+/*     ASXB + ASXBLWA   (0x014) -> LWA                                */
+/*     LWA  + LWAPECT   (0x020) -> ECT                                */
+/*     ECT  + ECTENVBK  (0x030) -> ENVBLOCK                           */
+/*                                                                    */
+/*  In batch any link in this chain can be NULL (LWA is typical);     */
+/*  the walk returns NULL and anch_push / anch_pop reduce to local    */
+/*  field updates on the ENVBLOCK.                                    */
+/*                                                                    */
+/*  === Part 2: IRXANCHR Registry API ===                             */
+/*                                                                    */
+/*  IRXANCHR is a pre-initialized static data module loaded at        */
+/*  runtime via LOAD EP=IRXANCHR. It contains a 32-byte header        */
+/*  followed by 64 x 40-byte slots tracking active environments.      */
+/*  Slot 0 is a permanent sentinel and is never allocated.            */
+/*  Layout mirrors asm/irxanchr.asm byte-for-byte.                    */
+/*                                                                    */
+/*  Note: envblock_ptr and tcb_ptr in irxanchr_entry_t are uint32_t   */
+/*  (not void*) so sizeof(irxanchr_entry_t) == 40 holds on both       */
+/*  MVS 3.8j and the Linux cross-compile host.                        */
+/*                                                                    */
+/*  Ref: CON-1 §3.1 (ENVBLOCK layout), §6.1 (read-mostly anchor),     */
+/*       §6.3 step 8 (IRXINIT), §6.4 step 2 (IRXTERM),                */
+/*       §14.2 (20-April decision with coexistence rationale).        */
+/*  Ref: WP-I1a.1 (asm/irxanchr.asm), WP-I1a.3 (src/irx#anch.c)     */
+/*                                                                    */
+/*  (c) 2026 mvslovers - REXX/370 Project                             */
+/* ------------------------------------------------------------------ */
+
+#ifndef IRXANCHR_H
+#define IRXANCHR_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "irx.h"
+
+/* c2asm370 truncates snake_case C names to 8 chars with underscores
+ * mapped to `@`. Without distinct C-level names, anch_push and
+ * anch_pop both collapse to ANCHOR@P and IFOX00 rejects the
+ * duplicate ENTRY. asm() attributes are not honored by c2asm370
+ * for definitions, so the names below are already distinct at the
+ * C level; the asm() overrides just give them tidier MVS symbols. */
+
+/* ================================================================== */
+/*  Part 1: ECT-Anchor API                                            */
+/* ================================================================== */
+
+/* Cold-path walk PSA -> ASCB -> ASXB -> LWA -> ECT.
+ * Returns ECT address, or NULL if any link in the chain is NULL
+ * (typical in batch, where LWA is not established). */
+void *anch_walk(void) asm("ANCHWALK");
+
+/* TSO detection via crent370's CLIBPPA.ppaflag
+ * (PPAFLAG_TSOFG for TSO foreground, PPAFLAG_TSOBG for TSO background
+ * invoked via IKJEFT01). Returns 1 when either bit is set, 0 in pure
+ * batch and on non-MVS builds. */
+int anch_tso(void) asm("ANCHISTS");
+
+/* Read ECTENVBK — the currently installed ENVBLOCK, or NULL when
+ * the slot is empty or unreachable. */
+struct envblock *anch_curr(void) asm("ANCHCURR");
+
+/* DEPRECATED pending WP-I1c rewrite.
+ *
+ * anch_push / anch_pop implement "read-mostly" claim-if-NULL
+ * semantics that are IBM-incompatible. Live probe on MVS-CE
+ * (2026-04-21, IRXLIFE test) showed IBM's IRXINIT unconditionally
+ * OVERWRITES ECTENVBK regardless of its prior value. These two
+ * functions will be removed when IRXINIT/IRXTERM are rewritten
+ * in WP-I1c. Do not add new callers. */
+
+/* Populate new_env->envblock_ectptr with the ECT address, then claim
+ * ECTENVBK = new_env *only if* the slot is currently NULL. */
+void anch_push(struct envblock *new_env) asm("ANCHPUSH");
+
+/* Clear ECTENVBK *only if* the slot currently equals env. Any other
+ * value (NULL, some other REXX's ENVBLOCK, a later rexx370 env) is
+ * a no-op. In batch this is always a no-op. */
+void anch_pop(struct envblock *env) asm("ANCHPOP");
+
+/* ================================================================== */
+/*  Part 2: IRXANCHR Registry — Constants                             */
+/* ================================================================== */
+
+#define IRXANCHR_EYECATCHER  "IRXANCHR" /* 8-byte eye-catcher (EBCDIC on MVS) */
+#define IRXANCHR_VERSION     "0100"     /* 4-byte version string               */
+#define IRXANCHR_TOTAL_SLOTS 64         /* total slots in the table            */
+
+/* Value stored in envblock_ptr when a slot is available */
+#define IRXANCHR_SLOT_FREE ((uint32_t)0xFFFFFFFFU)
+
+/* Flag bit set in the flags field when a slot is in use */
+#define IRXANCHR_FLAG_IN_USE ((uint32_t)0x40000000U)
+
+/* ================================================================== */
+/*  Part 2: IRXANCHR Registry — Structs                               */
+/* ================================================================== */
+
+/* Header: 32 bytes at module start */
+typedef struct
+{
+    char id[8];          /* +0x00  'IRXANCHR' eye-catcher */
+    char version[4];     /* +0x08  '0100'                 */
+    uint32_t total;      /* +0x0C  total slot count (64)  */
+    uint32_t used;       /* +0x10  high-watermark          */
+    uint32_t length;     /* +0x14  bytes per entry (40)   */
+    uint8_t reserved[8]; /* +0x18  reserved, zeros         */
+} irxanchr_header_t;
+
+/* Entry: 40 bytes per slot */
+typedef struct
+{
+    uint32_t envblock_ptr; /* +0x00  ENVBLOCK addr; IRXANCHR_SLOT_FREE = free */
+    uint32_t token;        /* +0x04  slot token returned to allocator         */
+    uint8_t rsvd1[16];     /* +0x08  reserved                                 */
+    uint32_t anchor_hint;  /* +0x18  opaque hint for fast slot re-find        */
+    uint32_t tcb_ptr;      /* +0x1C  TCB address at alloc time                */
+    uint32_t flags;        /* +0x20  IRXANCHR_FLAG_IN_USE when active         */
+    uint32_t rsvd2;        /* +0x24  reserved                                 */
+} irxanchr_entry_t;
+
+/* ================================================================== */
+/*  Part 2: IRXANCHR Registry — Compile-time layout verification      */
+/*  Typedef-array idiom: array of size -1 triggers a compile error.   */
+/* ================================================================== */
+
+typedef char irxanchr_header_size_ok_[(sizeof(irxanchr_header_t) == 32) ? 1 : -1];
+typedef char irxanchr_entry_size_ok_[(sizeof(irxanchr_entry_t) == 40) ? 1 : -1];
+typedef char irxanchr_entry_token_ofs_[(offsetof(irxanchr_entry_t, token) == 4) ? 1 : -1];
+typedef char irxanchr_entry_rsvd1_ofs_[(offsetof(irxanchr_entry_t, rsvd1) == 8) ? 1 : -1];
+typedef char irxanchr_entry_hint_ofs_[(offsetof(irxanchr_entry_t, anchor_hint) == 24) ? 1 : -1];
+typedef char irxanchr_entry_tcb_ofs_[(offsetof(irxanchr_entry_t, tcb_ptr) == 28) ? 1 : -1];
+typedef char irxanchr_entry_flags_ofs_[(offsetof(irxanchr_entry_t, flags) == 32) ? 1 : -1];
+
+/* ================================================================== */
+/*  Part 2: IRXANCHR Registry — API prototypes                        */
+/*  Implementation deferred to WP-I1a.3 (src/irx#anch.c).            */
+/* ================================================================== */
+
+/* Claim a free slot; sets envblock_ptr, token, tcb_ptr, flags.
+ * Returns 0 on success, non-zero if table full or invalid. */
+int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token) asm("ANCHALOC");
+
+/* Release the slot for envblock (sets envblock_ptr = IRXANCHR_SLOT_FREE).
+ * USED remains at high-watermark (never decremented).
+ * Returns 0 on success, non-zero if not found. */
+int irx_anchor_free_slot(void *envblock) asm("ANCHFREE");
+
+/* Locate slot by envblock or tcb. Returns NULL if not found. */
+irxanchr_entry_t *irx_anchor_find_by_envblock(void *envblock) asm("ANCHFENV");
+irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb) asm("ANCHFTCB");
+
+/* LOAD EP=IRXANCHR wrapper; verifies eye-catcher.
+ * Returns 0 on success, non-zero on load/validation failure. */
+int irx_anchor_get_handle(irxanchr_header_t **out_anchor) asm("ANCHGET");
+
+#endif /* IRXANCHR_H */

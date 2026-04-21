@@ -2,7 +2,7 @@
 /*  irx#anch.c - ECTENVBK anchor library                              */
 /*                                                                    */
 /*  Implements the cold-path walk and push/pop discipline described   */
-/*  in include/irxanchor.h. See CON-1 §6.1 for rationale.             */
+/*  in include/irxanchr.h. See CON-1 §6.1 for rationale.              */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */
@@ -10,7 +10,7 @@
 #include <stddef.h>
 
 #include "irx.h"
-#include "irxanchor.h"
+#include "irxanchr.h"
 
 #ifdef __MVS__
 #include "clibppa.h"

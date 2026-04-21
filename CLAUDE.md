@@ -25,7 +25,7 @@ Key points:
   env. Any other value (e.g. a coexisting BREXX/370 environment on the
   same ECT) is left untouched. In batch (no ECT reachable) the slot is
   never written and IRXINIT still succeeds locally. See CON-1 §6.1 and
-  `include/irxanchor.h`
+  `include/irxanchr.h`
 - **IRXEXTE** (Vector of External Entry Points) holds all replaceable
   routine pointers — SAY, PULL, I/O, Host Command, etc.
 - **irx_wkblk_int** (our internal Work Block) holds all per-environment

@@ -466,6 +466,6 @@ version_files = ["VERSION"]
 
 [artifacts]
 headers = true
-header_files = ["irx.h", "irxanchor.h", "irxwkblk.h", "irxfunc.h",
+header_files = ["irx.h", "irxanchr.h", "irxwkblk.h", "irxfunc.h",
                 "irxbif.h", "irxbifs.h", "irxcond.h"]
 loads = true

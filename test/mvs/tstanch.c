@@ -29,7 +29,7 @@
 #include <stdio.h>
 
 #include "irx.h"
-#include "irxanchor.h"
+#include "irxanchr.h"
 #include "irxfunc.h"
 
 #ifdef __MVS__

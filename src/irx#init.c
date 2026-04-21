@@ -16,7 +16,7 @@
 #include <string.h>
 
 #include "irx.h"
-#include "irxanchor.h"
+#include "irxanchr.h"
 #include "irxbif.h"
 #include "irxbifs.h"
 #include "irxfunc.h"
