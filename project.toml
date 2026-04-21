@@ -8,6 +8,7 @@ cflags = ["-std=gnu99", "-I./include"]
 
 [build.sources]
 c_dirs = ["src/", "test/mvs/"]
+asm_dirs = ["asm/"]
 
 [mvs.build.datasets.source]
 suffix = "SOURCE"
@@ -47,6 +48,18 @@ space = ["TRK", 600, 100, 60]
 
 [mvs.install]
 naming = "fixed"
+
+# ---------------------------------------------------------------
+# IRXANCHR - Language Processor Environment table (data module).
+# Static table: 32-byte header + 64 x 40-byte slot array.
+# Loaded at runtime via LOAD EP=IRXANCHR by irx_anchor_get_handle().
+# No C runtime — pure assembler data object.
+# ---------------------------------------------------------------
+[[link.module]]
+name    = "IRXANCHR"
+entry   = "IRXANCHR"
+options = ["LIST", "MAP", "XREF"]
+include = ["IRXANCHR"]
 
 # ---------------------------------------------------------------
 # TSTANCH - ENVBLOCK anchor smoketest pseudomodule
