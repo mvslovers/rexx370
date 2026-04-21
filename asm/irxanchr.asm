@@ -28,8 +28,6 @@
 *  Module total: 32 + 64*40 = 2592 bytes (X'A20').
 *
 IRXANCHR CSECT
-         AMODE 24
-         RMODE 24
 *
 ***      Header (32 bytes)
 *
