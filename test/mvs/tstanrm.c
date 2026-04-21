@@ -59,7 +59,7 @@
 #include <stdio.h>
 
 #include "irx.h"
-#include "irxanchor.h"
+#include "irxanchr.h"
 #include "irxfunc.h"
 
 #ifndef __MVS__

@@ -382,7 +382,7 @@ Once initialized, the ENVBLOCK pointer is passed as an explicit parameter (regis
 
 For batch jobs started by JES2 (future Phase 5 IRXJCL), no persistent anchor exists. The ENVBLOCK is created locally by IRXJCL; `ECTENVBK` and `ENVBLOCK_ECTPTR` stay 0. The pointer is passed by reference through all IRXxxxx service calls as parameter — SC28-1883-0-compliant, since every IRXxxxx signature includes an ENVBLOCK pointer argument.
 
-See `include/irxanchor.h` and `src/irx#anch.c` for the anchor API, and CON-1 §3.1 / §6.1 for the spec-level definition.
+See `include/irxanchr.h` and `src/irx#anch.c` for the anchor API, and CON-1 §3.1 / §6.1 for the spec-level definition.
 
 ## 6.2 Environment types
 

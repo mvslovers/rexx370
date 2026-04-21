@@ -22,7 +22,7 @@
 #include <string.h>
 
 #include "irx.h"
-#include "irxanchor.h"
+#include "irxanchr.h"
 #include "irxfunc.h"
 #include "irxtokn.h"
 #include "irxwkblk.h"
