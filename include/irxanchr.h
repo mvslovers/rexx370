@@ -42,7 +42,7 @@
 /*  IRXANCHR is a pre-initialized static data module loaded at        */
 /*  runtime via LOAD EP=IRXANCHR. It contains a 32-byte header        */
 /*  followed by 64 x 40-byte slots tracking active environments.      */
-/*  Slot 0 is a permanent sentinel and is never allocated.            */
+/*  Slot 0 and Slot 2 are permanent sentinels; neither is allocated.  */
 /*  Layout mirrors asm/irxanchr.asm byte-for-byte.                    */
 /*                                                                    */
 /*  Note: envblock_ptr and tcb_ptr in irxanchr_entry_t are uint32_t   */
@@ -114,11 +114,14 @@ void anch_pop(struct envblock *env) asm("ANCHPOP");
 /* ================================================================== */
 
 #define IRXANCHR_EYECATCHER  "IRXANCHR" /* 8-byte eye-catcher (EBCDIC on MVS) */
-#define IRXANCHR_VERSION     "0100"     /* 4-byte version string               */
+#define IRXANCHR_VERSION     "0042"     /* 4-byte version string (rexx370 deviation from IBM '0100') */
 #define IRXANCHR_TOTAL_SLOTS 64         /* total slots in the table            */
 
-/* Value stored in envblock_ptr when a slot is available */
-#define IRXANCHR_SLOT_FREE ((uint32_t)0xFFFFFFFFU)
+/* Value stored in envblock_ptr when a slot is available.
+ * rexx370 deviation: 0x00000000 (IBM uses 0xFFFFFFFF as free marker).
+ * Permanent sentinel slots use SLOT_SENTINEL — they are never SLOT_FREE. */
+#define IRXANCHR_SLOT_FREE     ((uint32_t)0x00000000U)
+#define IRXANCHR_SLOT_SENTINEL ((uint32_t)0xFFFFFFFFU)
 
 /* Flag bit set in the flags field when a slot is in use */
 #define IRXANCHR_FLAG_IN_USE ((uint32_t)0x40000000U)
@@ -131,7 +134,7 @@ void anch_pop(struct envblock *env) asm("ANCHPOP");
 typedef struct
 {
     char id[8];          /* +0x00  'IRXANCHR' eye-catcher */
-    char version[4];     /* +0x08  '0100'                 */
+    char version[4];     /* +0x08  '0042' (rexx370)       */
     uint32_t total;      /* +0x0C  total slot count (64)  */
     uint32_t used;       /* +0x10  high-watermark          */
     uint32_t length;     /* +0x14  bytes per entry (40)   */
@@ -164,8 +167,18 @@ typedef char irxanchr_entry_tcb_ofs_[(offsetof(irxanchr_entry_t, tcb_ptr) == 28)
 typedef char irxanchr_entry_flags_ofs_[(offsetof(irxanchr_entry_t, flags) == 32) ? 1 : -1];
 
 /* ================================================================== */
+/*  Part 2: IRXANCHR Registry — Return codes                          */
+/* ================================================================== */
+
+#define IRX_ANCHOR_RC_OK        0 /* success                           */
+#define IRX_ANCHOR_RC_FULL      1 /* alloc: no free slots left         */
+#define IRX_ANCHOR_RC_NOT_FOUND 2 /* free: envblock not in table       */
+#define IRX_ANCHOR_RC_LOAD_FAIL 3 /* get_handle: LOAD EP=IRXANCHR fail */
+#define IRX_ANCHOR_RC_BAD_EYE   4 /* get_handle: eye-catcher mismatch  */
+
+/* ================================================================== */
 /*  Part 2: IRXANCHR Registry — API prototypes                        */
-/*  Implementation deferred to WP-I1a.3 (src/irx#anch.c).            */
+/*  Implementation in WP-I1a.3 (src/irx#anch.c).                     */
 /* ================================================================== */
 
 /* Claim a free slot; sets envblock_ptr, token, tcb_ptr, flags.
@@ -184,5 +197,21 @@ irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb) asm("ANCHFTCB");
 /* LOAD EP=IRXANCHR wrapper; verifies eye-catcher.
  * Returns 0 on success, non-zero on load/validation failure. */
 int irx_anchor_get_handle(irxanchr_header_t **out_anchor) asm("ANCHGET");
+
+/* ================================================================== */
+/*  Cross-compile test helper (host builds only)                      */
+/* ================================================================== */
+
+/* Returns a pointer to the host-side simulation buffer used by
+ * irx_anchor_get_handle() on non-MVS builds. Tests may corrupt or
+ * inspect this buffer directly. Never call on MVS. */
+#ifndef __MVS__
+void *_irxanchr_host_buf(void);
+#endif
+
+/* Reset the IRXANCHR table to initial state (USED=0, token counter=0,
+ * all slots free, sentinels restored). Intended for test isolation only.
+ * On MVS, resets the in-memory copy of the loaded module in place. */
+void irx_anchor_table_reset(void) asm("ANCHRTST");
 
 #endif /* IRXANCHR_H */
