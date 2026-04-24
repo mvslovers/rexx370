@@ -414,7 +414,7 @@ irxanchr_entry_t *irx_anchor_find_by_envblock(void *envblock)
     uint32_t i;
 
     /* Sentinel values must never be returned as a valid match. */
-    if (envblock == NULL || (uint32_t)(uintptr_t)envblock == IRXANCHR_SLOT_SENTINEL)
+    if (envblock == NULL || (uint32_t)(unsigned long)envblock == IRXANCHR_SLOT_SENTINEL)
     {
         return NULL;
     }
