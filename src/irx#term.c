@@ -59,10 +59,9 @@ int irxterm(struct envblock *envblk)
 
     /* 2. Term exit — deferred to Phase 6 */
 
-    /* 3. Unpublish from ECTENVBK. Lenient: if someone pushed another
-     * environment on top out of LIFO order, we leave the anchor alone
-     * and merely free our local storage. */
+    /* 3. Unpublish from ECTENVBK and release IRXANCHR slot. */
     anch_pop(envblk);
+    irx_anchor_free_slot(envblk);
 
     /* 4. Free internal Work Block */
     wkbi = (struct irx_wkblk_int *)envblk->envblock_userfield;

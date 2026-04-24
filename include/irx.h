@@ -85,7 +85,8 @@ struct envblock
 };
 
 #define ENVBLOCK_ID           "ENVBLOCK"
-#define ENVBLOCK_VERSION_0100 "0100"
+#define ENVBLOCK_VERSION_0100 "0100" /* IBM TSO/E v2 */
+#define ENVBLOCK_VERSION_0042 "0042" /* rexx370 deviation (CON-4) */
 
 /* Accessor macros */
 #define envblock_error         _envblock_union1._envblock_error
