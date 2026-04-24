@@ -64,7 +64,7 @@ include = ["IRXANCHR"]
 [[link.module]]
 name = "IRXTMPW"
 entry = "IRXTMPW"
-options = ["LIST", "MAP", "XREF", "AC=1", "REUS"]
+options = ["LIST", "MAP", "XREF", "AC=1", "RENT", "REUS"]
 include = ["IRXTMPW"]
 
 # ---------------------------------------------------------------
