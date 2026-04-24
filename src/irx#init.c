@@ -14,7 +14,8 @@
 /*  Ref: CON-1 §3.1 (ENVBLOCK), §3.2 (PARMBLOCK inheritance),         */
 /*       §3.8 (IRXEXTE), §6.2 (env-type detection),                   */
 /*       §6.3 (INITENVB algorithm)                                     */
-/*  Ref: CON-3 (ECTENVBK unconditional overwrite, live-verified)      */
+/*  Ref: CON-3 (ECTENVBK semantics — greenfield-verified,             */
+/*       non-greenfield behavior TBD pending IRXPROBE)                */
 /*  Ref: CON-4 (VERSION='0042', SLOT_FREE=0x00)                       */
 /*  Ref: WP-I1c.1                                                     */
 /*                                                                    */
@@ -168,7 +169,7 @@ cleanup:
 /*   5. PARMBLOCK copy allocation and link                            */
 /*   6. IRXEXTE placeholder (zeroed; COUNT=IRXEXTE_ENTRY_COUNT)       */
 /*   7. IRXANCHR slot allocation                                      */
-/*   8. ECTENVBK unconditional overwrite (TSO only, MVS only)         */
+/*   8. ECTENVBK claim-if-null (TSO only, MVS only; CON-3 TBD)        */
 /*   9. Return *out_envblock, reason_code=0                           */
 /*                                                                    */
 /*  Returns: 0=OK, 20=error (out_reason_code set)                    */
@@ -401,16 +402,17 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     }
 
     /* ----------------------------------------------------------------
-     * Step 8: ECTENVBK unconditional overwrite (TSO + MVS only).
+     * Step 8: ECTENVBK claim-if-null (TSO + MVS only).
      *
-     * CON-3 live-verification (2026-04-21, IRXLIFE test): IBM IRXINIT
-     * unconditionally overwrites ECTENVBK regardless of prior value.
-     * rexx370 follows this for TSO environments.
+     * Conservative semantics pending IRXPROBE verification. CON-3
+     * greenfield observation showed IBM writes ECTENVBK on init, but
+     * the non-greenfield case (slot already set) is TBD. We claim
+     * the slot only when NULL to avoid trampling other environments.
+     * If IRXPROBE shows IBM does unconditional overwrite we can flip.
      *
-     * Not executed on host builds — on host tsofl is always 0 from
-     * anch_tso(), so this block is dead code anyway, but the #ifdef
-     * also avoids the dangerous (ect + ECT_ENVBK_OFF) pointer math
-     * on a host-simulated ECT address.
+     * Not executed on host builds — anch_tso() always returns 0 on
+     * host, so is_tso is 0 anyway; the #ifdef also avoids the
+     * (ect + ECT_ENVBK_OFF) pointer math on a host-simulated address.
      * ---------------------------------------------------------------- */
 #ifdef __MVS__
     if (is_tso)
@@ -418,8 +420,19 @@ int irx_init_initenvb(struct envblock *prev_envblock,
         void *ect = anch_walk();
         if (ect != NULL)
         {
-            *(struct envblock **)((char *)ect + ECT_ENVBK_OFF) = envblk;
-            envblk->envblock_ectptr = ect;
+            struct envblock **slot =
+                (struct envblock **)((char *)ect + ECT_ENVBK_OFF);
+            if (*slot == NULL)
+            {
+                *slot = envblk;
+                envblk->envblock_ectptr = ect;
+            }
+            else
+            {
+                /* Slot occupied — record ECT for tracing but don't
+                 * overwrite the anchor. */
+                envblk->envblock_ectptr = ect;
+            }
         }
     }
 #endif
