@@ -56,10 +56,16 @@ naming = "fixed"
 # No C runtime — pure assembler data object.
 # ---------------------------------------------------------------
 [[link.module]]
-name    = "IRXANCHR"
-entry   = "IRXANCHR"
-options = ["LIST", "MAP", "XREF"]
+name = "IRXANCHR"
+entry = "IRXANCHR"
+options = ["LIST", "MAP", "XREF", "REUS"]
 include = ["IRXANCHR"]
+
+[[link.module]]
+name = "IRXTMPW"
+entry = "IRXTMPW"
+options = ["LIST", "MAP", "XREF", "AC=1", "RENT", "REUS"]
+include = ["IRXTMPW"]
 
 # ---------------------------------------------------------------
 # TSTANCH - ENVBLOCK anchor smoketest pseudomodule
@@ -157,12 +163,7 @@ include = [
 name = "TSTTOKN"
 entry = "@@CRT0"
 options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTTOKN",
-  "IRX#TOKN",
-  "IRX#STOR",
-]
+include = ["@@CRT1", "TSTTOKN", "IRX#TOKN", "IRX#STOR"]
 
 [link.module.dep_includes]
 "mvslovers/lstring370" = "*"
@@ -189,10 +190,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTPHAS1",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -206,10 +219,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTANRM",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -223,10 +248,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTLSTR",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -240,10 +277,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTVPOL",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -257,10 +306,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTPRSR",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -274,10 +335,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTSAY",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -291,10 +364,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTCTRL",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -308,10 +393,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTHELO",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -325,10 +422,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTPARSE",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -342,10 +451,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTPROC",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -359,10 +480,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTARIT",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -376,10 +509,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTAREXT",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -393,10 +538,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTBIF",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -410,10 +567,22 @@ options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
   "TSTBIFS",
-  "IRX#INIT", "IRX#TERM", "IRX#STOR", "IRX#ANCH",
-  "IRX#UID",  "IRX#MSID", "IRX#COND", "IRX#BIF",
-  "IRX#BIFS", "IRX#IO",   "IRX#LSTR", "IRX#TOKN",
-  "IRX#VPOL", "IRX#PARS", "IRX#CTRL", "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
   "IRX#ARIT",
 ]
 
@@ -466,6 +635,13 @@ version_files = ["VERSION"]
 
 [artifacts]
 headers = true
-header_files = ["irx.h", "irxanchr.h", "irxwkblk.h", "irxfunc.h",
-                "irxbif.h", "irxbifs.h", "irxcond.h"]
+header_files = [
+  "irx.h",
+  "irxanchr.h",
+  "irxwkblk.h",
+  "irxfunc.h",
+  "irxbif.h",
+  "irxbifs.h",
+  "irxcond.h",
+]
 loads = true
