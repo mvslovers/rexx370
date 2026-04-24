@@ -210,8 +210,12 @@ void *_irxanchr_host_buf(void);
 #endif
 
 /* Reset the IRXANCHR table to initial state (USED=0, token counter=0,
- * all slots free, sentinels restored). Intended for test isolation only.
- * On MVS, resets the in-memory copy of the loaded module in place. */
+ * all slots free, sentinels restored).
+ *
+ * WARNING: Test-only. On MVS this modifies the loaded module in place.
+ * MUST NOT be called from production IRXINIT/IRXTERM code paths, or
+ * from any context where other tasks may be scanning the registry —
+ * the reset is not atomic and would wreck concurrent readers. */
 void irx_anchor_table_reset(void) asm("ANCHRTST");
 
 #endif /* IRXANCHR_H */

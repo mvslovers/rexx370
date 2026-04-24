@@ -392,7 +392,7 @@ int irx_anchor_free_slot(void *envblock)
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
     ebptr = (uint32_t)(unsigned long)envblock;
 
-    for (i = 0; i <= hdr->used && i < hdr->total; i++)
+    for (i = 0; i < hdr->used; i++)
     {
         if (slots[i].envblock_ptr == ebptr)
         {
@@ -427,7 +427,7 @@ irxanchr_entry_t *irx_anchor_find_by_envblock(void *envblock)
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
     ebptr = (uint32_t)(unsigned long)envblock;
 
-    for (i = 0; i <= hdr->used && i < hdr->total; i++)
+    for (i = 0; i < hdr->used; i++)
     {
         if (slots[i].envblock_ptr == ebptr)
         {
@@ -459,7 +459,7 @@ irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb)
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
     tcbptr = (uint32_t)(unsigned long)tcb;
 
-    for (i = 0; i <= hdr->used && i < hdr->total; i++)
+    for (i = 0; i < hdr->used; i++)
     {
         if (slots[i].envblock_ptr == IRXANCHR_SLOT_FREE ||
             slots[i].envblock_ptr == IRXANCHR_SLOT_SENTINEL)

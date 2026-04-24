@@ -317,8 +317,10 @@ static void test_7_eyecatcher(void)
               "T7: get_handle OK after restoring eye-catcher");
     }
 #else
-    /* On MVS the in-LPA module cannot be corrupted from an
-     * unprivileged load module; test only the success path. */
+    /* On MVS, IRXANCHR lives in Step-TCB JPQ private storage (loaded by
+     * IRXTMPW at logon). Corruption would technically succeed but would
+     * break the live module for the rest of the TSO session, so we skip
+     * the destructive path and test only the success path. */
     rc = irx_anchor_get_handle(&hdr);
     CHECK(rc == IRX_ANCHOR_RC_OK,
           "T7: get_handle returns OK on MVS");
