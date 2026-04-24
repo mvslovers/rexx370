@@ -669,32 +669,33 @@ include = ["@@CRT1", "IRXDBG", "IRX#ANCH"]
 # IRXJCL - Batch entry point (PGM=IRXJCL)
 # The main REXX interpreter for batch execution.
 # Contains IRXINIT/IRXTERM and all Phase 1+ modules.
+# Commented out: IRXJCL CSECT not yet implemented.
 # ---------------------------------------------------------------
-[[link.module]]
-name = "IRXJCL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "IRXJCL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#ARIT",
-]
+# [[link.module]]
+# name = "IRXJCL"
+# entry = "@@CRT0"
+# options = ["LIST", "MAP", "XREF", "RENT"]
+# include = [
+#   "@@CRT1",
+#   "IRXJCL",
+#   "IRX#INIT",
+#   "IRX#TERM",
+#   "IRX#STOR",
+#   "IRX#ANCH",
+#   "IRX#UID",
+#   "IRX#MSID",
+#   "IRX#COND",
+#   "IRX#BIF",
+#   "IRX#BIFS",
+#   "IRX#IO",
+#   "IRX#LSTR",
+#   "IRX#TOKN",
+#   "IRX#VPOL",
+#   "IRX#PARS",
+#   "IRX#CTRL",
+#   "IRX#EXEC",
+#   "IRX#ARIT",
+# ]
 
 # ---------------------------------------------------------------
 # IRXEXCOM - Variable access (separate load module per IBM spec)

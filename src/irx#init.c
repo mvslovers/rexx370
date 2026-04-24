@@ -228,7 +228,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
                 irxanchr_entry_t *slot = irx_anchor_find_by_tcb(tcb);
                 if (slot != NULL)
                 {
-                    prev = (struct envblock *)(uintptr_t)slot->envblock_ptr;
+                    prev = (struct envblock *)(unsigned long)slot->envblock_ptr;
                 }
             }
         }
@@ -330,7 +330,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     memcpy(envblk->envblock_id, ENVBLOCK_ID, 8);
     memcpy(envblk->envblock_version, ENVBLOCK_VERSION_0042, 4);
     envblk->envblock_length = (int)sizeof(struct envblock);
-    envblk->envblock_userfield = (void *)(uintptr_t)user_field;
+    envblk->envblock_userfield = (void *)(unsigned long)user_field;
 
     /* ----------------------------------------------------------------
      * Step 5: PARMBLOCK copy allocation.
