@@ -193,6 +193,20 @@ static void test_3_sentinel_integrity(void)
               slots[2].envblock_ptr == IRXANCHR_SLOT_SENTINEL,
           "T3: slot 2 remains sentinel after alloc/free cycles");
 
+    /* free_slot with a sentinel-value pointer must return NOT_FOUND
+     * and leave both sentinel slots intact. */
+    {
+        int rc3 = irx_anchor_free_slot((void *)(unsigned long)IRXANCHR_SLOT_SENTINEL);
+        CHECK(rc3 == IRX_ANCHOR_RC_NOT_FOUND,
+              "T3: free_slot(SENTINEL) returns NOT_FOUND");
+        CHECK(slots != NULL &&
+                  slots[0].envblock_ptr == IRXANCHR_SLOT_SENTINEL,
+              "T3: slot 0 still sentinel after free_slot(SENTINEL)");
+        CHECK(slots != NULL &&
+                  slots[2].envblock_ptr == IRXANCHR_SLOT_SENTINEL,
+              "T3: slot 2 still sentinel after free_slot(SENTINEL)");
+    }
+
     (void)tok;
 }
 

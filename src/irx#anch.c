@@ -194,6 +194,9 @@ int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
         return IRX_ANCHOR_RC_LOAD_FAIL;
     }
 
+    /* No matching DELETE — IRXTMPW holds the JPQ entry for the Step-TCB
+     * lifetime, so repeat LOADs just bump the use count against the
+     * existing CDE. */
     ptr = __load(NULL, "IRXANCHR", &size, &ac);
     if (ptr == NULL)
     {
@@ -379,7 +382,8 @@ int irx_anchor_free_slot(void *envblock)
     uint32_t ebptr;
     uint32_t i;
 
-    if (envblock == NULL)
+    if (envblock == NULL ||
+        (uint32_t)(unsigned long)envblock == IRXANCHR_SLOT_SENTINEL)
     {
         return IRX_ANCHOR_RC_NOT_FOUND;
     }

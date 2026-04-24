@@ -138,7 +138,9 @@ typedef struct
     uint32_t total;      /* +0x0C  total slot count (64)  */
     uint32_t used;       /* +0x10  high-watermark          */
     uint32_t length;     /* +0x14  bytes per entry (40)   */
-    uint8_t reserved[8]; /* +0x18  reserved, zeros         */
+    uint8_t reserved[8]; /* +0x18  reserved[0..3] = AS-wide monotonic
+                          *        token counter (rexx370 usage);
+                          *        reserved[4..7] unused */
 } irxanchr_header_t;
 
 /* Entry: 40 bytes per slot */
