@@ -128,8 +128,8 @@ static void test_t2_parmblock_copy(void)
 
         CHECK(memcmp(pb->parmblock_id, PARMBLOCK_ID, 8) == 0,
               "PARMBLOCK eye-catcher is 'IRXPARMS'");
-        CHECK(memcmp(pb->parmblock_version, PARMBLOCK_VERSION_0200, 4) == 0,
-              "PARMBLOCK version is '0200'");
+        CHECK(memcmp(pb->parmblock_version, PARMBLOCK_VERSION_0042, 4) == 0,
+              "PARMBLOCK version is '0042' (rexx370 deviation, CON-4)");
         CHECK(pb->parmblock_subpool == 0, "default subpool is 0");
 
         irxterm(envblk);

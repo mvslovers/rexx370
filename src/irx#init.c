@@ -348,7 +348,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     }
 
     memcpy(pb_copy->parmblock_id, PARMBLOCK_ID, 8);
-    memcpy(pb_copy->parmblock_version, PARMBLOCK_VERSION_0200, 4);
+    memcpy(pb_copy->parmblock_version, PARMBLOCK_VERSION_0042, 4);
     memcpy(pb_copy->parmblock_language, eff_language, 3);
     pb_copy->parmblock_subpool = eff_subpool;
     memcpy(pb_copy->parmblock_flags, eff_flags, 4);

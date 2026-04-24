@@ -356,7 +356,8 @@ struct parmblock
 };
 
 #define PARMBLOCK_ID           "IRXPARMS"
-#define PARMBLOCK_VERSION_0200 "0200"
+#define PARMBLOCK_VERSION_0200 "0200" /* IBM TSO/E v2 */
+#define PARMBLOCK_VERSION_0042 "0042" /* rexx370 deviation (CON-4) */
 
 /* Flag accessor macros */
 #define parmblock_flags _parmblock_union1._parmblock_flags
