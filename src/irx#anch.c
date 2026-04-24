@@ -180,6 +180,25 @@ void anch_pop(struct envblock *env)
 /*  Part 2: IRXANCHR Registry API (WP-I1a.3)                         */
 /* ================================================================== */
 
+/* Plain load+store helpers — safe on single-CPU MVS 3.8j because
+ * there is no SMP and no SVC between the read and write in any
+ * caller. The __cs / __uinc crent370 intrinsics exhibited incorrect
+ * behaviour (new_val was treated as a pointer rather than a value),
+ * so plain C is used on both platforms. */
+static uint32_t anchor_swap(uint32_t *mem, uint32_t new_val)
+{
+    uint32_t old = *mem;
+    *mem = new_val;
+    return old;
+}
+
+static uint32_t anchor_fetch_inc(uint32_t *mem)
+{
+    uint32_t old = *mem;
+    *mem = old + 1;
+    return old;
+}
+
 #ifdef __MVS__
 
 int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
@@ -211,21 +230,6 @@ int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
 
     *out_anchor = hdr;
     return IRX_ANCHOR_RC_OK;
-}
-
-/* Atomic exchange using the S/370 CS spin-loop from crent370 __cs().
- * Always stores new_val and returns the old value. On single-CPU MVS
- * 3.8j, the CS succeeds in one iteration absent an interrupt. */
-static uint32_t anchor_swap(uint32_t *mem, uint32_t new_val)
-{
-    return (uint32_t)__cs((void *)mem, (unsigned)new_val);
-}
-
-/* Atomic post-increment via crent370 __uinc(). Returns value before
- * the increment; caller adds 1 for a 1-based token. */
-static uint32_t anchor_fetch_inc(uint32_t *mem)
-{
-    return (uint32_t)__uinc((void *)mem);
 }
 
 #else /* !__MVS__ — cross-compile host simulation */
@@ -281,21 +285,6 @@ int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
     }
     *out_anchor = (irxanchr_header_t *)_host_irxanchr;
     return IRX_ANCHOR_RC_OK;
-}
-
-/* Non-atomic host helpers — tests are single-threaded. */
-static uint32_t anchor_swap(uint32_t *mem, uint32_t new_val)
-{
-    uint32_t old = *mem;
-    *mem = new_val;
-    return old;
-}
-
-static uint32_t anchor_fetch_inc(uint32_t *mem)
-{
-    uint32_t old = *mem;
-    *mem = old + 1;
-    return old;
 }
 
 #endif /* __MVS__ */
