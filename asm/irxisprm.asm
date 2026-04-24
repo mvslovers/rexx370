@@ -6,9 +6,12 @@
 *  the caller provides no explicit PARMBLOCK (CON-1 §6.3, step 4).
 *  No executable code — DC/DS directives only.
 *
+*  MODNAMET pointer is null (A(0)): IRXINIT inherits MODNAMET from
+*  the parent TSO environment, preserving any replaceable-routine
+*  overrides the caller installed before entering ISPF.
+*
 *  Control block sizes (from irx.h):
 *    PARMBLOCK:       64 bytes
-*    MODNAMET:       112 bytes (13 x 8-byte fields + 8-byte FFFF)
 *    SUBCOMTB header: 40 bytes
 *    SUBCOMTB entry:  32 bytes
 *    PACKTB header:   48 bytes
@@ -22,32 +25,15 @@ IRXISPRM CSECT
          DC    CL4'0042'           +0x08  version (rexx370 deviation)
          DC    CL3'AE '            +0x0C  language: 2-byte NLS code
          DC    XL1'00'             +0x0F  reserved (_filler1)
-         DC    A(MODNAMET)         +0x10  -> MODNAMET
+         DC    A(0)                +0x10  -> MODNAMET (inherit from parent)
          DC    A(SUBCOMTB)         +0x14  -> SUBCOMTB header
          DC    A(PACKTB)           +0x18  -> PACKTB header
          DC    CL8'        '       +0x1C  parse source token (blank)
-         DC    X'8000C000'         +0x24  FLAGS: TSOFL | ALTMSGS | SPSHARE
+         DC    X'81004000'         +0x24  FLAGS: TSOFL | NEWSTKFL | SPSHARE
          DC    X'FFFFFFFF'         +0x28  MASKS: all bits active
          DC    F'78'               +0x2C  SUBPOOL 78 (TSO private)
          DC    CL8'ISPF    '       +0x30  ADDRSPN
          DC    XL8'FFFFFFFFFFFFFFFF' +0x38  end marker
-*
-***      MODNAMET (112 bytes: 13 x 8-byte fields + 8-byte FFFF)
-*
-MODNAMET DC    CL8'SYSTSIN '       DD names (3 fields)
-         DC    CL8'SYSTSPRT'
-         DC    CL8'SYSEXEC '
-         DC    CL8'        '       replaceable routines (10 blank slots)
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    CL8'        '
-         DC    XL8'FFFFFFFFFFFFFFFF' end marker
 *
 ***      SUBCOMTB header (40 bytes) + 7 entries (224 bytes)
 *
