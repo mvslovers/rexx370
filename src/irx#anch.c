@@ -8,11 +8,13 @@
 /* ------------------------------------------------------------------ */
 
 #include <stddef.h>
+#include <string.h>
 
 #include "irx.h"
 #include "irxanchr.h"
 
 #ifdef __MVS__
+#include "clibos.h"
 #include "clibppa.h"
 
 /* Low-core / control-block offsets per IBM macros — see header.
@@ -172,4 +174,330 @@ void anch_pop(struct envblock *env)
     {
         *slot = NULL;
     }
+}
+
+/* ================================================================== */
+/*  Part 2: IRXANCHR Registry API (WP-I1a.3)                         */
+/* ================================================================== */
+
+/* Plain load+store helpers — safe on single-CPU MVS 3.8j because
+ * there is no SMP and no SVC between the read and write in any
+ * caller. The __cs / __uinc crent370 intrinsics exhibited incorrect
+ * behaviour (new_val was treated as a pointer rather than a value),
+ * so plain C is used on both platforms. */
+static uint32_t anchor_swap(uint32_t *mem, uint32_t new_val)
+{
+    uint32_t old = *mem;
+    *mem = new_val;
+    return old;
+}
+
+static uint32_t anchor_fetch_inc(uint32_t *mem)
+{
+    uint32_t old = *mem;
+    *mem = old + 1;
+    return old;
+}
+
+#ifdef __MVS__
+
+int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
+{
+    unsigned size = 0;
+    char ac = 0;
+    void *ptr;
+    irxanchr_header_t *hdr;
+
+    if (out_anchor == NULL)
+    {
+        return IRX_ANCHOR_RC_LOAD_FAIL;
+    }
+
+    /* No matching DELETE — IRXTMPW holds the JPQ entry for the Step-TCB
+     * lifetime, so repeat LOADs just bump the use count against the
+     * existing CDE. */
+    ptr = __load(NULL, "IRXANCHR", &size, &ac);
+    if (ptr == NULL)
+    {
+        return IRX_ANCHOR_RC_LOAD_FAIL;
+    }
+
+    hdr = (irxanchr_header_t *)ptr;
+    if (memcmp(hdr->id, IRXANCHR_EYECATCHER, 8) != 0)
+    {
+        return IRX_ANCHOR_RC_BAD_EYE;
+    }
+
+    *out_anchor = hdr;
+    return IRX_ANCHOR_RC_OK;
+}
+
+#else /* !__MVS__ — cross-compile host simulation */
+
+/* Static table mirroring asm/irxanchr.asm for cross-compile testing.
+ * Initialised once by irx_anchor_get_handle(). Exposed via
+ * _irxanchr_host_buf() so tests can inspect or corrupt the buffer. */
+static uint8_t _host_irxanchr[sizeof(irxanchr_header_t) +
+                              IRXANCHR_TOTAL_SLOTS * 40];
+static int _host_irxanchr_ready = 0;
+
+static void host_anchor_init(void)
+{
+    irxanchr_header_t *hdr = (irxanchr_header_t *)_host_irxanchr;
+    irxanchr_entry_t *slots;
+
+    memset(_host_irxanchr, 0, sizeof(_host_irxanchr));
+    memcpy(hdr->id, IRXANCHR_EYECATCHER, 8);
+    memcpy(hdr->version, IRXANCHR_VERSION, 4);
+    hdr->total = IRXANCHR_TOTAL_SLOTS;
+    hdr->used = 0;
+    hdr->length = 40;
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+    slots[0].envblock_ptr = IRXANCHR_SLOT_SENTINEL; /* permanent sentinel — Slot 0 */
+    slots[2].envblock_ptr = IRXANCHR_SLOT_SENTINEL; /* permanent sentinel — Slot 2 */
+
+    _host_irxanchr_ready = 1;
+}
+
+void *_irxanchr_host_buf(void)
+{
+    if (!_host_irxanchr_ready)
+    {
+        host_anchor_init();
+    }
+    return (void *)_host_irxanchr;
+}
+
+int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
+{
+    if (out_anchor == NULL)
+    {
+        return IRX_ANCHOR_RC_LOAD_FAIL;
+    }
+    if (!_host_irxanchr_ready)
+    {
+        host_anchor_init();
+    }
+    if (memcmp(_host_irxanchr, IRXANCHR_EYECATCHER, 8) != 0)
+    {
+        return IRX_ANCHOR_RC_BAD_EYE;
+    }
+    *out_anchor = (irxanchr_header_t *)_host_irxanchr;
+    return IRX_ANCHOR_RC_OK;
+}
+
+#endif /* __MVS__ */
+
+/* ---- common registry functions ---- */
+
+int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token)
+{
+    irxanchr_header_t *hdr;
+    irxanchr_entry_t *slots;
+    uint32_t *counter;
+    uint32_t ebptr;
+    uint32_t i, start;
+    int rc;
+
+    /* NULL envblock is indistinguishable from SLOT_FREE (0x00000000). */
+    if (envblock == NULL || out_token == NULL)
+    {
+        return IRX_ANCHOR_RC_LOAD_FAIL;
+    }
+
+    rc = irx_anchor_get_handle(&hdr);
+    if (rc != IRX_ANCHOR_RC_OK)
+    {
+        return rc;
+    }
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+    counter = (uint32_t *)(void *)hdr->reserved; /* token counter @ header+0x18 */
+    ebptr = (uint32_t)(unsigned long)envblock;
+
+    /* Append-only from USED — free slots below the high-watermark are
+     * never recycled (IBM-observed behaviour, CON-4 deviation register). */
+    start = hdr->used;
+    if (start < 1)
+    {
+        start = 1;
+    }
+
+    for (i = start; i < hdr->total; i++)
+    {
+        uint32_t old;
+
+        /* Skip permanent sentinels (0xFFFFFFFF) without touching them. */
+        if (slots[i].envblock_ptr == IRXANCHR_SLOT_SENTINEL)
+        {
+            continue;
+        }
+
+        /* Atomic claim: exchange SLOT_FREE → ebptr. If the slot was
+         * already taken, restore and advance. On single-CPU MVS 3.8j
+         * there are no SVCs between the two swaps, so the restore is safe. */
+        old = anchor_swap(&slots[i].envblock_ptr, ebptr);
+        if (old != IRXANCHR_SLOT_FREE)
+        {
+            anchor_swap(&slots[i].envblock_ptr, old);
+            continue;
+        }
+
+        /* Populate aux fields before bumping USED: a concurrent
+         * find_by_tcb scans 0..USED and must see a complete entry. */
+        slots[i].token = anchor_fetch_inc(counter) + 1U;
+        slots[i].tcb_ptr = (uint32_t)(unsigned long)tcb;
+        slots[i].flags = IRXANCHR_FLAG_IN_USE;
+
+        /* USED = max(USED, i+1). Plain store is safe: no SVCs exist
+         * between the claim CS and here on single-CPU MVS 3.8j. */
+        if (hdr->used < i + 1)
+        {
+            hdr->used = i + 1;
+        }
+
+        *out_token = slots[i].token;
+        return IRX_ANCHOR_RC_OK;
+    }
+
+    return IRX_ANCHOR_RC_FULL;
+}
+
+int irx_anchor_free_slot(void *envblock)
+{
+    irxanchr_header_t *hdr;
+    irxanchr_entry_t *slots;
+    uint32_t ebptr;
+    uint32_t i;
+
+    if (envblock == NULL ||
+        (uint32_t)(unsigned long)envblock == IRXANCHR_SLOT_SENTINEL)
+    {
+        return IRX_ANCHOR_RC_NOT_FOUND;
+    }
+
+    if (irx_anchor_get_handle(&hdr) != IRX_ANCHOR_RC_OK)
+    {
+        return IRX_ANCHOR_RC_NOT_FOUND;
+    }
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+    ebptr = (uint32_t)(unsigned long)envblock;
+
+    for (i = 0; i < hdr->used; i++)
+    {
+        if (slots[i].envblock_ptr == ebptr)
+        {
+            /* Single aligned store — atomic on S/370. Leave token,
+             * tcb_ptr, and flags intact for post-mortem debugging. */
+            slots[i].envblock_ptr = IRXANCHR_SLOT_FREE;
+            return IRX_ANCHOR_RC_OK;
+        }
+    }
+
+    return IRX_ANCHOR_RC_NOT_FOUND;
+}
+
+irxanchr_entry_t *irx_anchor_find_by_envblock(void *envblock)
+{
+    irxanchr_header_t *hdr;
+    irxanchr_entry_t *slots;
+    uint32_t ebptr;
+    uint32_t i;
+
+    /* Sentinel values must never be returned as a valid match. */
+    if (envblock == NULL || (uint32_t)(unsigned long)envblock == IRXANCHR_SLOT_SENTINEL)
+    {
+        return NULL;
+    }
+
+    if (irx_anchor_get_handle(&hdr) != IRX_ANCHOR_RC_OK)
+    {
+        return NULL;
+    }
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+    ebptr = (uint32_t)(unsigned long)envblock;
+
+    for (i = 0; i < hdr->used; i++)
+    {
+        if (slots[i].envblock_ptr == ebptr)
+        {
+            return &slots[i];
+        }
+    }
+
+    return NULL;
+}
+
+irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb)
+{
+    irxanchr_header_t *hdr;
+    irxanchr_entry_t *slots;
+    uint32_t tcbptr;
+    uint32_t i;
+    irxanchr_entry_t *best = NULL;
+
+    if (tcb == NULL)
+    {
+        return NULL;
+    }
+
+    if (irx_anchor_get_handle(&hdr) != IRX_ANCHOR_RC_OK)
+    {
+        return NULL;
+    }
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+    tcbptr = (uint32_t)(unsigned long)tcb;
+
+    for (i = 0; i < hdr->used; i++)
+    {
+        if (slots[i].envblock_ptr == IRXANCHR_SLOT_FREE ||
+            slots[i].envblock_ptr == IRXANCHR_SLOT_SENTINEL)
+        {
+            continue;
+        }
+        if (slots[i].tcb_ptr == tcbptr)
+        {
+            if (best == NULL || slots[i].token > best->token)
+            {
+                best = &slots[i];
+            }
+        }
+    }
+
+    return best;
+}
+
+void irx_anchor_table_reset(void)
+{
+    irxanchr_header_t *hdr;
+    irxanchr_entry_t *slots;
+    uint32_t i;
+
+#ifndef __MVS__
+    _host_irxanchr_ready = 0;
+    host_anchor_init();
+    return;
+#endif
+
+    /* Requires IRXANCHR to be in writable private storage (not LPA). */
+    if (irx_anchor_get_handle(&hdr) != IRX_ANCHOR_RC_OK)
+    {
+        return;
+    }
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+    memset(hdr->reserved, 0, 8); /* clear token counter at header+0x18 */
+    hdr->used = 0;
+
+    for (i = 0; i < hdr->total; i++)
+    {
+        memset(&slots[i], 0, sizeof(irxanchr_entry_t));
+    }
+
+    slots[0].envblock_ptr = IRXANCHR_SLOT_SENTINEL; /* permanent sentinel */
+    slots[2].envblock_ptr = IRXANCHR_SLOT_SENTINEL; /* permanent sentinel */
 }
