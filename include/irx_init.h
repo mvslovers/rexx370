@@ -47,6 +47,6 @@ int irx_init_initenvb(struct envblock *prev_envblock,
                       struct parmblock *caller_parmblock,
                       uint32_t user_field,
                       struct envblock **out_envblock,
-                      int *out_reason_code) asm("INITENVB");
+                      int *out_reason_code);
 
 #endif /* IRX_INIT_H */
