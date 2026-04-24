@@ -241,6 +241,24 @@ include = [
 [link.module.dep_includes]
 "mvslovers/lstring370" = "*"
 
+# ---------------------------------------------------------------
+# TSTANSL - WP-I1a.3 IRXANCHR Slot-Management-API unit tests.
+# Tests irx_anchor_alloc_slot, irx_anchor_free_slot,
+# irx_anchor_find_by_envblock, irx_anchor_find_by_tcb, and
+# irx_anchor_get_handle. Minimal dep set: only IRX#ANCH needed.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTANSL)'
+#   Batch  :  EXEC PGM=TSTANSL
+#
+# Exit code: 0 on success, 1 on any test failure.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTANSL"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = ["@@CRT1", "TSTANSL", "IRX#ANCH"]
+
 [[link.module]]
 name = "TSTLSTR"
 entry = "@@CRT0"
