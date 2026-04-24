@@ -490,6 +490,7 @@ void irx_anchor_table_reset(void)
     return;
 #endif
 
+    /* Requires IRXANCHR to be in writable private storage (not LPA). */
     if (irx_anchor_get_handle(&hdr) != IRX_ANCHOR_RC_OK)
     {
         return;
