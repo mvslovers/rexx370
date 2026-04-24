@@ -61,6 +61,31 @@ entry = "IRXANCHR"
 options = ["LIST", "MAP", "XREF", "REUS"]
 include = ["IRXANCHR"]
 
+# ---------------------------------------------------------------
+# IRXPARMS / IRXTSPRM / IRXISPRM - Default Parameter Modules.
+# Static data objects: PARMBLOCK + MODNAMET + SUBCOMTB + PACKTB.
+# Loaded by IRXINIT via LOAD EP=IRXxxxxx when the caller supplies
+# no explicit PARMBLOCK (CON-1 §6.3, step 4).
+# No C runtime — pure assembler data objects.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "IRXPARMS"
+entry = "IRXPARMS"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = ["IRXPARMS"]
+
+[[link.module]]
+name = "IRXTSPRM"
+entry = "IRXTSPRM"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = ["IRXTSPRM"]
+
+[[link.module]]
+name = "IRXISPRM"
+entry = "IRXISPRM"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = ["IRXISPRM"]
+
 [[link.module]]
 name = "IRXTMPW"
 entry = "IRXTMPW"
