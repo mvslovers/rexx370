@@ -59,8 +59,8 @@ static int tests_skipped = 0;
 
 /* Fake envblock and TCB addresses — small integers cast to pointers.
  * Functions compare these numerically (uint32_t) and never dereference. */
-#define ENV(n) ((void *)(uintptr_t)(0x1000U * (unsigned)(n)))
-#define TCB(n) ((void *)(uintptr_t)(0x100U * (unsigned)(n)))
+#define ENV(n) ((void *)(unsigned long)(0x1000U * (unsigned)(n)))
+#define TCB(n) ((void *)(unsigned long)(0x100U * (unsigned)(n)))
 
 /* Convenience: get slot array from the live IRXANCHR handle. */
 static irxanchr_entry_t *get_slots(void)
@@ -105,7 +105,7 @@ static void test_1_round_trip(void)
     CHECK(e != NULL, "T1: find_by_envblock returns non-NULL");
     CHECK(e != NULL && e->token == 1, "T1: found slot has token 1");
     CHECK(e != NULL &&
-              e->tcb_ptr == (uint32_t)(uintptr_t)TCB(1),
+              e->tcb_ptr == (uint32_t)(unsigned long)TCB(1),
           "T1: found slot has correct tcb_ptr");
     CHECK(e != NULL && (e->flags & IRXANCHR_FLAG_IN_USE),
           "T1: found slot has IN_USE flag");
@@ -133,20 +133,20 @@ static void test_2_hwm_no_recycle(void)
 
     irx_anchor_alloc_slot(ENV(2), TCB(1), &tok_a);
     CHECK(slots != NULL &&
-              slots[1].envblock_ptr == (uint32_t)(uintptr_t)ENV(2),
+              slots[1].envblock_ptr == (uint32_t)(unsigned long)ENV(2),
           "T2: env_A lands in slot 1");
     CHECK(get_used() == 2, "T2: USED = 2 after env_A");
 
     /* Slot 2 is a permanent sentinel — env_B must skip it → slot 3. */
     irx_anchor_alloc_slot(ENV(3), TCB(1), &tok_b);
     CHECK(slots != NULL &&
-              slots[3].envblock_ptr == (uint32_t)(uintptr_t)ENV(3),
+              slots[3].envblock_ptr == (uint32_t)(unsigned long)ENV(3),
           "T2: env_B lands in slot 3 (slot 2 is sentinel)");
     CHECK(get_used() == 4, "T2: USED = 4 after env_B");
 
     irx_anchor_alloc_slot(ENV(4), TCB(1), &tok_c);
     CHECK(slots != NULL &&
-              slots[4].envblock_ptr == (uint32_t)(uintptr_t)ENV(4),
+              slots[4].envblock_ptr == (uint32_t)(unsigned long)ENV(4),
           "T2: env_C lands in slot 4");
     CHECK(get_used() == 5, "T2: USED = 5 after env_C");
 
@@ -156,7 +156,7 @@ static void test_2_hwm_no_recycle(void)
     /* Append-only: next alloc starts at USED=5, not recycled slot 3. */
     irx_anchor_alloc_slot(ENV(5), TCB(1), &tok_d);
     CHECK(slots != NULL &&
-              slots[5].envblock_ptr == (uint32_t)(uintptr_t)ENV(5),
+              slots[5].envblock_ptr == (uint32_t)(unsigned long)ENV(5),
           "T2: env_D lands in slot 5 (no recycling of freed slot 3)");
     CHECK(get_used() == 6, "T2: USED = 6 after env_D");
 
@@ -270,12 +270,12 @@ static void test_6_find_by_tcb(void)
     CHECK(found != NULL, "T6: find_by_tcb(tcb2) returns non-NULL");
     /* env_B was allocated second for tcb2 so it has the higher token. */
     CHECK(found != NULL &&
-              found->envblock_ptr == (uint32_t)(uintptr_t)ENV(31),
+              found->envblock_ptr == (uint32_t)(unsigned long)ENV(31),
           "T6: find_by_tcb(tcb2) returns highest-token entry (env_B)");
 
     found = irx_anchor_find_by_tcb(TCB(3));
     CHECK(found != NULL &&
-              found->envblock_ptr == (uint32_t)(uintptr_t)ENV(32),
+              found->envblock_ptr == (uint32_t)(unsigned long)ENV(32),
           "T6: find_by_tcb(tcb3) returns env_C");
 
     found = irx_anchor_find_by_tcb(TCB(4));

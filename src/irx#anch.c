@@ -322,7 +322,7 @@ int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token)
 
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
     counter = (uint32_t *)(void *)hdr->reserved; /* token counter @ header+0x18 */
-    ebptr = (uint32_t)(uintptr_t)envblock;
+    ebptr = (uint32_t)(unsigned long)envblock;
 
     /* Append-only from USED — free slots below the high-watermark are
      * never recycled (IBM-observed behaviour, CON-4 deviation register). */
@@ -355,7 +355,7 @@ int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token)
         /* Populate aux fields before bumping USED: a concurrent
          * find_by_tcb scans 0..USED and must see a complete entry. */
         slots[i].token = anchor_fetch_inc(counter) + 1U;
-        slots[i].tcb_ptr = (uint32_t)(uintptr_t)tcb;
+        slots[i].tcb_ptr = (uint32_t)(unsigned long)tcb;
         slots[i].flags = IRXANCHR_FLAG_IN_USE;
 
         /* USED = max(USED, i+1). Plain store is safe: no SVCs exist
@@ -390,7 +390,7 @@ int irx_anchor_free_slot(void *envblock)
     }
 
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
-    ebptr = (uint32_t)(uintptr_t)envblock;
+    ebptr = (uint32_t)(unsigned long)envblock;
 
     for (i = 0; i <= hdr->used && i < hdr->total; i++)
     {
@@ -425,7 +425,7 @@ irxanchr_entry_t *irx_anchor_find_by_envblock(void *envblock)
     }
 
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
-    ebptr = (uint32_t)(uintptr_t)envblock;
+    ebptr = (uint32_t)(unsigned long)envblock;
 
     for (i = 0; i <= hdr->used && i < hdr->total; i++)
     {
@@ -457,7 +457,7 @@ irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb)
     }
 
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
-    tcbptr = (uint32_t)(uintptr_t)tcb;
+    tcbptr = (uint32_t)(unsigned long)tcb;
 
     for (i = 0; i <= hdr->used && i < hdr->total; i++)
     {
