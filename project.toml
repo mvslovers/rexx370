@@ -78,34 +78,34 @@ include = ["IRXTMPW"]
 # implemented yet — IRXJCL's link step is expected to fail at this
 # phase, TSTANCH must not be blocked by it.
 # ---------------------------------------------------------------
-# [[link.module]]
-# name = "TSTANCH"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTANCH",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
+[[link.module]]
+name = "TSTANCH"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTANCH",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
 
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # IRX#HELO - "Hello World" demo standalone load module.
@@ -183,63 +183,63 @@ include = [
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-# [[link.module]]
-# name = "TSTPHAS1"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTPHAS1",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
+[[link.module]]
+name = "TSTPHAS1"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTPHAS1",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
 
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
-# [[link.module]]
-# name = "TSTANRM"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTANRM",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
+[[link.module]]
+name = "TSTANRM"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTANRM",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
 
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTANSL - WP-I1a.3 IRXANCHR Slot-Management-API unit tests.
@@ -277,366 +277,24 @@ include = ["@@CRT1", "IRXDBG", "IRX#ANCH"]
 # options = ["LIST", "MAP", "XREF", "RENT"]
 # include = ["@@CRT1", "TSTANSL", "IRX#ANCH"]
 
-# [[link.module]]
-# name = "TSTLSTR"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTLSTR",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTVPOL"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTVPOL",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTPRSR"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTPRSR",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTSAY"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTSAY",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTCTRL"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTCTRL",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTHELO"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTHELO",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTPARSE"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTPARSE",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTPROC"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTPROC",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTARIT"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTARIT",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTAREXT"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTAREXT",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTBIF"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTBIF",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
-# [[link.module]]
-# name = "TSTBIFS"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "TSTBIFS",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
-
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
-
 # ---------------------------------------------------------------
-# IRXJCL - Batch entry point (PGM=IRXJCL)
-# The main REXX interpreter for batch execution.
-# Contains IRXINIT/IRXTERM and all Phase 1+ modules.
+# TSTINIT - WP-I1c.1 IRXINIT INITENVB C-Core unit tests.
+# Tests irx_init_initenvb() and the irxinit() compat wrapper.
+# Full Phase 1 + Phase 2 + EXEC + ARIT dep chain (see TSTANCH).
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTINIT)'
+#   Batch  :  EXEC PGM=TSTINIT
+#
+# Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
 [[link.module]]
-name = "IRXJCL"
+name = "TSTINIT"
 entry = "@@CRT0"
 options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
   "@@CRT1",
-  "IRXJCL",
+  "TSTINIT",
   "IRX#INIT",
   "IRX#TERM",
   "IRX#STOR",
@@ -655,6 +313,389 @@ include = [
   "IRX#EXEC",
   "IRX#ARIT",
 ]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTLSTR"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTLSTR",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTVPOL"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTVPOL",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTPRSR"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTPRSR",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTSAY"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTSAY",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTCTRL"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTCTRL",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTHELO"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTHELO",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTPARSE"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTPARSE",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTPROC"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTPROC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTARIT"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTARIT",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTAREXT"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTAREXT",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTBIF"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTBIF",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+[[link.module]]
+name = "TSTBIFS"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTBIFS",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
+# IRXJCL - Batch entry point (PGM=IRXJCL)
+# The main REXX interpreter for batch execution.
+# Contains IRXINIT/IRXTERM and all Phase 1+ modules.
+# Commented out: IRXJCL CSECT not yet implemented.
+# ---------------------------------------------------------------
+# [[link.module]]
+# name = "IRXJCL"
+# entry = "@@CRT0"
+# options = ["LIST", "MAP", "XREF", "RENT"]
+# include = [
+#   "@@CRT1",
+#   "IRXJCL",
+#   "IRX#INIT",
+#   "IRX#TERM",
+#   "IRX#STOR",
+#   "IRX#ANCH",
+#   "IRX#UID",
+#   "IRX#MSID",
+#   "IRX#COND",
+#   "IRX#BIF",
+#   "IRX#BIFS",
+#   "IRX#IO",
+#   "IRX#LSTR",
+#   "IRX#TOKN",
+#   "IRX#VPOL",
+#   "IRX#PARS",
+#   "IRX#CTRL",
+#   "IRX#EXEC",
+#   "IRX#ARIT",
+# ]
 
 # ---------------------------------------------------------------
 # IRXEXCOM - Variable access (separate load module per IBM spec)
