@@ -466,7 +466,7 @@ cleanup:
 }
 
 /* ================================================================== */
-/*  irx_init_findenvb — FINDENVB C-core (WP-I1c.2)                   */
+/*  irx_findenvb — FINDENVB C-core (WP-I1c.2)                   */
 /*                                                                    */
 /*  Returns the most recently allocated (highest token) active,       */
 /*  non-reentrant IRXANCHR slot whose TCB matches PSATOLD.            */
@@ -483,7 +483,7 @@ cleanup:
 /*  Returns: 0=found, 4=no non-reentrant env on this TCB.            */
 /* ================================================================== */
 
-int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
+int irx_findenvb(struct envblock **out_envblock, int *out_reason_code)
 {
     irxanchr_header_t *hdr;
     irxanchr_entry_t *slots;
@@ -589,7 +589,7 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
 }
 
 /* ================================================================== */
-/*  irx_init_chekenvb — CHEKENVB C-core (WP-I1c.2)                   */
+/*  irx_chekenvb — CHEKENVB C-core (WP-I1c.2)                   */
 /*                                                                    */
 /*  Validates a caller-supplied ENVBLOCK address by checking          */
 /*  (1) the 'ENVBLOCK' eye-catcher at offset +0 and                  */
@@ -598,7 +598,7 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
 /*  Returns: 0=valid, 20=invalid (out_reason_code set).              */
 /* ================================================================== */
 
-int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code)
+int irx_chekenvb(struct envblock *envblock, int *out_reason_code)
 {
     irxanchr_entry_t *slot;
 
@@ -629,7 +629,7 @@ int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code)
 }
 
 /* ================================================================== */
-/*  irx_init_dispatch — central IRXINIT dispatcher (WP-I1c.2)        */
+/*  irx_dispatch — central IRXINIT dispatcher (WP-I1c.2)             */
 /*                                                                    */
 /*  Routes a CL8 function code to the appropriate C-core.            */
 /*  Designed so WP-I1c.5 (HLASM entry-point wrapper) can call a      */
@@ -638,12 +638,12 @@ int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code)
 /*  Unknown function code: RC=20, RSN=12.                            */
 /* ================================================================== */
 
-int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
-                      struct envblock *prev_envblock,
-                      struct parmblock *caller_parmblock,
-                      uint32_t user_field,
-                      struct envblock **envblock_inout,
-                      int *out_reason_code)
+int irx_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
+                 struct envblock *prev_envblock,
+                 struct parmblock *caller_parmblock,
+                 uint32_t user_field,
+                 struct envblock **envblock_inout,
+                 int *out_reason_code)
 {
     if (funccode == NULL || envblock_inout == NULL || out_reason_code == NULL)
     {
@@ -665,7 +665,7 @@ int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
         (void)prev_envblock;
         (void)caller_parmblock;
         (void)user_field;
-        return irx_init_findenvb(envblock_inout, out_reason_code);
+        return irx_findenvb(envblock_inout, out_reason_code);
     }
 
     if (memcmp(funccode, "CHEKENVB", 8) == 0)
@@ -673,7 +673,7 @@ int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
         (void)prev_envblock;
         (void)caller_parmblock;
         (void)user_field;
-        return irx_init_chekenvb(*envblock_inout, out_reason_code);
+        return irx_chekenvb(*envblock_inout, out_reason_code);
     }
 
     *out_reason_code = 12;

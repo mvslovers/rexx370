@@ -3,9 +3,9 @@
 /*                                                                    */
 /*  Internal signatures for IRXINIT function-code implementations:   */
 /*    irx_init_initenvb  - INITENVB 9-step C-core (WP-I1c.1)         */
-/*    irx_init_findenvb  - FINDENVB: locate non-reentrant env on TCB  */
-/*    irx_init_chekenvb  - CHEKENVB: validate an ENVBLOCK address     */
-/*    irx_init_dispatch  - central dispatcher keyed on CL8 funccode   */
+/*    irx_findenvb  - FINDENVB: locate non-reentrant env on TCB  */
+/*    irx_chekenvb  - CHEKENVB: validate an ENVBLOCK address     */
+/*    irx_dispatch  - central dispatcher keyed on CL8 funccode   */
 /*                                                                    */
 /*  Ref: SC28-1883-0 §14 (IRXINIT FINDENVB / CHEKENVB)               */
 /*  Ref: CON-1 §6.2 (env-type detection), §6.3 (previous-env lookup) */
@@ -55,7 +55,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
                       int *out_reason_code);
 
 /* ------------------------------------------------------------------ */
-/*  irx_init_findenvb - locate non-reentrant env on caller TCB        */
+/*  irx_findenvb - locate non-reentrant env on caller TCB        */
 /*                                                                    */
 /*  Searches the IRXANCHR table for the most recently allocated       */
 /*  (highest token) active, non-reentrant slot whose TCB matches      */
@@ -67,10 +67,10 @@ int irx_init_initenvb(struct envblock *prev_envblock,
 /*                                                                    */
 /*  Returns: 0=found (RC=0), 4=not found (RC=4, RSN=4).              */
 /* ------------------------------------------------------------------ */
-int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code);
+int irx_findenvb(struct envblock **out_envblock, int *out_reason_code);
 
 /* ------------------------------------------------------------------ */
-/*  irx_init_chekenvb - validate an ENVBLOCK address                  */
+/*  irx_chekenvb - validate an ENVBLOCK address                  */
 /*                                                                    */
 /*  Checks (1) that the caller-supplied address carries the           */
 /*  'ENVBLOCK' eye-catcher and (2) that it is registered in an        */
@@ -83,10 +83,10 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code);
 /*                                                                    */
 /*  Returns: 0=valid (RC=0), 20=invalid (RC=20, RSN set).            */
 /* ------------------------------------------------------------------ */
-int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code);
+int irx_chekenvb(struct envblock *envblock, int *out_reason_code);
 
 /* ------------------------------------------------------------------ */
-/*  irx_init_dispatch - central IRXINIT function-code dispatcher      */
+/*  irx_dispatch - central IRXINIT function-code dispatcher      */
 /*                                                                    */
 /*  Routes on the 8-byte (CL8) function code string to the           */
 /*  appropriate C-core function.  Designed for WP-I1c.5 (HLASM       */
@@ -107,11 +107,11 @@ int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code);
 /*  Returns: as per the dispatched function code, or 20 on unknown   */
 /*           function code (out_reason_code = 12).                   */
 /* ------------------------------------------------------------------ */
-int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
-                      struct envblock *prev_envblock,
-                      struct parmblock *caller_parmblock,
-                      uint32_t user_field,
-                      struct envblock **envblock_inout,
-                      int *out_reason_code);
+int irx_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
+                 struct envblock *prev_envblock,
+                 struct parmblock *caller_parmblock,
+                 uint32_t user_field,
+                 struct envblock **envblock_inout,
+                 int *out_reason_code);
 
 #endif /* IRX_INIT_H */
