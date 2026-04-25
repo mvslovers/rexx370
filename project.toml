@@ -342,6 +342,47 @@ include = [
 [link.module.dep_includes]
 "mvslovers/lstring370" = "*"
 
+# ---------------------------------------------------------------
+# TSTFIND - WP-I1c.2 IRXINIT FINDENVB + CHEKENVB unit tests.
+# Tests irx_init_findenvb(), irx_init_chekenvb(), and
+# irx_init_dispatch() for both function codes.
+# Full Phase 1 + Phase 2 + EXEC + ARIT dep chain (see TSTINIT).
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTFIND)'
+#   Batch  :  EXEC PGM=TSTFIND
+#
+# Exit code: 0 on success, 1 on any test failure.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTFIND"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTFIND",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
 [[link.module]]
 name = "TSTLSTR"
 entry = "@@CRT0"
