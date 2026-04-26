@@ -26,7 +26,7 @@ IRXTSPRM CSECT
          DC    A(SUBCOMTB)         +0x14  -> SUBCOMTB header
          DC    A(PACKTB)           +0x18  -> PACKTB header
          DC    CL8'        '       +0x1C  parse source token (blank)
-         DC    X'8000C000'         +0x24  FLAGS: TSOFL | ALTMSGS | SPSHARE
+         DC    X'8000C000'         +0x24  FLAGS: TSOFL|ALTMSGS|SPSHARE
          DC    X'FFFFFFFF'         +0x28  MASKS: all bits active
          DC    F'78'               +0x2C  SUBPOOL 78 (TSO private)
          DC    CL8'TSO/E   '       +0x30  ADDRSPN
@@ -37,7 +37,7 @@ IRXTSPRM CSECT
 MODNAMET DC    CL8'SYSTSIN '       DD names (3 fields)
          DC    CL8'SYSTSPRT'
          DC    CL8'SYSEXEC '
-         DC    CL8'        '       replaceable routines (10 blank slots)
+         DC    CL8'        '       replaceable routine slots
          DC    CL8'        '
          DC    CL8'        '
          DC    CL8'        '

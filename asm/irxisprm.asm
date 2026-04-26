@@ -25,11 +25,11 @@ IRXISPRM CSECT
          DC    CL4'0042'           +0x08  version (rexx370 deviation)
          DC    CL3'AE '            +0x0C  language: 2-byte NLS code
          DC    XL1'00'             +0x0F  reserved (_filler1)
-         DC    A(0)                +0x10  -> MODNAMET (inherit from parent)
+         DC    A(0)                +0x10  -> MODNAMET (NULL=parent)
          DC    A(SUBCOMTB)         +0x14  -> SUBCOMTB header
          DC    A(PACKTB)           +0x18  -> PACKTB header
          DC    CL8'        '       +0x1C  parse source token (blank)
-         DC    X'81004000'         +0x24  FLAGS: TSOFL | NEWSTKFL | SPSHARE
+         DC    X'81004000'         +0x24  FLAGS: TSOFL|NEWSTKFL|SPSHARE
          DC    X'FFFFFFFF'         +0x28  MASKS: all bits active
          DC    F'78'               +0x2C  SUBPOOL 78 (TSO private)
          DC    CL8'ISPF    '       +0x30  ADDRSPN

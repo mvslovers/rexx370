@@ -466,6 +466,221 @@ cleanup:
 }
 
 /* ================================================================== */
+/*  irx_findenvb — FINDENVB C-core (WP-I1c.2)                   */
+/*                                                                    */
+/*  Returns the most recently allocated (highest token) active,       */
+/*  non-reentrant IRXANCHR slot whose TCB matches PSATOLD.            */
+/*                                                                    */
+/*  We iterate the table directly (rather than calling                */
+/*  irx_anchor_find_by_tcb) for two reasons:                          */
+/*    1. irx_anchor_find_by_tcb returns the highest-token entry       */
+/*       regardless of the RENTRANT flag; we need to skip reentrant   */
+/*       environments.                                                */
+/*    2. irx_anchor_find_by_tcb early-exits on NULL tcb, but on the  */
+/*       cross-compile host all slots record tcb_ptr=0 (PSATOLD is   */
+/*       unavailable), so the NULL guard would prevent host testing.  */
+/*                                                                    */
+/*  Returns: 0=found, 4=no non-reentrant env on this TCB.            */
+/* ================================================================== */
+
+int irx_findenvb(struct envblock **out_envblock, int *out_reason_code)
+{
+    irxanchr_header_t *hdr;
+    irxanchr_entry_t *slots;
+    irxanchr_entry_t *best = NULL;
+    uint32_t tcbptr;
+    uint32_t i;
+
+    if (out_envblock == NULL || out_reason_code == NULL)
+    {
+        if (out_reason_code != NULL)
+        {
+            *out_reason_code = 4;
+        }
+        return 4;
+    }
+
+    *out_envblock = NULL;
+    *out_reason_code = 0;
+
+    {
+        void *tcb = NULL;
+#ifdef __MVS__
+        tcb = *(void **)0x21C; /* PSATOLD */
+#endif
+        tcbptr = (uint32_t)(unsigned long)tcb;
+    }
+
+    if (irx_anchor_get_handle(&hdr) != IRX_ANCHOR_RC_OK)
+    {
+        *out_reason_code = 4;
+        return 4;
+    }
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+
+    for (i = 0; i < hdr->used; i++)
+    {
+        struct envblock *eb;
+        struct parmblock *pb;
+
+        if (slots[i].envblock_ptr == IRXANCHR_SLOT_FREE ||
+            slots[i].envblock_ptr == IRXANCHR_SLOT_SENTINEL)
+        {
+            continue;
+        }
+        if (!(slots[i].flags & IRXANCHR_FLAG_IN_USE))
+        {
+            continue;
+        }
+        if (slots[i].tcb_ptr != tcbptr)
+        {
+            continue;
+        }
+
+        /* On MVS (24-bit), the stored uint32_t holds the full address.
+         * On the 64-bit cross-compile host, alloc_slot stashed the full
+         * pointer in rsvd1 to avoid truncation (see irx#anch.c). */
+#ifdef __MVS__
+        eb = (struct envblock *)(unsigned long)slots[i].envblock_ptr;
+#else
+        {
+            void *full_ptr = NULL;
+            memcpy(&full_ptr, slots[i].rsvd1, sizeof(void *));
+            eb = (struct envblock *)full_ptr;
+        }
+#endif
+        if (eb == NULL || memcmp(eb->envblock_id, ENVBLOCK_ID, 8) != 0)
+        {
+            continue;
+        }
+
+        /* FINDENVB only returns non-reentrant environments (SC28-1883-0 §14). */
+        pb = (struct parmblock *)eb->envblock_parmblock;
+        if (pb != NULL && pb->rentrant)
+        {
+            continue;
+        }
+
+        if (best == NULL || slots[i].token > best->token)
+        {
+            best = &slots[i];
+        }
+    }
+
+    if (best == NULL)
+    {
+        *out_reason_code = 4;
+        return 4;
+    }
+
+    /* Return the envblock address using the same full-pointer recovery
+     * as used in the loop above to avoid 32-bit truncation on host. */
+#ifdef __MVS__
+    *out_envblock = (struct envblock *)(unsigned long)best->envblock_ptr;
+#else
+    {
+        void *full_ptr = NULL;
+        memcpy(&full_ptr, best->rsvd1, sizeof(void *));
+        *out_envblock = (struct envblock *)full_ptr;
+    }
+#endif
+    return 0;
+}
+
+/* ================================================================== */
+/*  irx_chekenvb — CHEKENVB C-core (WP-I1c.2)                   */
+/*                                                                    */
+/*  Validates a caller-supplied ENVBLOCK address by checking          */
+/*  (1) the 'ENVBLOCK' eye-catcher at offset +0 and                  */
+/*  (2) that the address appears in an active IRXANCHR slot.          */
+/*                                                                    */
+/*  Returns: 0=valid, 20=invalid (out_reason_code set).              */
+/* ================================================================== */
+
+int irx_chekenvb(struct envblock *envblock, int *out_reason_code)
+{
+    irxanchr_entry_t *slot;
+
+    if (out_reason_code == NULL)
+    {
+        return 20;
+    }
+
+    *out_reason_code = 0;
+
+    /* NULL or missing eye-catcher — cannot be a valid ENVBLOCK. */
+    if (envblock == NULL ||
+        memcmp(envblock->envblock_id, ENVBLOCK_ID, 8) != 0)
+    {
+        *out_reason_code = 4;
+        return 20;
+    }
+
+    /* Eye-catcher is present; confirm it is registered in IRXANCHR. */
+    slot = irx_anchor_find_by_envblock(envblock);
+    if (slot == NULL)
+    {
+        *out_reason_code = 8;
+        return 20;
+    }
+
+    return 0;
+}
+
+/* ================================================================== */
+/*  irx_dispatch — central IRXINIT dispatcher (WP-I1c.2)             */
+/*                                                                    */
+/*  Routes a CL8 function code to the appropriate C-core.            */
+/*  Designed so WP-I1c.5 (HLASM entry-point wrapper) can call a      */
+/*  single C entry point after parsing the caller VLIST.             */
+/*                                                                    */
+/*  Unknown function code: RC=20, RSN=12.                            */
+/* ================================================================== */
+
+int irx_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
+                 struct envblock *prev_envblock,
+                 struct parmblock *caller_parmblock,
+                 uint32_t user_field,
+                 struct envblock **envblock_inout,
+                 int *out_reason_code)
+{
+    if (funccode == NULL || envblock_inout == NULL || out_reason_code == NULL)
+    {
+        if (out_reason_code != NULL)
+        {
+            *out_reason_code = 12;
+        }
+        return 20;
+    }
+
+    if (memcmp(funccode, "INITENVB", 8) == 0)
+    {
+        return irx_init_initenvb(prev_envblock, caller_parmblock,
+                                 user_field, envblock_inout, out_reason_code);
+    }
+
+    if (memcmp(funccode, "FINDENVB", 8) == 0)
+    {
+        (void)prev_envblock;
+        (void)caller_parmblock;
+        (void)user_field;
+        return irx_findenvb(envblock_inout, out_reason_code);
+    }
+
+    if (memcmp(funccode, "CHEKENVB", 8) == 0)
+    {
+        (void)prev_envblock;
+        (void)caller_parmblock;
+        (void)user_field;
+        return irx_chekenvb(*envblock_inout, out_reason_code);
+    }
+
+    *out_reason_code = 12;
+    return 20;
+}
+
+/* ================================================================== */
 /*  irxinit — IBM-compatible IRXINIT wrapper                         */
 /*                                                                    */
 /*  Calls irx_init_initenvb() for the core 9 steps, then installs    */
