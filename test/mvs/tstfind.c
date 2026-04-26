@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------ */
 /*  tstfind.c - WP-I1c.2 IRXINIT FINDENVB + CHEKENVB tests           */
 /*                                                                    */
-/*  Tests irx_findenvb() and irx_chekenvb().                */
-/*  Also exercises irx_dispatch() for both function codes.       */
+/*  Tests irx_init_findenvb() and irx_init_chekenvb().                */
+/*  Also exercises irx_init_dispatch() for both function codes.       */
 /*                                                                    */
 /*  Test cases:                                                       */
 /*                                                                    */
@@ -11,7 +11,7 @@
 /*  F2: One non-reentrant env on current TCB — RC=0, correct envblk  */
 /*  F3: One reentrant env on current TCB — RC=4, RSN=4               */
 /*  F4: Two non-reentrant envs on same TCB — returns highest token   */
-/*  F5: via irx_dispatch("FINDENVB") — same result              */
+/*  F5: via irx_init_dispatch("FINDENVB") — same result              */
 /*                                                                    */
 /*  Note: F2 and F4 require a real PSATOLD (MVS-only). On the host   */
 /*  cross-compile, the TCB address is 0 and all irx_init_initenvb()  */
@@ -25,7 +25,7 @@
 /*  C3: Stack envblock with bad eye-catcher — RC=20, RSN=4           */
 /*  C4: Stack envblock with correct eye-catcher, not in IRXANCHR —   */
 /*      RC=20, RSN=8                                                  */
-/*  C5: via irx_dispatch("CHEKENVB") — same result as direct    */
+/*  C5: via irx_init_dispatch("CHEKENVB") — same result as direct    */
 /*                                                                    */
 /*  Cross-compile build:                                              */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -95,7 +95,7 @@ static void test_f1_empty_table(void)
 
     irx_anchor_table_reset();
 
-    rc = irx_findenvb(&found, &reason);
+    rc = irx_init_findenvb(&found, &reason);
 
     CHECK(rc == 4, "findenvb returns 4 when table is empty");
     CHECK(found == NULL, "out_envblock is NULL when not found");
@@ -141,7 +141,7 @@ static void test_f2_nonreentrant_env(void)
 
     found = NULL;
     reason = -1;
-    rc = irx_findenvb(&found, &reason);
+    rc = irx_init_findenvb(&found, &reason);
 
     CHECK(rc == 0, "findenvb returns 0 for non-reentrant env on current TCB");
     CHECK(found == envblk, "findenvb returns the correct envblock");
@@ -192,7 +192,7 @@ static void test_f3_reentrant_env(void)
 
     found = NULL;
     reason = -1;
-    rc = irx_findenvb(&found, &reason);
+    rc = irx_init_findenvb(&found, &reason);
 
     CHECK(rc == 4, "findenvb returns 4 when only reentrant env is present");
     CHECK(found == NULL, "out_envblock is NULL for reentrant-only table");
@@ -243,7 +243,7 @@ static void test_f4_highest_token_returned(void)
 
     found = NULL;
     reason = -1;
-    rc = irx_findenvb(&found, &reason);
+    rc = irx_init_findenvb(&found, &reason);
 
     CHECK(rc == 0, "findenvb returns 0 with two non-reentrant envs");
     /* env2 was allocated last → higher token → must be returned. */
@@ -254,7 +254,7 @@ static void test_f4_highest_token_returned(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  F5: irx_dispatch("FINDENVB") — same result as direct call    */
+/*  F5: irx_init_dispatch("FINDENVB") — same result as direct call    */
 /* ------------------------------------------------------------------ */
 
 static void test_f5_dispatch_findenvb(void)
@@ -286,7 +286,7 @@ static void test_f5_dispatch_findenvb(void)
 
     found = NULL;
     reason = -1;
-    rc = irx_dispatch("FINDENVB", NULL, NULL, 0, &found, &reason);
+    rc = irx_init_dispatch("FINDENVB", NULL, NULL, 0, &found, &reason);
 
     CHECK(rc == 0, "dispatch FINDENVB returns 0");
     CHECK(found == envblk, "dispatch FINDENVB returns correct envblock");
@@ -312,7 +312,7 @@ static void test_c1_null_envblock(void)
 
     irx_anchor_table_reset();
 
-    rc = irx_chekenvb(NULL, &reason);
+    rc = irx_init_chekenvb(NULL, &reason);
 
     CHECK(rc == 20, "chekenvb returns 20 for NULL envblock");
     CHECK(reason == 4, "reason code is 4 for NULL (bad eye-catcher)");
@@ -349,7 +349,7 @@ static void test_c2_valid_envblock(void)
     }
 
     reason = -1;
-    rc = irx_chekenvb(envblk, &reason);
+    rc = irx_init_chekenvb(envblk, &reason);
 
     CHECK(rc == 0, "chekenvb returns 0 for valid registered envblock");
     CHECK(reason == 0, "reason code is 0 on success");
@@ -374,7 +374,7 @@ static void test_c3_bad_eyecatcher(void)
     memset(&fake, 0, sizeof(fake));
     memcpy(fake.envblock_id, "GARBAGE!", 8);
 
-    rc = irx_chekenvb(&fake, &reason);
+    rc = irx_init_chekenvb(&fake, &reason);
 
     CHECK(rc == 20, "chekenvb returns 20 for bad eye-catcher");
     CHECK(reason == 4, "reason code is 4 for bad eye-catcher");
@@ -401,14 +401,14 @@ static void test_c4_not_in_anchor(void)
     memcpy(unregistered.envblock_id, ENVBLOCK_ID, 8);
     memcpy(unregistered.envblock_version, ENVBLOCK_VERSION_0042, 4);
 
-    rc = irx_chekenvb(&unregistered, &reason);
+    rc = irx_init_chekenvb(&unregistered, &reason);
 
     CHECK(rc == 20, "chekenvb returns 20 when not in IRXANCHR");
     CHECK(reason == 8, "reason code is 8 (not registered)");
 }
 
 /* ------------------------------------------------------------------ */
-/*  C5: irx_dispatch("CHEKENVB") — same result as direct call    */
+/*  C5: irx_init_dispatch("CHEKENVB") — same result as direct call    */
 /* ------------------------------------------------------------------ */
 
 static void test_c5_dispatch_chekenvb(void)
@@ -427,7 +427,7 @@ static void test_c5_dispatch_chekenvb(void)
     eb = &fake;
 
     /* Pass the bad-eye-catcher case through the dispatcher. */
-    rc = irx_dispatch("CHEKENVB", NULL, NULL, 0, &eb, &reason);
+    rc = irx_init_dispatch("CHEKENVB", NULL, NULL, 0, &eb, &reason);
 
     CHECK(rc == 20, "dispatch CHEKENVB returns 20 for bad eye-catcher");
     CHECK(reason == 4, "dispatch CHEKENVB reason is 4");
