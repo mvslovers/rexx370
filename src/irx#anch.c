@@ -351,7 +351,7 @@ int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token)
         slots[i].flags = IRXANCHR_FLAG_IN_USE;
 #ifndef __MVS__
         /* On the 64-bit cross-compile host, envblock_ptr truncates the
-         * pointer to 32 bits.  irx_findenvb needs to dereference
+         * pointer to 32 bits.  irx_init_findenvb needs to dereference
          * the envblock to read the RENTRANT flag; stash the full host
          * pointer in rsvd1[0..sizeof(void*)-1] so it can recover it.
          * rsvd1 is undefined-use reserved space — this is the only

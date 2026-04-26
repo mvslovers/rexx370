@@ -148,7 +148,15 @@ typedef struct
 {
     uint32_t envblock_ptr; /* +0x00  ENVBLOCK addr; IRXANCHR_SLOT_FREE = free */
     uint32_t token;        /* +0x04  slot token returned to allocator         */
-    uint8_t rsvd1[16];     /* +0x08  reserved                                 */
+    uint8_t rsvd1[16];     /* +0x08  reserved on MVS (24-bit: envblock_ptr
+                            *        holds the full address).
+                            * On 64-bit cross-compile host only: bytes
+                            * [0..sizeof(void*)-1] stash the full envblock
+                            * pointer because envblock_ptr truncates to 32
+                            * bits.  Written by irx#anch.c alloc_slot(),
+                            * read by irx#init.c irx_init_findenvb().
+                            * No other writer exists; table_reset clears
+                            * all slots including rsvd1. */
     uint32_t anchor_hint;  /* +0x18  opaque hint for fast slot re-find        */
     uint32_t tcb_ptr;      /* +0x1C  TCB address at alloc time                */
     uint32_t flags;        /* +0x20  IRXANCHR_FLAG_IN_USE when active         */
