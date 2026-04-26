@@ -173,17 +173,15 @@ static void case_a_empty_slot_baseline(void)
               "slot claimed: anch_curr() == env (was NULL at push)"),
         "slot claimed: anch_curr() == env");
 
-    {
-        struct envblock *slot_before = anch_curr(); /* save before irxterm */
-        rc = irxterm(env);
-        CHECK(rc == 0, "irxterm returns 0");
-        /* CON-3: IRXTERM does not touch ECTENVBK. The slot retains its
-         * pre-term value regardless of whether we were the holder. */
-        CHECK(anch_curr() == slot_before,
-              "ECTENVBK unchanged after irxterm (CON-3)");
-        /* Caller-side cleanup. */
-        _test_set_anchor(NULL);
-    }
+    struct envblock *slot_before = anch_curr(); /* save before irxterm */
+    rc = irxterm(env);
+    CHECK(rc == 0, "irxterm returns 0");
+    /* CON-3: IRXTERM does not touch ECTENVBK. The slot retains its
+     * pre-term value regardless of whether we were the holder. */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after irxterm (CON-3)");
+    /* Caller-side cleanup. */
+    _test_set_anchor(NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -267,16 +265,14 @@ static void case_c_own_env_stacking(void)
               "slot still outer (inner was not the holder; CON-3 no-op)"),
         "slot still outer after inner irxterm");
 
-    {
-        struct envblock *slot_before = anch_curr(); /* save before outer irxterm */
-        rc = irxterm(outer);
-        CHECK(rc == 0, "outer irxterm returns 0");
-        /* CON-3: IRXTERM does not touch ECTENVBK. */
-        CHECK(anch_curr() == slot_before,
-              "ECTENVBK unchanged after outer irxterm (CON-3)");
-        /* Caller-side cleanup. */
-        _test_set_anchor(NULL);
-    }
+    struct envblock *slot_before = anch_curr(); /* save before outer irxterm */
+    rc = irxterm(outer);
+    CHECK(rc == 0, "outer irxterm returns 0");
+    /* CON-3: IRXTERM does not touch ECTENVBK. */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after outer irxterm (CON-3)");
+    /* Caller-side cleanup. */
+    _test_set_anchor(NULL);
 }
 
 /* ------------------------------------------------------------------ */

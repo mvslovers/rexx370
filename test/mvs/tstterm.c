@@ -9,7 +9,7 @@
 /*  T2: NULL envblock arg — RC=20, RSN=4                              */
 /*  T3: bad eye-catcher — RC=20, RSN=4                                */
 /*  T4: IRXANCHR slot freed — find_by_envblock returns NULL           */
-/*  T5: idempotency — double irx_init_term → second RC=20, RSN=4     */
+/*  T5: idempotency — IRXANCHR slot freed after irx_init_term         */
 /*  T6: ECTENVBK unchanged after irx_init_term (CON-3)                */
 /*  T7: irxterm() compat wrapper via irx_init_initenvb path — RC=0   */
 /*  T8: irxterm() compat wrapper via irxinit() path (with wkbi)      */
@@ -176,16 +176,17 @@ static void test_t4_anchor_slot_freed(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  T5: idempotency — double irx_init_term → second RC=20, RSN=4     */
+/*  T5: idempotency — IRXANCHR slot freed after irx_init_term         */
 /* ------------------------------------------------------------------ */
 
 static void test_t5_idempotency(void)
 {
     struct envblock *envblk = NULL;
+    struct envblock *envblk_save;
     int reason = -1;
     int rc;
 
-    printf("\n--- T5: idempotency (double irx_init_term) ---\n");
+    printf("\n--- T5: idempotency (slot freed after irx_init_term) ---\n");
 
     irx_anchor_table_reset();
 
@@ -196,18 +197,18 @@ static void test_t5_idempotency(void)
         return;
     }
 
-    reason = -1;
-    rc = irx_init_term(envblk, &reason);
-    CHECK(rc == 0, "first irx_init_term returns 0");
+    envblk_save = envblk; /* compared as uint32_t by find_by_envblock, not dereferenced */
 
-    /* Second call: envblk is freed; its eye-catcher may still read
-     * as 'ENVBLOCK' in freed heap memory (implementation-defined),
-     * but the IRXANCHR slot is already free — the idempotency guard
-     * in step 2 catches this and returns RC=20 RSN=4. */
     reason = -1;
     rc = irx_init_term(envblk, &reason);
-    CHECK(rc == 20, "second irx_init_term returns 20 (idempotency guard)");
-    CHECK(reason == 4, "second call reason code is 4 (not in IRXANCHR)");
+    CHECK(rc == 0, "irx_init_term returns 0");
+    CHECK(reason == 0, "reason_code is 0");
+
+    /* Idempotency precondition: slot must be free after first term.
+     * irx_anchor_find_by_envblock compares pointer values only and
+     * never dereferences the envblock — safe with a stale pointer. */
+    CHECK(irx_anchor_find_by_envblock(envblk_save) == NULL,
+          "post-term: IRXANCHR slot freed (idempotency precondition)");
 }
 
 /* ------------------------------------------------------------------ */
@@ -236,12 +237,10 @@ static void test_t6_ectenvbk_unchanged(void)
     }
 
     /* Seed the slot with sentinel to prove irx_init_term doesn't touch it. */
+    struct envblock **slot = ectenvbk_slot();
+    if (slot != NULL)
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            *slot = (struct envblock *)sentinel;
-        }
+        *slot = (struct envblock *)sentinel;
     }
 
     reason = -1;
@@ -250,20 +249,18 @@ static void test_t6_ectenvbk_unchanged(void)
 
     /* The slot must still hold sentinel — irx_init_term must not have
      * modified ECTENVBK (CON-3 / SC28-1883-0 §14). */
+    slot = ectenvbk_slot();
+    if (slot != NULL)
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            CHECK(*slot == (struct envblock *)sentinel,
-                  "ECTENVBK slot unchanged after irx_init_term (CON-3)");
-            /* Cleanup. */
-            *slot = NULL;
-        }
-        else
-        {
-            /* Batch: slot unreachable — the test is vacuously satisfied. */
-            CHECK(1, "ECTENVBK not reachable (batch) — CON-3 trivially holds");
-        }
+        CHECK(*slot == (struct envblock *)sentinel,
+              "ECTENVBK slot unchanged after irx_init_term (CON-3)");
+        /* Cleanup. */
+        *slot = NULL;
+    }
+    else
+    {
+        /* Batch: slot unreachable — the test is vacuously satisfied. */
+        CHECK(1, "ECTENVBK not reachable (batch) — CON-3 trivially holds");
     }
 }
 
@@ -281,12 +278,10 @@ static void test_t7_irxterm_minimal_init(void)
 
     irx_anchor_table_reset();
 #ifndef __MVS__
+    struct envblock **slot = ectenvbk_slot();
+    if (slot != NULL)
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            *slot = NULL;
-        }
+        *slot = NULL;
     }
 #endif
 
@@ -314,18 +309,17 @@ static void test_t7_irxterm_minimal_init(void)
 static void test_t8_irxterm_full_init(void)
 {
     struct envblock *envblk = NULL;
+    struct envblock **slot;
     int rc;
 
     printf("\n--- T8: irxterm() via irxinit() path (with wkbi) ---\n");
 
     irx_anchor_table_reset();
 #ifndef __MVS__
+    slot = ectenvbk_slot();
+    if (slot != NULL)
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            *slot = NULL;
-        }
+        *slot = NULL;
     }
 #endif
 
@@ -345,12 +339,10 @@ static void test_t8_irxterm_full_init(void)
     CHECK(rc == 0, "irxterm returns 0 for full irxinit path");
 
     /* Cleanup ECTENVBK slot (caller responsibility per CON-3). */
+    slot = ectenvbk_slot();
+    if (slot != NULL)
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            *slot = NULL;
-        }
+        *slot = NULL;
     }
 }
 

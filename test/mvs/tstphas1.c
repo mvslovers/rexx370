@@ -152,21 +152,17 @@ static void test_single_env(void)
                        "anch_curr returns our envblock");
 
     /* IRXTERM */
+    struct envblock *slot_before = anch_curr(); /* save before irxterm */
+    rc = irxterm(envblk);
+    CHECK(rc == 0, "irxterm returns 0");
+    /* CON-3: IRXTERM does not modify ECTENVBK (SC28-1883-0 §14). */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after irxterm (CON-3)");
+    /* Caller-side cleanup so Test 2 starts with a clean slot. */
+    struct envblock **slot = ectenvbk_slot();
+    if (slot != NULL)
     {
-        struct envblock *slot_before = anch_curr(); /* save before irxterm */
-        rc = irxterm(envblk);
-        CHECK(rc == 0, "irxterm returns 0");
-        /* CON-3: IRXTERM does not modify ECTENVBK (SC28-1883-0 §14). */
-        CHECK(anch_curr() == slot_before,
-              "ECTENVBK unchanged after irxterm (CON-3)");
-        /* Caller-side cleanup so Test 2 starts with a clean slot. */
-        {
-            struct envblock **slot = ectenvbk_slot();
-            if (slot != NULL)
-            {
-                *slot = NULL;
-            }
-        }
+        *slot = NULL;
     }
 }
 
@@ -219,21 +215,17 @@ static void test_multiple_envs(void)
     CHECK_IF_REACHABLE(anch_curr() == env1,
                        "after env2 term, anchor still env1");
 
+    struct envblock *slot_before = anch_curr(); /* save before env1 irxterm */
+    rc = irxterm(env1);
+    CHECK(rc == 0, "env1 terminated");
+    /* CON-3: IRXTERM does not modify ECTENVBK. */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after env1 irxterm (CON-3)");
+    /* Caller-side cleanup so Test 3 starts with a clean slot. */
+    struct envblock **slot = ectenvbk_slot();
+    if (slot != NULL)
     {
-        struct envblock *slot_before = anch_curr(); /* save before env1 irxterm */
-        rc = irxterm(env1);
-        CHECK(rc == 0, "env1 terminated");
-        /* CON-3: IRXTERM does not modify ECTENVBK. */
-        CHECK(anch_curr() == slot_before,
-              "ECTENVBK unchanged after env1 irxterm (CON-3)");
-        /* Caller-side cleanup so Test 3 starts with a clean slot. */
-        {
-            struct envblock **slot = ectenvbk_slot();
-            if (slot != NULL)
-            {
-                *slot = NULL;
-            }
-        }
+        *slot = NULL;
     }
 }
 
