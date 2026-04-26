@@ -6,17 +6,17 @@
 /*  below pin down all three as a single self-contained artefact so   */
 /*  future reviewers can point at one file for the anchor contract:   */
 /*                                                                    */
-/*    (a) Empty-slot baseline — the "fresh login" case. IRXINIT       */
-/*        claims the slot; IRXTERM clears it back to NULL.            */
+/*    (a) Empty-slot baseline — IRXINIT claims the slot; IRXTERM      */
+/*        leaves ECTENVBK unchanged (CON-3: caller responsibility).   */
 /*                                                                    */
 /*    (b) BREXX-simulated non-NULL slot — another REXX owns the       */
-/*        anchor. IRXINIT must NOT overwrite it; IRXTERM must be      */
-/*        lenient because the slot never pointed at our env.          */
+/*        anchor. IRXINIT must NOT overwrite it; IRXTERM leaves the   */
+/*        slot alone because it never pointed at our env.             */
 /*                                                                    */
 /*    (c) Own-env stacking — a first IRXINIT claimed the slot; a      */
-/*        second IRXINIT on top must not disturb it. IRXTERM on the   */
-/*        inner env is a no-op at the anchor; only the terminate of   */
-/*        the first claimant actually clears the slot.                */
+/*        second IRXINIT on top must not disturb it. IRXTERM on any   */
+/*        env never modifies ECTENVBK (CON-3) — the caller manages    */
+/*        ECTENVBK lifetime.                                          */
 /*                                                                    */
 /*  An old push/pop implementation would fail cases (b) and (c);      */
 /*  read-mostly passes all three.                                     */
@@ -173,10 +173,15 @@ static void case_a_empty_slot_baseline(void)
               "slot claimed: anch_curr() == env (was NULL at push)"),
         "slot claimed: anch_curr() == env");
 
+    struct envblock *slot_before = anch_curr(); /* save before irxterm */
     rc = irxterm(env);
     CHECK(rc == 0, "irxterm returns 0");
-    CHECK(anch_curr() == NULL,
-          "slot cleared: anch_curr() == NULL (env was still holder)");
+    /* CON-3: IRXTERM does not touch ECTENVBK. The slot retains its
+     * pre-term value regardless of whether we were the holder. */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after irxterm (CON-3)");
+    /* Caller-side cleanup. */
+    _test_set_anchor(NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -257,13 +262,17 @@ static void case_c_own_env_stacking(void)
     CHECK(rc == 0, "inner irxterm returns 0");
     CHECK_IF_REACHABLE(
         CHECK(anch_curr() == outer,
-              "slot still outer (inner was not the holder; lenient pop)"),
+              "slot still outer (inner was not the holder; CON-3 no-op)"),
         "slot still outer after inner irxterm");
 
+    struct envblock *slot_before = anch_curr(); /* save before outer irxterm */
     rc = irxterm(outer);
     CHECK(rc == 0, "outer irxterm returns 0");
-    CHECK(anch_curr() == NULL,
-          "slot cleared (outer was the holder)");
+    /* CON-3: IRXTERM does not touch ECTENVBK. */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after outer irxterm (CON-3)");
+    /* Caller-side cleanup. */
+    _test_set_anchor(NULL);
 }
 
 /* ------------------------------------------------------------------ */

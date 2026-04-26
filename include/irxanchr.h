@@ -65,13 +65,6 @@
 
 #include "irx.h"
 
-/* c2asm370 truncates snake_case C names to 8 chars with underscores
- * mapped to `@`. Without distinct C-level names, anch_push and
- * anch_pop both collapse to ANCHOR@P and IFOX00 rejects the
- * duplicate ENTRY. asm() attributes are not honored by c2asm370
- * for definitions, so the names below are already distinct at the
- * C level; the asm() overrides just give them tidier MVS symbols. */
-
 /* ================================================================== */
 /*  Part 1: ECT-Anchor API                                            */
 /* ================================================================== */
@@ -91,23 +84,12 @@ int anch_tso(void) asm("ANCHISTS");
  * the slot is empty or unreachable. */
 struct envblock *anch_curr(void) asm("ANCHCURR");
 
-/* DEPRECATED pending WP-I1c rewrite.
+/* DEPRECATED — no production callers; pending removal in WP-I1c.5.
  *
- * anch_push / anch_pop implement "read-mostly" claim-if-NULL
- * semantics that are IBM-incompatible. Live probe on MVS-CE
- * (2026-04-21, IRXLIFE test) showed IBM's IRXINIT unconditionally
- * OVERWRITES ECTENVBK regardless of its prior value. These two
- * functions will be removed when IRXINIT/IRXTERM are rewritten
- * in WP-I1c. Do not add new callers. */
-
-/* Populate new_env->envblock_ectptr with the ECT address, then claim
- * ECTENVBK = new_env *only if* the slot is currently NULL. */
+ * anch_push implements "read-mostly" claim-if-NULL semantics that
+ * are IBM-incompatible: IBM's IRXINIT unconditionally overwrites
+ * ECTENVBK regardless of its prior value. Do not add new callers. */
 void anch_push(struct envblock *new_env) asm("ANCHPUSH");
-
-/* Clear ECTENVBK *only if* the slot currently equals env. Any other
- * value (NULL, some other REXX's ENVBLOCK, a later rexx370 env) is
- * a no-op. In batch this is always a no-op. */
-void anch_pop(struct envblock *env) asm("ANCHPOP");
 
 /* ================================================================== */
 /*  Part 2: IRXANCHR Registry — Constants                             */

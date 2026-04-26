@@ -152,13 +152,18 @@ static void test_single_env(void)
                        "anch_curr returns our envblock");
 
     /* IRXTERM */
+    struct envblock *slot_before = anch_curr(); /* save before irxterm */
     rc = irxterm(envblk);
     CHECK(rc == 0, "irxterm returns 0");
-
-    /* anch_curr is NULL in both modes after term: TSO because
-     * anch_pop cleared the slot, batch because the slot was never
-     * written. Run unconditionally. */
-    CHECK(anch_curr() == NULL, "anch_curr returns NULL after term");
+    /* CON-3: IRXTERM does not modify ECTENVBK (SC28-1883-0 §14). */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after irxterm (CON-3)");
+    /* Caller-side cleanup so Test 2 starts with a clean slot. */
+    struct envblock **slot = ectenvbk_slot();
+    if (slot != NULL)
+    {
+        *slot = NULL;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -166,10 +171,9 @@ static void test_single_env(void)
 /*                                                                    */
 /*  Under the read-mostly anchor (CON-1 §6.1) only the first IRXINIT  */
 /*  claims ECTENVBK; later IRXINITs observe a non-NULL slot and       */
-/*  leave it alone. IRXTERM is lenient and only clears when the slot */
-/*  still equals the terminating env. So regardless of the order of   */
-/*  the IRXTERMs, the slot stays pinned to env1 until env1 itself is  */
-/*  terminated.                                                       */
+/*  leave it alone. IRXTERM never modifies ECTENVBK (CON-3), so the   */
+/*  slot stays pinned to env1. The caller is responsible for          */
+/*  managing ECTENVBK lifetime.                                       */
 /* ------------------------------------------------------------------ */
 
 static void test_multiple_envs(void)
@@ -211,10 +215,18 @@ static void test_multiple_envs(void)
     CHECK_IF_REACHABLE(anch_curr() == env1,
                        "after env2 term, anchor still env1");
 
+    struct envblock *slot_before = anch_curr(); /* save before env1 irxterm */
     rc = irxterm(env1);
     CHECK(rc == 0, "env1 terminated");
-    CHECK(anch_curr() == NULL,
-          "after env1 term, no environments remain");
+    /* CON-3: IRXTERM does not modify ECTENVBK. */
+    CHECK(anch_curr() == slot_before,
+          "ECTENVBK unchanged after env1 irxterm (CON-3)");
+    /* Caller-side cleanup so Test 3 starts with a clean slot. */
+    struct envblock **slot = ectenvbk_slot();
+    if (slot != NULL)
+    {
+        *slot = NULL;
+    }
 }
 
 /* ------------------------------------------------------------------ */
