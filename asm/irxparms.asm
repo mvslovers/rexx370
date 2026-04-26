@@ -37,7 +37,7 @@ IRXPARMS CSECT
 MODNAMET DC    CL8'SYSTSIN '       DD names (3 fields)
          DC    CL8'SYSTSPRT'
          DC    CL8'SYSEXEC '
-         DC    CL8'        '       replaceable routines (10 blank slots)
+         DC    CL8'        '       replaceable routine slots
          DC    CL8'        '
          DC    CL8'        '
          DC    CL8'        '
