@@ -67,8 +67,7 @@ int anch_tso(void)
 /* Intentionally non-static: the test harness forward-declares this
  * helper (see test/mvs/tstanrm.c) so Case-b and Case-c on MVS can
  * seed the real ECTENVBK slot instead of the unused host-only
- * simulation variable. Production callers stay on anch_push /
- * anch_pop / anch_curr. */
+ * simulation variable. Production callers use anch_push / anch_curr. */
 struct envblock **ectenvbk_slot(void)
 {
     void *ect = anch_walk();
@@ -150,29 +149,6 @@ void anch_push(struct envblock *new_env)
     if (*slot == NULL)
     {
         *slot = new_env;
-    }
-}
-
-void anch_pop(struct envblock *env)
-{
-    if (env == NULL)
-    {
-        return;
-    }
-
-    struct envblock **slot = ectenvbk_slot();
-    if (slot == NULL)
-    {
-        return;
-    }
-
-    /* Only clear when we are still the anchor holder. Any other
-     * value means either we never wrote the slot (another REXX was
-     * already there at push time) or something else has taken over
-     * since — leave the slot unchanged in both cases. */
-    if (*slot == env)
-    {
-        *slot = NULL;
     }
 }
 

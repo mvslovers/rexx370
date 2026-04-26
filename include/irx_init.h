@@ -96,6 +96,27 @@ int irx_init_chekenvb(struct envblock *envblock,
                       int *out_reason_code) asm("IRXICHEK");
 
 /* ------------------------------------------------------------------ */
+/*  irx_init_term - 5-step IRXTERM C-core (WP-I1c.3)                 */
+/*                                                                    */
+/*  Reverses irx_init_initenvb: releases IRXEXTE, PARMBLOCK copy,    */
+/*  IRXANCHR slot, and ENVBLOCK itself, in reverse-allocation order.  */
+/*  ECTENVBK is never touched (CON-3 / IBM-compatible per             */
+/*  SC28-1883-0 §14 — ECTENVBK management is caller responsibility). */
+/*                                                                    */
+/*  Parameters:                                                       */
+/*    envblock        - ENVBLOCK to terminate; must be non-NULL and   */
+/*                      carry the 'ENVBLOCK' eye-catcher.             */
+/*    out_reason_code - [OUT] 0=ok, 4=bad eye-catcher or envblock     */
+/*                       not in IRXANCHR (idempotency guard).         */
+/*                                                                    */
+/*  Returns: 0 on success, 20 on error (out_reason_code set).        */
+/*  After a successful return, envblock is freed and must not be      */
+/*  dereferenced.                                                     */
+/* ------------------------------------------------------------------ */
+int irx_init_term(struct envblock *envblock,
+                  int *out_reason_code) asm("IRXITERM");
+
+/* ------------------------------------------------------------------ */
 /*  irx_init_dispatch - central IRXINIT function-code dispatcher     */
 /*                                                                    */
 /*  Routes on the 8-byte (CL8) function code string to the           */
