@@ -26,6 +26,13 @@
 /* CL8 function-code field width — IBM IRXINIT VLIST convention. */
 #define IRXINIT_FUNCCODE_LEN 8
 
+/* c2asm370 truncates C names to 8 chars with '_' mapped to '@'.
+ * The prefix irx_init_ is already 8 chars (IRX@INIT), leaving no
+ * room for the function-specific suffix — all four functions would
+ * collapse to the same MVS symbol and IFOX00 would reject the
+ * duplicate ENTRY.  The asm() aliases below give each function a
+ * distinct 8-char MVS symbol under the IRXI* namespace. */
+
 /* ------------------------------------------------------------------ */
 /*  irx_init_initenvb - 9-step IRXINIT C-core (WP-I1c.1)             */
 /*                                                                    */
@@ -53,7 +60,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
                       struct parmblock *caller_parmblock,
                       uint32_t user_field,
                       struct envblock **out_envblock,
-                      int *out_reason_code);
+                      int *out_reason_code) asm("IRXIINIT");
 
 /* ------------------------------------------------------------------ */
 /*  irx_init_findenvb - locate non-reentrant env on caller TCB       */
@@ -68,7 +75,8 @@ int irx_init_initenvb(struct envblock *prev_envblock,
 /*                                                                    */
 /*  Returns: 0=found (RC=0), 4=not found (RC=4, RSN=4).              */
 /* ------------------------------------------------------------------ */
-int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code);
+int irx_init_findenvb(struct envblock **out_envblock,
+                      int *out_reason_code) asm("IRXIFIND");
 
 /* ------------------------------------------------------------------ */
 /*  irx_init_chekenvb - validate an ENVBLOCK address                 */
@@ -84,7 +92,8 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code);
 /*                                                                    */
 /*  Returns: 0=valid (RC=0), 20=invalid (RC=20, RSN set).            */
 /* ------------------------------------------------------------------ */
-int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code);
+int irx_init_chekenvb(struct envblock *envblock,
+                      int *out_reason_code) asm("IRXICHEK");
 
 /* ------------------------------------------------------------------ */
 /*  irx_init_dispatch - central IRXINIT function-code dispatcher     */
@@ -115,6 +124,6 @@ int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
                       struct parmblock *caller_parmblock,
                       uint32_t user_field,
                       struct envblock **envblock_inout,
-                      int *out_reason_code);
+                      int *out_reason_code) asm("IRXIDISP");
 
 #endif /* IRX_INIT_H */
