@@ -15,6 +15,9 @@
 /*  T8: Bad prev_envblock eye-catcher — step 1 skip, falls through    */
 /*  T9: TSOFL=1 parmblock → IRXANCHR slot flags=0x40000000            */
 /*  T10: TSOFL=0 parmblock → IRXANCHR slot flags=0x00000000           */
+/*  T11: TSOFL=1 with non-NULL ECTENVBK → slot is overwritten         */
+/*  T12: TSOFL=0 with non-NULL ECTENVBK → slot is untouched           */
+/*  T13: Two stacked TSOFL=1 IRXINITs → slot points at the latest     */
 /*                                                                    */
 /*  Cross-compile build:                                              */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -468,6 +471,187 @@ static void test_t10_tsofl_clear_flag(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Sentinel for T11–T13: any value that cannot collide with a real   */
+/*  ENVBLOCK address returned by the host allocator.                  */
+/* ------------------------------------------------------------------ */
+
+static struct envblock *const ECT_SENTINEL =
+    (struct envblock *)(unsigned long)0xDEADBEEFUL;
+
+/* ------------------------------------------------------------------ */
+/*  T11: TSOFL=1 with a non-NULL ECTENVBK → slot is overwritten       */
+/*                                                                    */
+/*  IRXPROBE Phase α (CON-14 case A1) verified IBM writes ECTENVBK    */
+/*  unconditionally on TSOFL=1, regardless of the prior slot value.   */
+/*  This test pins the same behaviour for the irxinit() compat        */
+/*  wrapper (which exercises the host simulation slot).               */
+/* ------------------------------------------------------------------ */
+
+static void test_t11_tsofl1_overwrites_slot(void)
+{
+    struct parmblock pb;
+    struct envblock *envblk = NULL;
+    int rc;
+
+    printf("\n--- T11: TSOFL=1 overwrites non-NULL ECTENVBK ---\n");
+
+    irx_anchor_table_reset();
+    {
+        struct envblock **slot = ectenvbk_slot();
+        CHECK(slot != NULL, "T11: ectenvbk_slot reachable on host");
+        if (slot != NULL)
+        {
+            *slot = ECT_SENTINEL;
+            CHECK(*slot == ECT_SENTINEL,
+                  "T11: pre-seed: slot holds sentinel");
+        }
+    }
+
+    build_parmblock_with_tsofl(&pb, /*tso=*/1);
+    rc = irxinit(&pb, &envblk);
+    CHECK(rc == 0, "T11: irxinit returns 0");
+    CHECK(envblk != NULL, "T11: irxinit produced an ENVBLOCK");
+
+    if (envblk != NULL)
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            CHECK(*slot == envblk,
+                  "T11: slot was overwritten with new env");
+            CHECK(*slot != ECT_SENTINEL,
+                  "T11: sentinel is gone (unconditional overwrite)");
+        }
+        irxterm(envblk);
+        /* Caller-side cleanup so later tests start clean. */
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  T12: TSOFL=0 with a non-NULL ECTENVBK → slot is untouched         */
+/*                                                                    */
+/*  IRXPROBE Phase α (CON-14 case A3) verified IBM leaves ECTENVBK    */
+/*  alone on TSOFL=0 IRXINIT. The env is registered in IRXANCHR but   */
+/*  not bound to ECTENVBK.                                            */
+/* ------------------------------------------------------------------ */
+
+static void test_t12_tsofl0_leaves_slot(void)
+{
+    struct parmblock pb;
+    struct envblock *envblk = NULL;
+    int rc;
+
+    printf("\n--- T12: TSOFL=0 leaves ECTENVBK untouched ---\n");
+
+    irx_anchor_table_reset();
+    {
+        struct envblock **slot = ectenvbk_slot();
+        CHECK(slot != NULL, "T12: ectenvbk_slot reachable on host");
+        if (slot != NULL)
+        {
+            *slot = ECT_SENTINEL;
+        }
+    }
+
+    build_parmblock_with_tsofl(&pb, /*tso=*/0);
+    rc = irxinit(&pb, &envblk);
+    CHECK(rc == 0, "T12: irxinit returns 0");
+    CHECK(envblk != NULL, "T12: irxinit produced an ENVBLOCK");
+
+    if (envblk != NULL)
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            CHECK(*slot == ECT_SENTINEL,
+                  "T12: slot still sentinel (TSOFL=0 no-op)");
+            CHECK(*slot != envblk,
+                  "T12: slot does NOT point at the new env");
+        }
+        irxterm(envblk);
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  T13: Two stacked TSOFL=1 IRXINITs → slot tracks the latest        */
+/*                                                                    */
+/*  Each TSOFL=1 IRXINIT performs an unconditional overwrite, so the  */
+/*  most recent caller wins — there is no "first claimant" guard.     */
+/* ------------------------------------------------------------------ */
+
+static void test_t13_stacked_tsofl1_latest_wins(void)
+{
+    struct parmblock pb;
+    struct envblock *first = NULL;
+    struct envblock *second = NULL;
+    int rc;
+
+    printf("\n--- T13: stacked TSOFL=1 IRXINITs — latest wins ---\n");
+
+    irx_anchor_table_reset();
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    build_parmblock_with_tsofl(&pb, /*tso=*/1);
+
+    rc = irxinit(&pb, &first);
+    CHECK(rc == 0 && first != NULL, "T13: first irxinit succeeded");
+
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            CHECK(*slot == first,
+                  "T13: slot holds first env after first irxinit");
+        }
+    }
+
+    rc = irxinit(&pb, &second);
+    CHECK(rc == 0 && second != NULL, "T13: second irxinit succeeded");
+    CHECK(second != first, "T13: second env is distinct from first");
+
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            CHECK(*slot == second,
+                  "T13: slot holds second env (latest IRXINIT wins)");
+            CHECK(*slot != first,
+                  "T13: first env is no longer in the slot");
+        }
+    }
+
+    if (second != NULL)
+    {
+        irxterm(second);
+    }
+    if (first != NULL)
+    {
+        irxterm(first);
+    }
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -485,6 +669,9 @@ int main(void)
     test_t8_bad_prev_eyecatcher();
     test_t9_tsofl_set_flag();
     test_t10_tsofl_clear_flag();
+    test_t11_tsofl1_overwrites_slot();
+    test_t12_tsofl0_leaves_slot();
+    test_t13_stacked_tsofl1_latest_wins();
 
     printf("\n--- Results ---\n");
     printf("  Run:    %d\n", tests_run);

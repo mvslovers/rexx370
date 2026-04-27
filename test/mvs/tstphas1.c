@@ -54,11 +54,11 @@ static int tests_skipped = 0;
     } while (0)
 
 /* Assertions that check anch_curr() against a non-NULL ENVBLOCK only
- * hold when the ECTENVBK slot is reachable so anch_push can actually
- * write it. ectenvbk_slot() returns non-NULL on host (the slot is the
- * `_simulated_ectenvbk` global) and on MVS under TSO (the
- * PSA→ASCB→ASXB→LWA→ECT walk completes); it returns NULL on pure
- * batch. Skip rather than fail when unreachable. Assertions that
+ * hold when the ECTENVBK slot is reachable so the IRXINIT step-8
+ * write can actually land. ectenvbk_slot() returns non-NULL on host
+ * (the slot is the `_simulated_ectenvbk` global) and on MVS under TSO
+ * (the PSA→ASCB→ASXB→LWA→ECT walk completes); it returns NULL on
+ * pure batch. Skip rather than fail when unreachable. Assertions that
  * check anch_curr() == NULL hold in both modes and run
  * unconditionally. */
 #define CHECK_IF_REACHABLE(cond, msg)                            \
@@ -75,6 +75,23 @@ static int tests_skipped = 0;
         }                                                        \
     } while (0)
 
+/* Build a minimal valid PARMBLOCK with TSOFL=1, mirroring the helper
+ * in tstinit.c. The anchor write in IRXINIT only runs when the
+ * effective TSOFL bit is 1, so smoke tests that want to observe a
+ * slot write must opt in explicitly — anch_tso() returns 0 on the
+ * cross-compile host and pure-batch MVS, which would otherwise
+ * resolve TSOFL to 0. */
+static void build_tso_parmblock(struct parmblock *pb)
+{
+    memset(pb, 0, sizeof(*pb));
+    memcpy(pb->parmblock_id, PARMBLOCK_ID, 8);
+    memcpy(pb->parmblock_version, PARMBLOCK_VERSION_0042, 4);
+    pb->tsofl_mask = -1;
+    pb->tsofl = -1;
+    memset(pb->parmblock_addrspn, ' ', 8);
+    memset(pb->parmblock_ffff, 0xFF, 8);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Test 1: Single environment lifecycle                              */
 /* ------------------------------------------------------------------ */
@@ -85,12 +102,16 @@ static void test_single_env(void)
     struct parmblock *pb;
     struct irxexte *exte;
     struct irx_wkblk_int *wkbi;
+    struct parmblock tso_pb;
     int rc;
 
     printf("\n--- Test 1: Single environment lifecycle ---\n");
 
-    /* IRXINIT */
-    rc = irxinit(NULL, &envblk);
+    /* IRXINIT with TSOFL=1 so the ECTENVBK anchor write fires
+     * (TSK-195 / IRXPROBE Phase α: TSOFL=1 → unconditional overwrite,
+     * TSOFL=0 → slot untouched). */
+    build_tso_parmblock(&tso_pb);
+    rc = irxinit(&tso_pb, &envblk);
     CHECK(rc == 0, "irxinit returns 0");
     CHECK(envblk != NULL, "envblock is not NULL");
 
@@ -169,11 +190,11 @@ static void test_single_env(void)
 /* ------------------------------------------------------------------ */
 /*  Test 2: Multiple concurrent environments                          */
 /*                                                                    */
-/*  Under the read-mostly anchor (CON-1 §6.1) only the first IRXINIT  */
-/*  claims ECTENVBK; later IRXINITs observe a non-NULL slot and       */
-/*  leave it alone. IRXTERM never modifies ECTENVBK (CON-3), so the   */
-/*  slot stays pinned to env1. The caller is responsible for          */
-/*  managing ECTENVBK lifetime.                                       */
+/*  Under the TSOFL-conditional contract (TSK-195, CON-14) every      */
+/*  TSOFL=1 IRXINIT unconditionally overwrites ECTENVBK. The slot     */
+/*  therefore tracks the most recent IRXINIT, not the first claimant. */
+/*  IRXTERM never touches ECTENVBK (CON-3 / SC28-1883-0 §14), so the  */
+/*  slot stays pinned to whoever last wrote it.                       */
 /* ------------------------------------------------------------------ */
 
 static void test_multiple_envs(void)
@@ -181,39 +202,42 @@ static void test_multiple_envs(void)
     struct envblock *env1 = NULL;
     struct envblock *env2 = NULL;
     struct envblock *env3 = NULL;
+    struct parmblock tso_pb;
     int rc;
 
     printf("\n--- Test 2: Multiple concurrent environments ---\n");
 
-    rc = irxinit(NULL, &env1);
+    build_tso_parmblock(&tso_pb);
+
+    rc = irxinit(&tso_pb, &env1);
     CHECK(rc == 0 && env1 != NULL, "env1 created");
 
-    rc = irxinit(NULL, &env2);
+    rc = irxinit(&tso_pb, &env2);
     CHECK(rc == 0 && env2 != NULL, "env2 created");
 
-    rc = irxinit(NULL, &env3);
+    rc = irxinit(&tso_pb, &env3);
     CHECK(rc == 0 && env3 != NULL, "env3 created");
 
-    /* Read-mostly: env1 got the slot, env2/env3 never touched it.
-     * The "still env1" checks below are TSO-only — see CHECK_IF_REACHABLE
-     * comment near the top of the file. */
-    CHECK_IF_REACHABLE(anch_curr() == env1,
-                       "anch_curr holds the first claimant (env1)");
+    /* TSOFL=1 unconditional overwrite: each IRXINIT replaces the
+     * slot, so the latest (env3) wins. */
+    CHECK_IF_REACHABLE(anch_curr() == env3,
+                       "anch_curr holds the most recent IRXINIT (env3)");
 
     CHECK(env1 != env2 && env2 != env3,
           "all envblocks are distinct");
 
-    /* Terminate in reverse order. env3 and env2 were never in the
-     * slot, so their terminates are no-ops at the anchor. */
+    /* Terminate in reverse order. CON-3: IRXTERM never touches
+     * ECTENVBK, so the slot stays pinned to env3 across all three
+     * irxterm calls. */
     rc = irxterm(env3);
     CHECK(rc == 0, "env3 terminated");
-    CHECK_IF_REACHABLE(anch_curr() == env1,
-                       "after env3 term, anchor still env1");
+    CHECK_IF_REACHABLE(anch_curr() == env3,
+                       "after env3 term, anchor still env3 (CON-3 no-op)");
 
     rc = irxterm(env2);
     CHECK(rc == 0, "env2 terminated");
-    CHECK_IF_REACHABLE(anch_curr() == env1,
-                       "after env2 term, anchor still env1");
+    CHECK_IF_REACHABLE(anch_curr() == env3,
+                       "after env2 term, anchor still env3 (CON-3 no-op)");
 
     struct envblock *slot_before = anch_curr(); /* save before env1 irxterm */
     rc = irxterm(env1);

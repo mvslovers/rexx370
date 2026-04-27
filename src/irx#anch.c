@@ -139,13 +139,14 @@ void anch_push(struct envblock *new_env)
     new_env->envblock_ectptr = NULL;
 #endif
 
-    /* Read-mostly anchor per CON-1 §6.1: only claim the ECTENVBK
-     * slot when it is NULL. Any non-NULL value means another REXX
-     * (on MVS 3.8j that is typically a parallel BREXX environment,
-     * or an earlier rexx370 environment that is still live) already
-     * owns the anchor — leave it alone. The caller manages the new
-     * ENVBLOCK pointer explicitly via the IRXINIT return value, per
-     * SC28-1883-0 §15 for reentrant environments. */
+    /* DEPRECATED claim-if-NULL — no production callers (TSK-195).
+     *
+     * IRXPROBE Phase α (CON-14) showed IBM unconditionally overwrites
+     * ECTENVBK on TSOFL=1 IRXINIT, so the production path in
+     * irx_init_initenvb() step 8 / irxinit() host wrapper writes the
+     * slot directly. This helper retains its original claim-if-NULL
+     * shape only because legacy assembler glue (irx#anch.s) still
+     * exports the symbol; pending full removal in a future cleanup. */
     if (*slot == NULL)
     {
         *slot = new_env;
