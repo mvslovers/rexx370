@@ -34,8 +34,15 @@
 /*     ECT  + ECTENVBK  (0x030) -> ENVBLOCK                           */
 /*                                                                    */
 /*  In batch any link in this chain can be NULL (LWA is typical);     */
-/*  the walk returns NULL and anch_push / anch_pop reduce to local    */
-/*  field updates on the ENVBLOCK.                                    */
+/*  the walk returns NULL and the anchor discipline reduces to local   */
+/*  field-only semantics on the ENVBLOCK.                             */
+/*                                                                    */
+/*  IRXTERM (TSOFL=1 env): rolls ECTENVBK back to the most recent     */
+/*  TSO-attached predecessor in the IRXANCHR table, or NULL if none.  */
+/*  IRXTERM (TSOFL=0 env): never writes ECTENVBK.                     */
+/*  The roll-back is guarded: ECTENVBK is only modified when it        */
+/*  currently points to the terminating env (coexistence safety).     */
+/*  Ref: IRXPROBE Phase α (CON-14), CON-1 §6.1.                      */
 /*                                                                    */
 /*  === Part 2: IRXANCHR Registry API ===                             */
 /*                                                                    */
@@ -194,6 +201,16 @@ int irx_anchor_free_slot(void *envblock) asm("ANCHFREE");
 /* Locate slot by envblock or tcb. Returns NULL if not found. */
 irxanchr_entry_t *irx_anchor_find_by_envblock(void *envblock) asm("ANCHFENV");
 irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb) asm("ANCHFTCB");
+
+/* Walk backwards from current_slot-1 to slot 0. Returns the first slot
+ * that is occupied by a TSO-attached env (envblock_ptr is USED and
+ * flags has IRXANCHR_FLAG_TSO_ATTACHED set). Returns NULL when no such
+ * predecessor exists.
+ *
+ * Used exclusively by irx_init_term() to compute the ECTENVBK rollback
+ * target (IRXPROBE Phase α, CON-14). */
+irxanchr_entry_t *irx_anchor_find_previous_used(
+    const irxanchr_entry_t *current_slot) asm("ANCHFPREV");
 
 /* LOAD EP=IRXANCHR wrapper; verifies eye-catcher.
  * Returns 0 on success, non-zero on load/validation failure. */

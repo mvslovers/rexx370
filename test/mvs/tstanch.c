@@ -7,20 +7,17 @@
 /*  content through printf (crent370 maps to PUTLINE/WTO depending on */
 /*  how the module is invoked).                                       */
 /*                                                                    */
-/*  Verifies the read-mostly ECTENVBK anchor described in CON-1 §6.1  */
-/*  end-to-end, starting from an empty slot (state (a)):              */
-/*   - IRXINIT sees ECTENVBK == NULL and claims it.                   */
-/*   - envblock_ectptr is populated with the ECT address so later     */
-/*     reflection routines have a cheap back-pointer.                 */
-/*   - IRXTERM clears ECTENVBK because we are still the holder.       */
-/*  In batch (ECT not reachable) the slot is never written; IRXINIT   */
-/*  and IRXTERM still succeed with local-field-only semantics.        */
+/*  Verifies the TSOFL-conditional ECTENVBK contract (CON-14):        */
+/*   - TSOFL=1 IRXINIT overwrites ECTENVBK unconditionally.           */
+/*     IRXTERM rolls it back to predecessor (NULL for single env).    */
+/*   - TSOFL=0 IRXINIT leaves ECTENVBK untouched.                    */
+/*     IRXTERM does not touch ECTENVBK.                               */
+/*   - In batch (ECT not reachable) IRXINIT and IRXTERM succeed with  */
+/*     local-field-only semantics; ECTENVBK is never written.         */
 /*                                                                    */
 /*  Exit codes:                                                       */
 /*     0 — anchor behavior observed correct                           */
-/*     8 — anchor semantics violation (slot written despite           */
-/*         non-NULL, slot not cleared after pop, or batch path did    */
-/*         not reach the expected zero-field state)                   */
+/*     8 — anchor semantics violation                                 */
 /*    16 — IRXINIT or IRXTERM failed                                  */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
@@ -115,22 +112,28 @@ int main(void)
 
     if (anch_walk() != NULL)
     {
-        /* TSO-ish path: slot was empty at entry, so read-mostly
-         * claimed it. Our env must now be the anchor. */
-        if (initial_anchor == NULL && anch_curr() != env)
+        if (anch_tso())
         {
-            printf("FAIL: ECTENVBK was not claimed for our envblock\n");
-            exit_rc = RC_ANCHOR_BROKEN;
+            /* TSO: IRXINIT unconditionally overwrites ECTENVBK (CON-14). */
+            if (anch_curr() != env)
+            {
+                printf("FAIL: TSO IRXINIT did not install env in ECTENVBK\n");
+                exit_rc = RC_ANCHOR_BROKEN;
+            }
         }
-        if (initial_anchor != NULL && anch_curr() != initial_anchor)
+        else
         {
-            printf("FAIL: ECTENVBK was overwritten despite non-NULL slot\n");
-            exit_rc = RC_ANCHOR_BROKEN;
+            /* Non-TSO: IRXINIT must not touch ECTENVBK (CON-14). */
+            if (anch_curr() != initial_anchor)
+            {
+                printf("FAIL: non-TSO IRXINIT modified ECTENVBK\n");
+                exit_rc = RC_ANCHOR_BROKEN;
+            }
         }
     }
     else
     {
-        /* Batch path: no ECT; local-only push, slot stays untouched. */
+        /* Batch path: no ECT reachable; local-only semantics. */
         if (env->envblock_ectptr != NULL)
         {
             printf("FAIL: batch envblock_ectptr is non-NULL\n");
@@ -153,14 +156,21 @@ int main(void)
 
     dump_state("after irxterm", NULL);
 
-    /* After pop: slot must equal the initial_anchor. Either we
-     * claimed and then cleared (initial was NULL), or we never
-     * wrote it to begin with (initial was non-NULL) — in both
-     * cases the slot is back to its entry value. */
-    if (anch_curr() != initial_anchor)
+    /* After IRXTERM the slot must be at the expected post-term value.
+     *
+     * TSO path: IRXINIT wrote the slot; IRXTERM rolls back to the
+     * predecessor TSO-attached env in IRXANCHR (NULL for this single-env
+     * test since we started from an empty table).
+     *
+     * Non-TSO / batch: neither IRXINIT nor IRXTERM touched the slot;
+     * it remains at initial_anchor. */
     {
-        printf("FAIL: ECTENVBK not back at its initial value\n");
-        exit_rc = RC_ANCHOR_BROKEN;
+        struct envblock *expected = anch_tso() ? NULL : initial_anchor;
+        if (anch_curr() != expected)
+        {
+            printf("FAIL: ECTENVBK not at expected value after IRXTERM\n");
+            exit_rc = RC_ANCHOR_BROKEN;
+        }
     }
 
     if (exit_rc == 0)
