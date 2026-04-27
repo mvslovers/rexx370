@@ -210,7 +210,7 @@ irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb) asm("ANCHFTCB");
  * Used exclusively by irx_init_term() to compute the ECTENVBK rollback
  * target (IRXPROBE Phase α, CON-14). */
 irxanchr_entry_t *irx_anchor_find_previous_used(
-    const irxanchr_entry_t *current_slot) asm("ANCHFPREV");
+    const irxanchr_entry_t *current_slot) asm("ANCHFPRV");
 
 /* LOAD EP=IRXANCHR wrapper; verifies eye-catcher.
  * Returns 0 on success, non-zero on load/validation failure. */
