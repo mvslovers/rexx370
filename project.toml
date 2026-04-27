@@ -118,7 +118,21 @@ include = [
   "IRX#ANCH",
   "IRX#UID",
   "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
 ]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # IRXTERM - HLASM Entry-Point Wrapper for the IRXTERM Programming
@@ -141,7 +155,21 @@ include = [
   "IRX#ANCH",
   "IRX#UID",
   "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
 ]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTANCH - ENVBLOCK anchor smoketest pseudomodule

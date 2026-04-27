@@ -30,8 +30,14 @@
  *   envblock_ptr- Output: pointer to created ENVBLOCK
  *
  * Returns: 0=OK, 20=init error, 28=storage error
+ *
+ * MVS symbol: IRXINITC. The HLASM entry-point wrapper in
+ * asm/irxinit.asm owns the bare IRXINIT symbol (it is the
+ * IBM-spec Programming Service entry point and dispatches to
+ * irx_init_dispatch). The compat wrapper here installs the
+ * Phase 2+ state (BIFs, SUBCOMTB, wkbi) on top of that.
  */
-int irxinit(void *parms, struct envblock **envblock_ptr);
+int irxinit(void *parms, struct envblock **envblock_ptr) asm("IRXINITC");
 
 /* IRXTERM - Terminate a Language Processor Environment
  * Frees all storage associated with the environment and pops it
@@ -41,8 +47,12 @@ int irxinit(void *parms, struct envblock **envblock_ptr);
  *   envblock_ptr - Pointer to ENVBLOCK to terminate
  *
  * Returns: 0=OK, 20=term error
+ *
+ * MVS symbol: IRXTERMC. The HLASM IRXTERM Programming Service
+ * entry point lives in asm/irxterm.asm; this is the Phase 2+
+ * teardown compat wrapper.
  */
-int irxterm(struct envblock *envblock_ptr);
+int irxterm(struct envblock *envblock_ptr) asm("IRXTERMC");
 
 /* --- Storage Management Replaceable Routine --- */
 
