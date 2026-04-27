@@ -68,8 +68,6 @@ R15      EQU   15
          PRINT GEN
 *
 IRXINIT  CSECT
-IRXINIT  AMODE 24
-IRXINIT  RMODE 24
 *
 *  --- standard MVS entry linkage ---
          STM   R14,R12,12(R13)     save caller R14-R12 in caller SA

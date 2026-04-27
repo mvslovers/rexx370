@@ -47,8 +47,6 @@ R15      EQU   15
          PRINT GEN
 *
 IRXTERM  CSECT
-IRXTERM  AMODE 24
-IRXTERM  RMODE 24
 *
 *  --- standard MVS entry linkage ---
          STM   R14,R12,12(R13)     save caller R14-R12 in caller SA
