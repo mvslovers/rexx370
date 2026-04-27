@@ -467,6 +467,43 @@ irxanchr_entry_t *irx_anchor_find_by_tcb(void *tcb)
     return best;
 }
 
+irxanchr_entry_t *irx_anchor_find_previous_used(const irxanchr_entry_t *current_slot)
+{
+    irxanchr_header_t *hdr;
+    irxanchr_entry_t *slots;
+    int i;
+
+    if (current_slot == NULL)
+    {
+        return NULL;
+    }
+
+    if (irx_anchor_get_handle(&hdr) != IRX_ANCHOR_RC_OK)
+    {
+        return NULL;
+    }
+
+    slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
+
+    /* Walk backwards from the slot before current_slot. */
+    i = (int)(current_slot - slots) - 1;
+    for (; i >= 0; i--)
+    {
+        if (slots[i].envblock_ptr == IRXANCHR_SLOT_FREE ||
+            slots[i].envblock_ptr == IRXANCHR_SLOT_SENTINEL)
+        {
+            continue;
+        }
+        if (!(slots[i].flags & IRXANCHR_FLAG_TSO_ATTACHED))
+        {
+            continue; /* non-TSO env never wrote ECTENVBK */
+        }
+        return &slots[i];
+    }
+
+    return NULL;
+}
+
 void irx_anchor_table_reset(void)
 {
     irxanchr_header_t *hdr;
