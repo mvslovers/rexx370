@@ -7,7 +7,8 @@
 /*    - TSOFL=1 IRXINIT  → ECTENVBK is overwritten unconditionally     */
 /*      with the new ENVBLOCK, regardless of the slot's prior value.   */
 /*    - TSOFL=0 IRXINIT  → ECTENVBK is left untouched.                 */
-/*    - IRXTERM (any TSOFL) → ECTENVBK is never modified (CON-3).      */
+/*    - TSOFL=1 IRXTERM → rolls ECTENVBK back to predecessor TSO env,  */
+/*      or NULL if none (TSK-194). TSOFL=0 IRXTERM → untouched.        */
 /*                                                                    */
 /*  The cases below pin down all four observables in one place so a   */
 /*  reviewer can point at this file as the executable contract:        */
@@ -17,11 +18,11 @@
 /*                                                                    */
 /*    (b) Foreign-owned slot — a sentinel pre-seeded into ECTENVBK     */
 /*        is clobbered by TSOFL=1 IRXINIT (matches IBM behaviour).    */
-/*        IRXTERM leaves the new value in place.                      */
+/*        IRXTERM rolls ECTENVBK to NULL (no TSO predecessor in table).*/
 /*                                                                    */
 /*    (c) Own-env stacking — a TSOFL=1 IRXINIT for `outer` claims     */
 /*        the slot; a second TSOFL=1 IRXINIT for `inner` overwrites   */
-/*        it. IRXTERM on either env is a CON-3 no-op at the anchor.   */
+/*        it. IRXTERM on inner rolls back to outer; outer to NULL.    */
 /*                                                                    */
 /*    (d) Non-TSO no-op — TSOFL=0 IRXINIT must not touch the slot,    */
 /*        even when one is reachable. The pre-seeded sentinel must   */
@@ -197,15 +198,13 @@ static void case_a_empty_slot_baseline(void)
               "TSOFL=1: slot written (anch_curr() == env)"),
         "slot claimed: anch_curr() == env");
 
-    struct envblock *slot_before = anch_curr(); /* save before irxterm */
     rc = irxterm(env);
     CHECK(rc == 0, "irxterm returns 0");
-    /* CON-3: IRXTERM does not touch ECTENVBK. The slot retains its
-     * pre-term value regardless of whether we were the holder. */
-    CHECK(anch_curr() == slot_before,
-          "ECTENVBK unchanged after irxterm (CON-3)");
-    /* Caller-side cleanup. */
-    _test_set_anchor(NULL);
+    /* TSK-194: single-env IRXTERM rolls ECTENVBK back to NULL (no predecessor). */
+    CHECK_IF_REACHABLE(
+        CHECK(anch_curr() == NULL,
+              "TSO IRXTERM rolls ECTENVBK back to NULL"),
+        "TSO IRXTERM rolls ECTENVBK back to NULL");
 }
 
 /* ------------------------------------------------------------------ */
@@ -242,17 +241,14 @@ static void case_b_foreign_slot_clobbered(void)
     CHECK(env != (struct envblock *)SENTINEL,
           "returned env is distinct from the pre-existing anchor");
 
-    struct envblock *slot_before = anch_curr(); /* save before irxterm */
     rc = irxterm(env);
     CHECK(rc == 0, "irxterm returns 0");
+    /* TSK-194: IRXTERM rolls back to predecessor in IRXANCHR (NULL —
+     * the foreign sentinel was never registered, so no predecessor). */
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == slot_before,
-              "slot unchanged by irxterm (CON-3 no-op)"),
-        "slot unchanged after irxterm");
-
-    /* Caller-side cleanup so Case (c) starts with a clean precondition. */
-    _test_set_anchor(NULL);
-    CHECK(anch_curr() == NULL, "post-cleanup: anch_curr() == NULL");
+        CHECK(anch_curr() == NULL,
+              "TSO IRXTERM rolls ECTENVBK to NULL (no TSO predecessor)"),
+        "TSO IRXTERM rolls ECTENVBK to NULL");
 }
 
 /* ------------------------------------------------------------------ */
@@ -290,19 +286,19 @@ static void case_c_own_env_stacking(void)
 
     rc = irxterm(inner);
     CHECK(rc == 0, "inner irxterm returns 0");
+    /* TSK-194: inner irxterm rolls ECTENVBK back to outer (predecessor). */
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == inner,
-              "slot still inner after inner irxterm (CON-3 no-op)"),
-        "slot still inner after inner irxterm");
+        CHECK(anch_curr() == outer,
+              "inner irxterm rolls ECTENVBK back to outer"),
+        "inner irxterm rolls back to outer");
 
-    struct envblock *slot_before = anch_curr(); /* save before outer irxterm */
     rc = irxterm(outer);
     CHECK(rc == 0, "outer irxterm returns 0");
-    /* CON-3: IRXTERM does not touch ECTENVBK. */
-    CHECK(anch_curr() == slot_before,
-          "ECTENVBK unchanged after outer irxterm (CON-3)");
-    /* Caller-side cleanup. */
-    _test_set_anchor(NULL);
+    /* TSK-194: outer irxterm rolls ECTENVBK back to NULL (no predecessor). */
+    CHECK_IF_REACHABLE(
+        CHECK(anch_curr() == NULL,
+              "outer irxterm rolls ECTENVBK back to NULL"),
+        "outer irxterm rolls back to NULL");
 }
 
 /* ------------------------------------------------------------------ */
