@@ -65,7 +65,9 @@ R15      EQU   15
 *
          SAVE  (14,12),,*
          LR    R12,R15
-         USING IRXPROBE,R12
+         LA    R11,2048(,R12)         second base ...
+         LA    R11,2048(,R11)         ... R11 = R12 + 4096
+         USING IRXPROBE,R12,R11       8 KB of addressability
          LR    R2,R1                  preserve param-list pointer
          LA    R15,SAVEAR1
          ST    R13,4(R15)
@@ -537,10 +539,9 @@ WANCHHDR DS    0H
 WANCHSLT DS    0H
          ST    R14,WORK_R14W
          LA    R9,32(,R8)             R9 -> first slot
-         LA    R11,0                  R11 = slot index 0..3
+         LA    R6,0                   R6 = slot index 0..3
 *
-WANCHLP  ST    R11,WORK_TMPA
-         L     R3,0(,R9)              envblock_ptr
+WANCHLP  L     R3,0(,R9)              envblock_ptr
          C     R3,=F'-1'
          BE    SLOT_SENT
          LTR   R3,R3
@@ -550,8 +551,7 @@ WANCHLP  ST    R11,WORK_TMPA
 SLOT_SENT MVC  LINETXT(120),=CL120'  slot 0  SENTINEL'
          B     SLOTPRT
 SLOT_FREE MVC  LINETXT(120),=CL120'  slot 0  FREE'
-SLOTPRT  L     R1,WORK_TMPA           slot index
-         CVD   R1,WORK_DEC
+SLOTPRT  CVD   R6,WORK_DEC
          UNPK  WORK_HEX(2),WORK_DEC+6(2)
          OI    WORK_HEX+1,X'F0'
          MVC   LINETXT+7(1),WORK_HEX+1
@@ -576,9 +576,8 @@ SLOTPRT  L     R1,WORK_TMPA           slot index
          BAL   R14,WKVHEX
 *
          LA    R9,40(,R9)             next slot
-         L     R11,WORK_TMPA
-         LA    R11,1(,R11)
-         CL    R11,=F'4'
+         LA    R6,1(,R6)
+         CL    R6,=F'4'
          BL    WANCHLP
 *
          L     R14,WORK_R14W
