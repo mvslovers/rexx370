@@ -516,6 +516,10 @@ static void test_t11_failure_ectenvbk_unchanged(void)
         return;
     }
 
+    /* Re-seed: TSOFL=1 IRXINIT overwrote the slot with envblk.
+     * Restore the sentinel so we can verify the failure path leaves it untouched. */
+    *slot = sentinel;
+
     /* Free the slot so irx_init_term's idempotency guard triggers. */
     irx_anchor_free_slot(envblk);
 
