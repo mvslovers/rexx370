@@ -165,8 +165,8 @@ BUILDC   EQU   *
          L     R3,0(,R2)           R3 = user_field value
          ST    R3,WCPLIST+12
 *
-         L     R2,WPARMS+20        R2 = addr of caller ENVBLK slot
-         ST    R2,WCPLIST+16        (in/out for CHEKENVB; out otherwise)
+         L     R2,WPARMS+20        R2 = addr of ENVBLK slot
+         ST    R2,WCPLIST+16
 *
          L     R2,WPARMS+24        R2 = addr of caller REASON slot
          ST    R2,WCPLIST+20
@@ -221,12 +221,12 @@ EPILOG   EQU   *
 *
 *  Restore R14 and R1-R12 from caller SA (preserve our R0 / R15).
          L     R14,12(,R13)
-         LM    R1,R12,24(,R13)
+         LM    R1,R12,24(R13)
          BR    R14
 *
          LTORG
 *
-*  --- workarea DSECT --------------------------------------------------
+*  --- workarea DSECT ---
 WAREA    DSECT
 WSAVE    DS    18F                 standard 72-byte save area
 WPREV    DS    F                   saved R0 in (previous-env hint)

@@ -117,7 +117,7 @@ EPILOG   EQU   *
          LR    R15,R3              R15 = RC
 *
          L     R14,12(,R13)
-         LM    R1,R12,24(,R13)
+         LM    R1,R12,24(R13)
          BR    R14
 *
          LTORG
