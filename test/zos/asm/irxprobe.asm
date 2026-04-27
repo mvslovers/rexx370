@@ -658,30 +658,30 @@ WPARM    DS    0H
          MVC   LBLBUF(20),=CL20'    language'
          LA    R1,12(,R8)
          BAL   R14,WKVTXT3
-         MVC   LBLBUF(20),=CL20'    flags'
-         L     R1,20(,R8)
-         BAL   R14,WKVHEX
-         MVC   LBLBUF(20),=CL20'    masks'
-         L     R1,24(,R8)
-         BAL   R14,WKVHEX
-         MVC   LBLBUF(20),=CL20'    addrspn'
-         LA    R1,28(,R8)
-         BAL   R14,WKVTXT8M
-         MVC   LBLBUF(20),=CL20'    subpool'
-         XC    WORK_TMPA,WORK_TMPA
-         IC    R1,36(,R8)
-         ST    R1,WORK_TMPA
-         L     R1,WORK_TMPA
-         BAL   R14,WKVDEC
          MVC   LBLBUF(20),=CL20'    modnamet'
-         L     R1,40(,R8)
+         L     R1,16(,R8)              +0x10
          BAL   R14,WKVHEX
          MVC   LBLBUF(20),=CL20'    subcomtb'
-         L     R1,44(,R8)
+         L     R1,20(,R8)              +0x14
          BAL   R14,WKVHEX
          MVC   LBLBUF(20),=CL20'    packtb'
-         L     R1,48(,R8)
+         L     R1,24(,R8)              +0x18
          BAL   R14,WKVHEX
+         MVC   LBLBUF(20),=CL20'    parsetok'
+         LA    R1,28(,R8)              +0x1C
+         BAL   R14,WKVTXT8M
+         MVC   LBLBUF(20),=CL20'    flags'
+         L     R1,36(,R8)              +0x24
+         BAL   R14,WKVHEX
+         MVC   LBLBUF(20),=CL20'    masks'
+         L     R1,40(,R8)              +0x28
+         BAL   R14,WKVHEX
+         MVC   LBLBUF(20),=CL20'    subpool'
+         L     R1,44(,R8)              +0x2C  (fullword)
+         BAL   R14,WKVDEC
+         MVC   LBLBUF(20),=CL20'    addrspn'
+         LA    R1,48(,R8)              +0x30
+         BAL   R14,WKVTXT8M
          L     R14,WORK_R14W
          BR    R14
 *
