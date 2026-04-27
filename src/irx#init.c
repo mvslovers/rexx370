@@ -14,10 +14,12 @@
 /*  Ref: CON-1 §3.1 (ENVBLOCK), §3.2 (PARMBLOCK inheritance),         */
 /*       §3.8 (IRXEXTE), §6.2 (env-type detection),                   */
 /*       §6.3 (INITENVB algorithm)                                     */
-/*  Ref: CON-3 (ECTENVBK semantics — greenfield-verified,             */
-/*       non-greenfield behavior TBD pending IRXPROBE)                */
+/*  Ref: CON-3 (ECTENVBK semantics — TSOFL-conditional, IRXPROBE-     */
+/*       verified Phase α: TSOFL=1 unconditional overwrite,           */
+/*       TSOFL=0 leave slot untouched)                                 */
+/*  Ref: CON-14 (IRXPROBE Phase α actions A1/A3)                      */
 /*  Ref: CON-4 (VERSION='0042', SLOT_FREE=0x00)                       */
-/*  Ref: WP-I1c.1                                                     */
+/*  Ref: WP-I1c.1, TSK-195                                            */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */
@@ -169,7 +171,8 @@ cleanup:
 /*   5. PARMBLOCK copy allocation and link                            */
 /*   6. IRXEXTE placeholder (zeroed; COUNT=IRXEXTE_ENTRY_COUNT)       */
 /*   7. IRXANCHR slot allocation                                      */
-/*   8. ECTENVBK claim-if-null (TSO only, MVS only; CON-3 TBD)        */
+/*   8. ECTENVBK unconditional overwrite when TSOFL=1 (MVS only;     */
+/*      IRXPROBE-verified Phase α, CON-14 cases A1/A3)               */
 /*   9. Return *out_envblock, reason_code=0                           */
 /*                                                                    */
 /*  Returns: 0=OK, 20=error (out_reason_code set)                    */
@@ -287,29 +290,21 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * TSOFL=1 → TSO environment. Detection hierarchy:
      *   - If the caller's parmblock had tsofl_mask set, respect it.
      *   - Otherwise auto-detect via anch_tso().
+     *
+     * The resolved is_tso value is reflected into pb_copy via the
+     * bitfield accessor in step 5 (not by byte-level OR'ing here).
+     * Byte-level writes against tsofl are platform-specific because
+     * the int bitfield ordering differs between MVS (MSB-first) and
+     * the cross-compile host (LSB-first); the bitfield accessor lays
+     * down the right bit on whichever platform is compiling.
      * ---------------------------------------------------------------- */
+    if (caller_parmblock != NULL && caller_parmblock->tsofl_mask)
     {
-        int explicit_tso = 0;
-        if (caller_parmblock != NULL && caller_parmblock->tsofl_mask)
-        {
-            explicit_tso = 1;
-            /* tsofl bit-field: MSB of flags byte 0. */
-            is_tso = (caller_parmblock->tsofl != 0) ? 1 : 0;
-        }
-        if (!explicit_tso)
-        {
-            is_tso = anch_tso();
-            /* Reflect auto-detected TSOFL back into the effective flags. */
-            if (is_tso)
-            {
-                /* Set MSB of flags byte 0 (tsofl is the MSB). */
-                eff_flags[0] |= 0x80;
-            }
-            else
-            {
-                eff_flags[0] &= (unsigned char)~0x80;
-            }
-        }
+        is_tso = (caller_parmblock->tsofl != 0) ? 1 : 0;
+    }
+    else
+    {
+        is_tso = anch_tso();
     }
 
     /* ----------------------------------------------------------------
@@ -357,6 +352,13 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     memset(pb_copy->parmblock_addrspn, ' ', 8);
     memset(pb_copy->parmblock_ffff, 0xFF, 8);
 
+    /* Reflect the resolved TSOFL through the bitfield accessor so byte
+     * and bitfield views agree on both MVS (MSB-first) and host
+     * (LSB-first). Mask is set to mark the value as caller-honoured for
+     * any future inheritance lookup. Signed 1-bit field: -1 for true. */
+    pb_copy->tsofl_mask = -1;
+    pb_copy->tsofl = is_tso ? -1 : 0;
+
     envblk->envblock_parmblock = pb_copy;
 
     /* ----------------------------------------------------------------
@@ -402,17 +404,18 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     }
 
     /* ----------------------------------------------------------------
-     * Step 8: ECTENVBK claim-if-null (TSO + MVS only).
+     * Step 8: ECTENVBK unconditional overwrite when TSOFL=1.
      *
-     * Conservative semantics pending IRXPROBE verification. CON-3
-     * greenfield observation showed IBM writes ECTENVBK on init, but
-     * the non-greenfield case (slot already set) is TBD. We claim
-     * the slot only when NULL to avoid trampling other environments.
-     * If IRXPROBE shows IBM does unconditional overwrite we can flip.
+     * IRXPROBE Phase α (TSK-192, CON-14) confirmed IBM writes
+     * ECTENVBK unconditionally when TSOFL=1 (case A1: pre 18B09C90 →
+     * post 18B7BC90 even though pre was non-NULL) and leaves it
+     * untouched when TSOFL=0 (case A3: pre and post identical, slot
+     * flags zero). This replaces the earlier conservative
+     * claim-if-null hold-out.
      *
-     * Not executed on host builds — anch_tso() always returns 0 on
-     * host, so is_tso is 0 anyway; the #ifdef also avoids the
-     * (ect + ECT_ENVBK_OFF) pointer math on a host-simulated address.
+     * Not executed on host builds — the host wrapper irxinit() does
+     * the equivalent simulation write after irx_init_initenvb returns
+     * (using pb_copy->tsofl which is platform-portable).
      * ---------------------------------------------------------------- */
 #ifdef __MVS__
     if (is_tso)
@@ -422,19 +425,12 @@ int irx_init_initenvb(struct envblock *prev_envblock,
         {
             struct envblock **slot =
                 (struct envblock **)((char *)ect + ECT_ENVBK_OFF);
-            if (*slot == NULL)
-            {
-                *slot = envblk;
-                envblk->envblock_ectptr = ect;
-            }
-            else
-            {
-                /* Slot occupied — record ECT for tracing but don't
-                 * overwrite the anchor. */
-                envblk->envblock_ectptr = ect;
-            }
+            *slot = envblk;
+            envblk->envblock_ectptr = ect;
         }
     }
+    /* TSOFL=0: ECTENVBK is intentionally not touched. The env is
+     * registered in the IRXANCHR table only — no TSO binding. */
 #endif
 
     /* ----------------------------------------------------------------
@@ -686,11 +682,12 @@ int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
 /*  the full IRXEXTE (real function pointers), SUBCOMTB, internal     */
 /*  Work Block, and BIF registry required by the interpreter.         */
 /*                                                                    */
-/*  On host (non-MVS) builds, writes the simulated ECTENVBK slot if  */
-/*  it is currently NULL, preserving the read-mostly test semantics  */
-/*  expected by tstphas1 and tstanrm (anch_tso() returns 0 on host,  */
-/*  so irx_init_initenvb() step 8 is skipped — the host write here   */
-/*  stands in for it without calling the deprecated anch_push()).     */
+/*  On host (non-MVS) builds, mirrors the MVS step 8 contract on the */
+/*  simulated ECTENVBK slot: when the resolved env carries TSOFL=1   */
+/*  (read via pb->tsofl, portable across MVS MSB-first and host      */
+/*  LSB-first int bitfield ordering), the slot is overwritten        */
+/*  unconditionally — matching IBM behaviour verified by IRXPROBE     */
+/*  Phase α. TSOFL=0 leaves the slot untouched.                       */
 /*                                                                    */
 /*  Returns: 0=OK, 20=init error                                      */
 /* ================================================================== */
@@ -804,20 +801,23 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         }
     }
 
-    /* Host-only: simulate ECTENVBK slot write for cross-compile tests.
-     * On MVS, irx_init_initenvb() step 8 handles ECTENVBK for TSO
-     * environments. On host, anch_tso() returns 0 so step 8 is skipped;
-     * this block writes the simulation slot with read-mostly semantics
-     * (claim-if-null) so tstphas1 and tstanrm continue to pass. */
+    /* Host-only: mirror MVS step 8 ECTENVBK semantics on the
+     * simulation slot. Read TSOFL via the bitfield accessor to stay
+     * portable across MVS (MSB-first) and host (LSB-first) int
+     * bitfield encodings — the byte view of parmblock_flags differs
+     * between platforms, but pb->tsofl always lands on the right bit
+     * for the compiling target. */
 #ifndef __MVS__
     {
-        /* ectenvbk_slot() lives in irx#anch.c; test programs define the
-         * _simulated_ectenvbk global that the host build reads. */
-        extern struct envblock **ectenvbk_slot(void);
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL && *slot == NULL)
+        struct parmblock *pb = (struct parmblock *)envblk->envblock_parmblock;
+        if (pb != NULL && pb->tsofl != 0)
         {
-            *slot = envblk;
+            extern struct envblock **ectenvbk_slot(void);
+            struct envblock **slot = ectenvbk_slot();
+            if (slot != NULL)
+            {
+                *slot = envblk;
+            }
         }
     }
 #endif

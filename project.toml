@@ -133,6 +133,24 @@ include = [
 "mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
+# IRXDBG - Debug / Inspection Tool.
+# Inspects IRXANCHR state, ECT/ECTENVBK slot, and ENVBLOCK fields.
+# Useful during WP-I1c development to verify IRXINIT/IRXTERM state.
+#
+# Invocation:
+#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ANCH'
+#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'CLEAR'
+#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ECT'
+#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ENV'
+#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ENV 18BC5C90'
+# ---------------------------------------------------------------
+[[link.module]]
+name = "IRXDBG"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = ["@@CRT1", "IRXDBG", "IRX#ANCH"]
+
+# ---------------------------------------------------------------
 # IRX#HELO - "Hello World" demo standalone load module.
 # Runs an embedded REXX exec through irx_exec_run() that exercises
 # SAY, arithmetic, NUMERIC DIGITS, string BIFs (LENGTH / REVERSE /
@@ -184,14 +202,14 @@ include = [
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-# [[link.module]]
-# name = "TSTTOKN"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = ["@@CRT1", "TSTTOKN", "IRX#TOKN", "IRX#STOR"]
+[[link.module]]
+name = "TSTTOKN"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = ["@@CRT1", "TSTTOKN", "IRX#TOKN", "IRX#STOR"]
 
-# [link.module.dep_includes]
-# "mvslovers/lstring370" = "*"
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # MVS test load modules (follow-ups to the TSTTOKN pilot).
@@ -278,29 +296,14 @@ include = [
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-# ---------------------------------------------------------------
-# IRXDBG - Debug / Inspection Tool.
-# Inspects IRXANCHR state, ECT/ECTENVBK slot, and ENVBLOCK fields.
-# Useful during WP-I1c development to verify IRXINIT/IRXTERM state.
-#
-# Invocation:
-#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ANCH'
-#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'CLEAR'
-#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ECT'
-#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ENV'
-#   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ENV 18BC5C90'
-# ---------------------------------------------------------------
 [[link.module]]
-name = "IRXDBG"
+name = "TSTANSL"
 entry = "@@CRT0"
 options = ["LIST", "MAP", "XREF", "RENT"]
-include = ["@@CRT1", "IRXDBG", "IRX#ANCH"]
+include = ["@@CRT1", "TSTANSL", "IRX#ANCH"]
 
-# [[link.module]]
-# name = "TSTANSL"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = ["@@CRT1", "TSTANSL", "IRX#ANCH"]
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTINIT - WP-I1c.1 IRXINIT INITENVB C-Core unit tests.

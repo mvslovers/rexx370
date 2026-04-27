@@ -1,45 +1,52 @@
 /* ------------------------------------------------------------------ */
-/*  tstanrm.c - Read-mostly ECTENVBK protection tests  */
+/*  tstanrm.c - ECTENVBK TSOFL-conditional anchor tests  */
 /*                                                                    */
-/*  CON-1 §6.1 defines three observable states the ECTENVBK slot can  */
-/*  be in, and a distinct read-mostly response to each. The tests     */
-/*  below pin down all three as a single self-contained artefact so   */
-/*  future reviewers can point at one file for the anchor contract:   */
+/*  IRXPROBE Phase α (TSK-192, CON-14) verified IBM's actual          */
+/*  IRXINIT/IRXTERM contract for the ECTENVBK slot:                    */
 /*                                                                    */
-/*    (a) Empty-slot baseline — IRXINIT claims the slot; IRXTERM      */
-/*        leaves ECTENVBK unchanged (CON-3: caller responsibility).   */
+/*    - TSOFL=1 IRXINIT  → ECTENVBK is overwritten unconditionally     */
+/*      with the new ENVBLOCK, regardless of the slot's prior value.   */
+/*    - TSOFL=0 IRXINIT  → ECTENVBK is left untouched.                 */
+/*    - IRXTERM (any TSOFL) → ECTENVBK is never modified (CON-3).      */
 /*                                                                    */
-/*    (b) BREXX-simulated non-NULL slot — another REXX owns the       */
-/*        anchor. IRXINIT must NOT overwrite it; IRXTERM leaves the   */
-/*        slot alone because it never pointed at our env.             */
+/*  The cases below pin down all four observables in one place so a   */
+/*  reviewer can point at this file as the executable contract:        */
 /*                                                                    */
-/*    (c) Own-env stacking — a first IRXINIT claimed the slot; a      */
-/*        second IRXINIT on top must not disturb it. IRXTERM on any   */
-/*        env never modifies ECTENVBK (CON-3) — the caller manages    */
-/*        ECTENVBK lifetime.                                          */
+/*    (a) Empty-slot baseline — TSOFL=1 IRXINIT writes the slot;       */
+/*        IRXTERM does not clear it (caller-managed lifetime).        */
 /*                                                                    */
-/*  An old push/pop implementation would fail cases (b) and (c);      */
-/*  read-mostly passes all three.                                     */
+/*    (b) Foreign-owned slot — a sentinel pre-seeded into ECTENVBK     */
+/*        is clobbered by TSOFL=1 IRXINIT (matches IBM behaviour).    */
+/*        IRXTERM leaves the new value in place.                      */
+/*                                                                    */
+/*    (c) Own-env stacking — a TSOFL=1 IRXINIT for `outer` claims     */
+/*        the slot; a second TSOFL=1 IRXINIT for `inner` overwrites   */
+/*        it. IRXTERM on either env is a CON-3 no-op at the anchor.   */
+/*                                                                    */
+/*    (d) Non-TSO no-op — TSOFL=0 IRXINIT must not touch the slot,    */
+/*        even when one is reachable. The pre-seeded sentinel must   */
+/*        survive the IRXINIT call.                                   */
+/*                                                                    */
+/*  An old read-mostly / claim-if-NULL implementation would fail      */
+/*  cases (b) and (c); the IBM-compatible TSOFL-conditional contract   */
+/*  passes all four. See TSK-195 for the change rationale.            */
 /*                                                                    */
 /*  Platform-aware seed helper                                        */
 /*  --------------------------                                        */
-/*  On MVS, production anch_push / anch_pop / anch_curr read and      */
-/*  write the real ECTENVBK slot via ectenvbk_slot() (which walks     */
-/*  PSA→ASCB→ASXB→LWA→ECT). The host-only `_simulated_ectenvbk`       */
-/*  global is unused on MVS. Cases (b) and (c) need to simulate a     */
-/*  non-NULL initial slot state; _test_set_anchor() below targets     */
-/*  whichever storage the production code actually reads, per         */
-/*  platform. Do not re-introduce direct `_simulated_ectenvbk = ...`  */
-/*  writes in Case (b) / Case (c) — they silently no-op on MVS and    */
-/*  make the test look like it passes on host while failing on MVS.   */
-/*  See CON-1 §6.1.                                                   */
+/*  On MVS, production code reads and writes the real ECTENVBK slot   */
+/*  via ectenvbk_slot() (which walks PSA→ASCB→ASXB→LWA→ECT). The      */
+/*  host-only `_simulated_ectenvbk` global is unused on MVS. Cases   */
+/*  that need to simulate a pre-existing slot state use               */
+/*  _test_set_anchor() below, which targets whichever storage the     */
+/*  production code actually reads, per platform. Do not re-introduce */
+/*  direct `_simulated_ectenvbk = ...` writes in cases (b) / (c) /    */
+/*  (d) — they silently no-op on MVS and make the test look like it   */
+/*  passes on host while failing on MVS. See CON-1 §6.1.              */
 /*                                                                    */
-/*  Cases that require a specific anchor state (seeding a sentinel,   */
-/*  asserting that irxinit claimed the slot, asserting lenient pop)   */
-/*  only run when anch_tso() is true — i.e. the TSO ECT chain is      */
-/*  reachable. In pure batch (EXEC PGM=... direct) the walk returns   */
-/*  NULL and anch_push / anch_pop reduce to local field updates, so   */
-/*  those assertions are skipped (tests_skipped) rather than failed.  */
+/*  Cases that require a specific anchor state only run when           */
+/*  ectenvbk_slot() returns non-NULL. In pure MVS batch (EXEC         */
+/*  PGM=... direct) the walk returns NULL, so those assertions are    */
+/*  skipped (tests_skipped) rather than failed.                       */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -57,6 +64,7 @@
 /* ------------------------------------------------------------------ */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "irx.h"
 #include "irxanchr.h"
@@ -151,26 +159,42 @@ static struct envblock *_test_get_anchor(void)
 #endif
 }
 
+/* Build a parmblock with the requested TSOFL value, mirroring the
+ * helper in tstinit.c. Bitfield writes lay down the right bit on both
+ * MVS (MSB-first) and host (LSB-first) int bitfield encodings. */
+static void build_parmblock(struct parmblock *pb, int tso)
+{
+    memset(pb, 0, sizeof(*pb));
+    memcpy(pb->parmblock_id, PARMBLOCK_ID, 8);
+    memcpy(pb->parmblock_version, PARMBLOCK_VERSION_0042, 4);
+    pb->tsofl_mask = -1;
+    pb->tsofl = tso ? -1 : 0;
+    memset(pb->parmblock_addrspn, ' ', 8);
+    memset(pb->parmblock_ffff, 0xFF, 8);
+}
+
 /* ------------------------------------------------------------------ */
-/*  Case (a) — empty-slot baseline                                    */
+/*  Case (a) — empty-slot baseline (TSOFL=1)                          */
 /* ------------------------------------------------------------------ */
 
 static void case_a_empty_slot_baseline(void)
 {
     struct envblock *env = NULL;
+    struct parmblock pb;
     int rc;
 
-    printf("\n--- Case (a): empty-slot baseline ---\n");
+    printf("\n--- Case (a): empty-slot baseline (TSOFL=1) ---\n");
 
     _test_set_anchor(NULL);
     CHECK(anch_curr() == NULL, "precondition: anch_curr() == NULL");
 
-    rc = irxinit(NULL, &env);
+    build_parmblock(&pb, /*tso=*/1);
+    rc = irxinit(&pb, &env);
     CHECK(rc == 0, "irxinit returns 0");
     CHECK(env != NULL, "irxinit produced an ENVBLOCK");
     CHECK_IF_REACHABLE(
         CHECK(anch_curr() == env,
-              "slot claimed: anch_curr() == env (was NULL at push)"),
+              "TSOFL=1: slot written (anch_curr() == env)"),
         "slot claimed: anch_curr() == env");
 
     struct envblock *slot_before = anch_curr(); /* save before irxterm */
@@ -185,85 +209,91 @@ static void case_a_empty_slot_baseline(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Case (b) — BREXX-simulated non-NULL slot                          */
+/*  Case (b) — foreign-owned slot, TSOFL=1 clobbers it                */
 /* ------------------------------------------------------------------ */
 
-static void case_b_simulated_brexx_owns_slot(void)
+static void case_b_foreign_slot_clobbered(void)
 {
     struct envblock *env = NULL;
+    struct parmblock pb;
     int rc;
 
-    printf("\n--- Case (b): BREXX-simulated non-NULL slot ---\n");
+    printf("\n--- Case (b): foreign-owned slot clobbered (TSOFL=1) ---\n");
 
-    /* Seed the real slot (TSO) or the host simulation variable. On
-     * batch MVS the slot is unreachable and the seed is a no-op —
-     * the dependent assertions below are gated behind anch_tso(). */
+    /* Seed the real slot (TSO) or the host simulation variable with a
+     * sentinel that simulates a different REXX (e.g. parallel BREXX)
+     * already owning the anchor. On batch MVS the slot is unreachable
+     * and the seed is a no-op — the dependent assertions below are
+     * gated through CHECK_IF_REACHABLE. */
     _test_set_anchor((struct envblock *)SENTINEL);
     CHECK_IF_REACHABLE(
         CHECK(anch_curr() == SENTINEL,
               "pre-seed: anch_curr() == SENTINEL"),
         "pre-seed: anch_curr() == SENTINEL");
 
-    rc = irxinit(NULL, &env);
+    build_parmblock(&pb, /*tso=*/1);
+    rc = irxinit(&pb, &env);
     CHECK(rc == 0, "irxinit returns 0");
     CHECK(env != NULL, "irxinit produced an ENVBLOCK");
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == SENTINEL,
-              "slot NOT overwritten (read-mostly guard holds)"),
-        "slot NOT overwritten after irxinit");
+        CHECK(anch_curr() == env,
+              "TSOFL=1: foreign slot is overwritten with new env"),
+        "slot overwritten after TSOFL=1 irxinit");
     CHECK(env != (struct envblock *)SENTINEL,
           "returned env is distinct from the pre-existing anchor");
 
+    struct envblock *slot_before = anch_curr(); /* save before irxterm */
     rc = irxterm(env);
     CHECK(rc == 0, "irxterm returns 0");
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == SENTINEL,
-              "slot still SENTINEL after irxterm (lenient pop)"),
-        "slot still SENTINEL after irxterm");
+        CHECK(anch_curr() == slot_before,
+              "slot unchanged by irxterm (CON-3 no-op)"),
+        "slot unchanged after irxterm");
 
-    /* Always run the post-cleanup restore: on MVS batch the slot was
-     * never touched, on host the simulation variable was, and the
-     * helper handles both. Keeps Case (c)'s precondition clean. */
+    /* Caller-side cleanup so Case (c) starts with a clean precondition. */
     _test_set_anchor(NULL);
     CHECK(anch_curr() == NULL, "post-cleanup: anch_curr() == NULL");
 }
 
 /* ------------------------------------------------------------------ */
-/*  Case (c) — own-env stacking                                       */
+/*  Case (c) — own-env stacking (TSOFL=1)                             */
 /* ------------------------------------------------------------------ */
 
 static void case_c_own_env_stacking(void)
 {
     struct envblock *outer = NULL;
     struct envblock *inner = NULL;
+    struct parmblock pb;
     int rc;
 
-    printf("\n--- Case (c): own-env stacking ---\n");
+    printf("\n--- Case (c): own-env stacking (TSOFL=1) ---\n");
 
     _test_set_anchor(NULL);
     CHECK(anch_curr() == NULL, "precondition: anch_curr() == NULL");
 
-    rc = irxinit(NULL, &outer);
+    build_parmblock(&pb, /*tso=*/1);
+
+    rc = irxinit(&pb, &outer);
     CHECK(rc == 0 && outer != NULL, "outer irxinit returned a valid env");
     CHECK_IF_REACHABLE(
         CHECK(anch_curr() == outer,
-              "outer claimed the slot (was NULL at push)"),
+              "TSOFL=1: outer claimed the slot"),
         "outer claimed the slot");
 
-    rc = irxinit(NULL, &inner);
+    rc = irxinit(&pb, &inner);
     CHECK(rc == 0 && inner != NULL, "inner irxinit returned a valid env");
     CHECK(inner != outer, "inner env is distinct from outer");
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == outer,
-              "slot still outer (inner read-mostly-skipped the write)"),
-        "slot still outer after inner irxinit");
+        CHECK(anch_curr() == inner,
+              "TSOFL=1 stacking: inner overwrote outer in the slot"),
+        "slot now inner after stacked TSOFL=1 irxinit");
 
     rc = irxterm(inner);
     CHECK(rc == 0, "inner irxterm returns 0");
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == outer,
-              "slot still outer (inner was not the holder; CON-3 no-op)"),
-        "slot still outer after inner irxterm");
+        CHECK(anch_curr() == inner,
+              "slot still inner after inner irxterm (CON-3 no-op)"),
+        "slot still inner after inner irxterm");
 
     struct envblock *slot_before = anch_curr(); /* save before outer irxterm */
     rc = irxterm(outer);
@@ -276,14 +306,51 @@ static void case_c_own_env_stacking(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Case (d) — non-TSO env (TSOFL=0) leaves the slot untouched        */
+/* ------------------------------------------------------------------ */
+
+static void case_d_non_tso_noop(void)
+{
+    struct envblock *env = NULL;
+    struct parmblock pb;
+    int rc;
+
+    printf("\n--- Case (d): non-TSO env, TSOFL=0 no-op ---\n");
+
+    _test_set_anchor((struct envblock *)SENTINEL);
+    CHECK_IF_REACHABLE(
+        CHECK(anch_curr() == SENTINEL,
+              "pre-seed: anch_curr() == SENTINEL"),
+        "pre-seed: anch_curr() == SENTINEL");
+
+    build_parmblock(&pb, /*tso=*/0);
+    rc = irxinit(&pb, &env);
+    CHECK(rc == 0, "irxinit returns 0");
+    CHECK(env != NULL, "irxinit produced an ENVBLOCK");
+    CHECK_IF_REACHABLE(
+        CHECK(anch_curr() == SENTINEL,
+              "TSOFL=0: slot remains the sentinel (no anchor write)"),
+        "slot unchanged after TSOFL=0 irxinit");
+
+    rc = irxterm(env);
+    CHECK(rc == 0, "irxterm returns 0");
+    CHECK_IF_REACHABLE(
+        CHECK(anch_curr() == SENTINEL,
+              "TSOFL=0: slot still sentinel after irxterm"),
+        "slot still SENTINEL after irxterm");
+
+    _test_set_anchor(NULL);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
 int main(void)
 {
-    printf("=== Read-mostly ECTENVBK protection tests (CON-1 §6.1) ===\n");
+    printf("=== ECTENVBK TSOFL-conditional anchor tests (TSK-195) ===\n");
     printf("    mode: %s\n", anch_tso() ? "TSO (ECT reachable)"
-                                        : "batch (no ECT — TSO-only "
+                                        : "batch (no ECT — slot-state "
                                           "assertions will skip)");
 
     /* Silence unused-function warning on host where _test_get_anchor
@@ -292,8 +359,9 @@ int main(void)
     (void)_test_get_anchor;
 
     case_a_empty_slot_baseline();
-    case_b_simulated_brexx_owns_slot();
+    case_b_foreign_slot_clobbered();
     case_c_own_env_stacking();
+    case_d_non_tso_noop();
 
     printf("\n=== Results: passed=%d run=%d skipped=%d",
            tests_passed, tests_run, tests_skipped);
