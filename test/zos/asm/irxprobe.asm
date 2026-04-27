@@ -477,6 +477,9 @@ DOTERM   ST    R14,WORK_R14D
 **********************************************************************
 *
 DOTERMLA ST    R14,WORK_R14D
+         MVC   LBLBUF(20),=CL20'  lastenv'
+         L     R1,LASTENV
+         BAL   R14,WKVHEX
          L     R1,LASTENV
          LTR   R1,R1
          BZ    TLNONE
@@ -655,12 +658,12 @@ DOIRXINIT DS   0H
 *
          DELETE EP=IRXINIT
 *
-*  On a successful INIT (RC=0) record the new env address in
-*  LASTENV so a later TERM_LAST in the same invocation can find it.
+*  Record the new env address in LASTENV whenever IRXINIT actually
+*  produced one (WORK_NEWE non-zero), regardless of RC.  Some
+*  successful inits return RC=4 (warning); some non-zero RCs still
+*  leave a usable env behind.  TERM_LAST in a later segment will
+*  read this slot.
 *
-         L     R3,WORK_RC
-         LTR   R3,R3
-         BNZ   DIRXNORC
          L     R3,WORK_NEWE
          LTR   R3,R3
          BZ    DIRXNORC
@@ -1088,6 +1091,13 @@ FMTHEX8  DS    0H
 *    Returns R15=0 on success, R15=4 on parse error or empty input   *
 **********************************************************************
 *
+*  EBCDIC ordering matters here: lowercase letters X'81'-X'89'..,
+*  uppercase X'C1'-X'C9'.., and digits X'F0'-X'F9' are arranged
+*  with letters BELOW digits.  A naive 'CLI char,C''0''; BL stop'
+*  rejects letters, so the range checks must walk the encoded
+*  values in the right order.  The pattern below tests each of
+*  the three hex regions explicitly.
+*
 PARSEHEX DS    0H
          XC    WORK_TMPA,WORK_TMPA
          LA    R3,ARGBUF
@@ -1099,34 +1109,41 @@ PARSEHEX DS    0H
 *  that REXX or LINKMVS may prepend to the parameter data).
 *
 PHSKIP   CLI   0(R3),C'0'
-         BL    PHADV
+         BL    PHCKLET                 < X'F0' -> not a digit
          CLI   0(R3),C'9'
-         BNH   PHLOOP                  '0'..'9' -> start parsing
-         CLI   0(R3),C'A'
-         BL    PHADV
+         BNH   PHLOOP                  X'F0'..X'F9' = digit
+         B     PHADV                   X'FA'..X'FF' = invalid
+PHCKLET  CLI   0(R3),C'A'
+         BL    PHCKLOW                 < X'C1' -> not uppercase
          CLI   0(R3),C'F'
-         BNH   PHLOOP                  'A'..'F'
-         CLI   0(R3),C'a'
-         BL    PHADV
+         BNH   PHLOOP                  X'C1'..X'C6' = uppercase hex
+         B     PHADV                   X'C7'..X'EF' = invalid
+PHCKLOW  CLI   0(R3),C'a'
+         BL    PHADV                   < X'81'
          CLI   0(R3),C'f'
-         BNH   PHLOOP                  'a'..'f'
+         BNH   PHLOOP                  X'81'..X'86' = lowercase hex
+         B     PHADV                   X'87'..X'C0' = invalid
+*
 PHADV    LA    R3,1(,R3)
          BCT   R4,PHSKIP
          LA    R15,4                   no hex chars found
          BR    R14
 *
 *  Parse hex digits left-to-right; stop at first non-hex char.
-*  Accept '0'-'9', 'A'-'F', 'a'-'f'.
+*  Same EBCDIC region tests as PHSKIP; on the no-match branches
+*  jump to PHEND (we've already collected at least one digit).
 *
 PHLOOP   CLI   0(R3),C'0'
-         BL    PHEND
+         BL    PHCK2LET
          CLI   0(R3),C'9'
          BNH   PHDIGIT
-         CLI   0(R3),C'A'
-         BL    PHEND
+         B     PHEND
+PHCK2LET CLI   0(R3),C'A'
+         BL    PHCK2LOW
          CLI   0(R3),C'F'
          BNH   PHALPHA
-         CLI   0(R3),C'a'
+         B     PHEND
+PHCK2LOW CLI   0(R3),C'a'
          BL    PHEND
          CLI   0(R3),C'f'
          BH    PHEND
