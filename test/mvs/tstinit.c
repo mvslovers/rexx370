@@ -54,6 +54,7 @@ struct envblock **ectenvbk_slot(void);
 static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
+static int tests_skipped = 0;
 
 #define CHECK(cond, msg)                 \
     do                                   \
@@ -479,6 +480,27 @@ static struct envblock *const ECT_SENTINEL =
     (struct envblock *)(unsigned long)0xDEADBEEFUL;
 
 /* ------------------------------------------------------------------ */
+/*  T11–T13 share a slot-reachability gate: pure-batch MVS reaches    */
+/*  IRXINIT through tstall.jcl with no LWA (and therefore no ECT),    */
+/*  so ectenvbk_slot() returns NULL. The slot-state assertions below  */
+/*  cannot hold in that mode — emit SKIP and return early instead of  */
+/*  failing. Host and TSO-batch (IKJEFT01) always see a reachable     */
+/*  slot, so the assertions execute as before.                        */
+/* ------------------------------------------------------------------ */
+
+static int slot_reachable_or_skip(const char *test_label)
+{
+    if (ectenvbk_slot() != NULL)
+    {
+        return 1;
+    }
+    printf("  SKIP: %s (ECTENVBK slot unreachable — pure batch)\n",
+           test_label);
+    tests_skipped++;
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /*  T11: TSOFL=1 with a non-NULL ECTENVBK → slot is overwritten       */
 /*                                                                    */
 /*  IRXPROBE Phase α (CON-14 case A1) verified IBM writes ECTENVBK    */
@@ -496,16 +518,14 @@ static void test_t11_tsofl1_overwrites_slot(void)
     printf("\n--- T11: TSOFL=1 overwrites non-NULL ECTENVBK ---\n");
 
     irx_anchor_table_reset();
+    if (!slot_reachable_or_skip("T11"))
     {
-        struct envblock **slot = ectenvbk_slot();
-        CHECK(slot != NULL, "T11: ectenvbk_slot reachable on host");
-        if (slot != NULL)
-        {
-            *slot = ECT_SENTINEL;
-            CHECK(*slot == ECT_SENTINEL,
-                  "T11: pre-seed: slot holds sentinel");
-        }
+        return;
     }
+
+    struct envblock **slot = ectenvbk_slot();
+    *slot = ECT_SENTINEL;
+    CHECK(*slot == ECT_SENTINEL, "T11: pre-seed: slot holds sentinel");
 
     build_parmblock_with_tsofl(&pb, /*tso=*/1);
     rc = irxinit(&pb, &envblk);
@@ -514,20 +534,12 @@ static void test_t11_tsofl1_overwrites_slot(void)
 
     if (envblk != NULL)
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            CHECK(*slot == envblk,
-                  "T11: slot was overwritten with new env");
-            CHECK(*slot != ECT_SENTINEL,
-                  "T11: sentinel is gone (unconditional overwrite)");
-        }
+        CHECK(*slot == envblk, "T11: slot was overwritten with new env");
+        CHECK(*slot != ECT_SENTINEL,
+              "T11: sentinel is gone (unconditional overwrite)");
         irxterm(envblk);
         /* Caller-side cleanup so later tests start clean. */
-        if (slot != NULL)
-        {
-            *slot = NULL;
-        }
+        *slot = NULL;
     }
 }
 
@@ -548,14 +560,13 @@ static void test_t12_tsofl0_leaves_slot(void)
     printf("\n--- T12: TSOFL=0 leaves ECTENVBK untouched ---\n");
 
     irx_anchor_table_reset();
+    if (!slot_reachable_or_skip("T12"))
     {
-        struct envblock **slot = ectenvbk_slot();
-        CHECK(slot != NULL, "T12: ectenvbk_slot reachable on host");
-        if (slot != NULL)
-        {
-            *slot = ECT_SENTINEL;
-        }
+        return;
     }
+
+    struct envblock **slot = ectenvbk_slot();
+    *slot = ECT_SENTINEL;
 
     build_parmblock_with_tsofl(&pb, /*tso=*/0);
     rc = irxinit(&pb, &envblk);
@@ -564,19 +575,11 @@ static void test_t12_tsofl0_leaves_slot(void)
 
     if (envblk != NULL)
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            CHECK(*slot == ECT_SENTINEL,
-                  "T12: slot still sentinel (TSOFL=0 no-op)");
-            CHECK(*slot != envblk,
-                  "T12: slot does NOT point at the new env");
-        }
+        CHECK(*slot == ECT_SENTINEL,
+              "T12: slot still sentinel (TSOFL=0 no-op)");
+        CHECK(*slot != envblk, "T12: slot does NOT point at the new env");
         irxterm(envblk);
-        if (slot != NULL)
-        {
-            *slot = NULL;
-        }
+        *slot = NULL;
     }
 }
 
@@ -597,42 +600,26 @@ static void test_t13_stacked_tsofl1_latest_wins(void)
     printf("\n--- T13: stacked TSOFL=1 IRXINITs — latest wins ---\n");
 
     irx_anchor_table_reset();
+    if (!slot_reachable_or_skip("T13"))
     {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            *slot = NULL;
-        }
+        return;
     }
+
+    struct envblock **slot = ectenvbk_slot();
+    *slot = NULL;
 
     build_parmblock_with_tsofl(&pb, /*tso=*/1);
 
     rc = irxinit(&pb, &first);
     CHECK(rc == 0 && first != NULL, "T13: first irxinit succeeded");
-
-    {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            CHECK(*slot == first,
-                  "T13: slot holds first env after first irxinit");
-        }
-    }
+    CHECK(*slot == first, "T13: slot holds first env after first irxinit");
 
     rc = irxinit(&pb, &second);
     CHECK(rc == 0 && second != NULL, "T13: second irxinit succeeded");
     CHECK(second != first, "T13: second env is distinct from first");
-
-    {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            CHECK(*slot == second,
-                  "T13: slot holds second env (latest IRXINIT wins)");
-            CHECK(*slot != first,
-                  "T13: first env is no longer in the slot");
-        }
-    }
+    CHECK(*slot == second,
+          "T13: slot holds second env (latest IRXINIT wins)");
+    CHECK(*slot != first, "T13: first env is no longer in the slot");
 
     if (second != NULL)
     {
@@ -642,13 +629,7 @@ static void test_t13_stacked_tsofl1_latest_wins(void)
     {
         irxterm(first);
     }
-    {
-        struct envblock **slot = ectenvbk_slot();
-        if (slot != NULL)
-        {
-            *slot = NULL;
-        }
-    }
+    *slot = NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -674,9 +655,10 @@ int main(void)
     test_t13_stacked_tsofl1_latest_wins();
 
     printf("\n--- Results ---\n");
-    printf("  Run:    %d\n", tests_run);
-    printf("  Passed: %d\n", tests_passed);
-    printf("  Failed: %d\n", tests_failed);
+    printf("  Run:     %d\n", tests_run);
+    printf("  Passed:  %d\n", tests_passed);
+    printf("  Failed:  %d\n", tests_failed);
+    printf("  Skipped: %d\n", tests_skipped);
 
     if (tests_failed > 0)
     {
