@@ -100,8 +100,9 @@ int irx_init_chekenvb(struct envblock *envblock,
 /*                                                                    */
 /*  Reverses irx_init_initenvb: releases IRXEXTE, PARMBLOCK copy,    */
 /*  IRXANCHR slot, and ENVBLOCK itself, in reverse-allocation order.  */
-/*  ECTENVBK is never touched (CON-3 / IBM-compatible per             */
-/*  SC28-1883-0 §14 — ECTENVBK management is caller responsibility). */
+/*  For TSO-attached envs, rolls ECTENVBK back to the predecessor     */
+/*  TSO-attached env (or NULL), provided we still own the slot        */
+/*  (CON-14 / IRXPROBE Phase alpha). Non-TSO envs: ECTENVBK unchanged.*/
 /*                                                                    */
 /*  Parameters:                                                       */
 /*    envblock        - ENVBLOCK to terminate; must be non-NULL and   */
