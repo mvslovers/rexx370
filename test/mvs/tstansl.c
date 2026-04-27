@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------ */
 /*  tstansl.c - IRXANCHR Slot-Management-API tests (WP-I1a.3)         */
 /*                                                                    */
-/*  Seven test cases pinning down the IBM-observed slot-allocation     */
+/*  Eight test cases pinning down the IBM-observed slot-allocation    */
 /*  behaviour:                                                        */
 /*    1. Alloc/find/free round-trip; USED stays at high-watermark      */
 /*    2. High-watermark never shrinks; next alloc uses N+1, not freed  */
@@ -10,6 +10,7 @@
 /*    5. Table-full: 62nd alloc succeeds, 63rd returns RC=FULL         */
 /*    6. find_by_tcb returns the highest-token entry for a TCB         */
 /*    7. get_handle returns RC=BAD_EYE on corrupt eye-catcher (host)   */
+/*    8. is_tso flag steers FLAGS field; lookup is flag-agnostic       */
 /*                                                                    */
 /*  Cross-compile build:                                              */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -96,7 +97,7 @@ static void test_1_round_trip(void)
     printf("--- Test 1: alloc/find/free round-trip\n");
     irx_anchor_table_reset();
 
-    rc = irx_anchor_alloc_slot(ENV(1), TCB(1), &tok);
+    rc = irx_anchor_alloc_slot(ENV(1), TCB(1), /*is_tso=*/1, &tok);
     CHECK(rc == IRX_ANCHOR_RC_OK, "T1: alloc slot returns OK");
     CHECK(tok == 1, "T1: first token is 1");
     CHECK(get_used() == 2, "T1: USED = 2 after first alloc");
@@ -107,8 +108,8 @@ static void test_1_round_trip(void)
     CHECK(e != NULL &&
               e->tcb_ptr == (uint32_t)(unsigned long)TCB(1),
           "T1: found slot has correct tcb_ptr");
-    CHECK(e != NULL && (e->flags & IRXANCHR_FLAG_IN_USE),
-          "T1: found slot has IN_USE flag");
+    CHECK(e != NULL && (e->flags & IRXANCHR_FLAG_TSO_ATTACHED),
+          "T1: TSO-attached slot has 0x40000000 flag");
 
     rc = irx_anchor_free_slot(ENV(1));
     CHECK(rc == IRX_ANCHOR_RC_OK, "T1: free_slot returns OK");
@@ -131,20 +132,20 @@ static void test_2_hwm_no_recycle(void)
     irx_anchor_table_reset();
     slots = get_slots();
 
-    irx_anchor_alloc_slot(ENV(2), TCB(1), &tok_a);
+    irx_anchor_alloc_slot(ENV(2), TCB(1), /*is_tso=*/1, &tok_a);
     CHECK(slots != NULL &&
               slots[1].envblock_ptr == (uint32_t)(unsigned long)ENV(2),
           "T2: env_A lands in slot 1");
     CHECK(get_used() == 2, "T2: USED = 2 after env_A");
 
     /* Slot 2 is a permanent sentinel — env_B must skip it → slot 3. */
-    irx_anchor_alloc_slot(ENV(3), TCB(1), &tok_b);
+    irx_anchor_alloc_slot(ENV(3), TCB(1), /*is_tso=*/1, &tok_b);
     CHECK(slots != NULL &&
               slots[3].envblock_ptr == (uint32_t)(unsigned long)ENV(3),
           "T2: env_B lands in slot 3 (slot 2 is sentinel)");
     CHECK(get_used() == 4, "T2: USED = 4 after env_B");
 
-    irx_anchor_alloc_slot(ENV(4), TCB(1), &tok_c);
+    irx_anchor_alloc_slot(ENV(4), TCB(1), /*is_tso=*/1, &tok_c);
     CHECK(slots != NULL &&
               slots[4].envblock_ptr == (uint32_t)(unsigned long)ENV(4),
           "T2: env_C lands in slot 4");
@@ -154,7 +155,7 @@ static void test_2_hwm_no_recycle(void)
     CHECK(get_used() == 5, "T2: USED stays 5 after freeing env_B");
 
     /* Append-only: next alloc starts at USED=5, not recycled slot 3. */
-    irx_anchor_alloc_slot(ENV(5), TCB(1), &tok_d);
+    irx_anchor_alloc_slot(ENV(5), TCB(1), /*is_tso=*/1, &tok_d);
     CHECK(slots != NULL &&
               slots[5].envblock_ptr == (uint32_t)(unsigned long)ENV(5),
           "T2: env_D lands in slot 5 (no recycling of freed slot 3)");
@@ -181,10 +182,10 @@ static void test_3_sentinel_integrity(void)
 
     /* Drive several alloc/free cycles so the scan passes both
      * sentinel positions at least once. */
-    irx_anchor_alloc_slot(ENV(10), TCB(1), &tok);
-    irx_anchor_alloc_slot(ENV(11), TCB(1), &tok);
+    irx_anchor_alloc_slot(ENV(10), TCB(1), /*is_tso=*/1, &tok);
+    irx_anchor_alloc_slot(ENV(11), TCB(1), /*is_tso=*/1, &tok);
     irx_anchor_free_slot(ENV(10));
-    irx_anchor_alloc_slot(ENV(12), TCB(1), &tok);
+    irx_anchor_alloc_slot(ENV(12), TCB(1), /*is_tso=*/1, &tok);
 
     CHECK(slots != NULL &&
               slots[0].envblock_ptr == IRXANCHR_SLOT_SENTINEL,
@@ -222,9 +223,9 @@ static void test_4_token_monotonic(void)
     printf("--- Test 4: token monotonicity\n");
     irx_anchor_table_reset();
 
-    irx_anchor_alloc_slot(ENV(20), TCB(1), &tok1);
+    irx_anchor_alloc_slot(ENV(20), TCB(1), /*is_tso=*/1, &tok1);
     irx_anchor_free_slot(ENV(20));
-    irx_anchor_alloc_slot(ENV(20), TCB(1), &tok2);
+    irx_anchor_alloc_slot(ENV(20), TCB(1), /*is_tso=*/1, &tok2);
 
     CHECK(tok2 > tok1,
           "T4: re-allocated slot gets strictly higher token");
@@ -247,7 +248,7 @@ static void test_5_table_full(void)
     /* Allocatable slots: 1, 3-63 = 62 slots. */
     for (i = 0; i < 62; i++)
     {
-        rc = irx_anchor_alloc_slot(ENV(100 + i), TCB(1), &tok);
+        rc = irx_anchor_alloc_slot(ENV(100 + i), TCB(1), /*is_tso=*/1, &tok);
         if (rc == IRX_ANCHOR_RC_OK)
         {
             filled++;
@@ -255,7 +256,7 @@ static void test_5_table_full(void)
     }
     CHECK(filled == 62, "T5: 62 allocations succeed (all non-sentinel slots)");
 
-    rc = irx_anchor_alloc_slot(ENV(200), TCB(1), &tok);
+    rc = irx_anchor_alloc_slot(ENV(200), TCB(1), /*is_tso=*/1, &tok);
     CHECK(rc == IRX_ANCHOR_RC_FULL,
           "T5: 63rd allocation returns RC=FULL");
 
@@ -276,9 +277,9 @@ static void test_6_find_by_tcb(void)
     printf("--- Test 6: find_by_tcb returns highest-token entry\n");
     irx_anchor_table_reset();
 
-    irx_anchor_alloc_slot(ENV(30), TCB(2), &tok1);
-    irx_anchor_alloc_slot(ENV(31), TCB(2), &tok2);
-    irx_anchor_alloc_slot(ENV(32), TCB(3), &tok3);
+    irx_anchor_alloc_slot(ENV(30), TCB(2), /*is_tso=*/1, &tok1);
+    irx_anchor_alloc_slot(ENV(31), TCB(2), /*is_tso=*/1, &tok2);
+    irx_anchor_alloc_slot(ENV(32), TCB(3), /*is_tso=*/1, &tok3);
 
     found = irx_anchor_find_by_tcb(TCB(2));
     CHECK(found != NULL, "T6: find_by_tcb(tcb2) returns non-NULL");
@@ -345,6 +346,49 @@ static void test_7_eyecatcher(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Test 8: is_tso parameter steers FLAGS; lookup is flag-agnostic     */
+/*                                                                    */
+/*  Per IRXPROBE Phase α (CON-14, Case A1 vs A3): the top bit of      */
+/*  the FLAGS field is set only for TSO-attached envs (TSOFL=1) and   */
+/*  cleared for non-TSO envs (TSOFL=0). Slot occupancy is determined  */
+/*  by envblock_ptr alone — find_by_envblock and find_by_tcb must     */
+/*  return both flag values.                                          */
+/* ------------------------------------------------------------------ */
+
+static void test_8_is_tso_flag(void)
+{
+    uint32_t tok = 0;
+    irxanchr_entry_t *e;
+
+    printf("--- Test 8: is_tso flag steers FLAGS field\n");
+    irx_anchor_table_reset();
+
+    /* TSO-attached env → flag set. */
+    irx_anchor_alloc_slot(ENV(40), TCB(1), /*is_tso=*/1, &tok);
+    e = irx_anchor_find_by_envblock(ENV(40));
+    CHECK(e != NULL && e->flags == IRXANCHR_FLAG_TSO_ATTACHED,
+          "T8: is_tso=1 → flags == 0x40000000");
+
+    /* Non-TSO env → flag clear. */
+    irx_anchor_alloc_slot(ENV(41), TCB(1), /*is_tso=*/0, &tok);
+    e = irx_anchor_find_by_envblock(ENV(41));
+    CHECK(e != NULL && e->flags == 0U,
+          "T8: is_tso=0 → flags == 0x00000000");
+
+    /* Both env kinds findable via find_by_envblock. */
+    CHECK(irx_anchor_find_by_envblock(ENV(40)) != NULL,
+          "T8: find_by_envblock returns TSO-attached slot");
+    CHECK(irx_anchor_find_by_envblock(ENV(41)) != NULL,
+          "T8: find_by_envblock returns non-TSO slot");
+
+    /* find_by_tcb returns the highest-token entry regardless of flag —
+     * here the non-TSO env was allocated second, so it wins. */
+    e = irx_anchor_find_by_tcb(TCB(1));
+    CHECK(e != NULL && e->envblock_ptr == (uint32_t)(unsigned long)ENV(41),
+          "T8: find_by_tcb returns highest-token entry across flag values");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -359,6 +403,7 @@ int main(void)
     test_5_table_full();
     test_6_find_by_tcb();
     test_7_eyecatcher();
+    test_8_is_tso_flag();
 
     printf("\n=== Results: passed=%d run=%d skipped=%d",
            tests_passed, tests_run, tests_skipped);

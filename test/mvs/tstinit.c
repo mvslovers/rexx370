@@ -13,6 +13,8 @@
 /*  T6: irxterm after irx_init_initenvb — returns 0                   */
 /*  T7: irxinit() compat wrapper — IRXEXTE fully wired (irxuid != 0)  */
 /*  T8: Bad prev_envblock eye-catcher — step 1 skip, falls through    */
+/*  T9: TSOFL=1 parmblock → IRXANCHR slot flags=0x40000000            */
+/*  T10: TSOFL=0 parmblock → IRXANCHR slot flags=0x00000000           */
 /*                                                                    */
 /*  Cross-compile build:                                              */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -197,8 +199,20 @@ static void test_t4_anchor_slot_alloc(void)
         CHECK(slot != NULL, "irx_anchor_find_by_envblock returns non-NULL slot");
         if (slot != NULL)
         {
-            CHECK((slot->flags & IRXANCHR_FLAG_IN_USE) != 0,
-                  "slot flag IN_USE is set");
+            /* On the cross-compile host anch_tso() returns 0 and no
+             * caller_parmblock was supplied, so is_tso=0. The default
+             * init path produces a non-TSO slot with flags=0. T9/T10
+             * cover the TSOFL-driven flag values explicitly. */
+#ifdef __MVS__
+            /* TSO foreground or batch — anch_tso() may report either.
+             * Verify the flag matches one of the two valid values. */
+            CHECK(slot->flags == 0U ||
+                      slot->flags == IRXANCHR_FLAG_TSO_ATTACHED,
+                  "slot flag is 0 or TSO_ATTACHED");
+#else
+            CHECK(slot->flags == 0U,
+                  "host non-TSO env: slot flags == 0");
+#endif
         }
 
         irxterm(envblk);
@@ -366,6 +380,94 @@ static void test_t8_bad_prev_eyecatcher(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  T9 / T10 helper: build a minimal valid PARMBLOCK with explicit    */
+/*  TSOFL bit. Mask byte 0 MSB selects tsofl as caller-overridden;    */
+/*  flag byte 0 MSB carries the desired value (1=TSO, 0=non-TSO).     */
+/* ------------------------------------------------------------------ */
+
+static void build_parmblock_with_tsofl(struct parmblock *pb, int tso)
+{
+    memset(pb, 0, sizeof(*pb));
+    memcpy(pb->parmblock_id, PARMBLOCK_ID, 8);
+    memcpy(pb->parmblock_version, PARMBLOCK_VERSION_0042, 4);
+    /* Use the bit-field accessors so layout differences between the
+     * MVS toolchain (MSB-first) and the cross-compile host (LSB-first)
+     * do not silently misroute the bit. The fields are signed 1-bit
+     * bit-fields, so -1 is the only representable "true" value (matches
+     * the convention in test/mvs/tstfind.c). */
+    pb->tsofl_mask = -1;
+    pb->tsofl = tso ? -1 : 0;
+    memset(pb->parmblock_addrspn, ' ', 8);
+    memset(pb->parmblock_ffff, 0xFF, 8);
+}
+
+/* ------------------------------------------------------------------ */
+/*  T9: TSOFL=1 → IRXANCHR slot flags == 0x40000000                   */
+/* ------------------------------------------------------------------ */
+
+static void test_t9_tsofl_set_flag(void)
+{
+    struct parmblock pb;
+    struct envblock *envblk = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- T9: TSOFL=1 → IRXANCHR slot TSO_ATTACHED ---\n");
+
+    irx_anchor_table_reset();
+    build_parmblock_with_tsofl(&pb, /*tso=*/1);
+
+    rc = irx_init_initenvb(NULL, &pb, 0, &envblk, &reason);
+    CHECK(rc == 0, "irx_init_initenvb returns 0");
+
+    if (envblk != NULL)
+    {
+        irxanchr_entry_t *slot = irx_anchor_find_by_envblock(envblk);
+        CHECK(slot != NULL, "T9: slot found");
+        if (slot != NULL)
+        {
+            CHECK(slot->flags == IRXANCHR_FLAG_TSO_ATTACHED,
+                  "T9: TSOFL=1 → flags == 0x40000000");
+        }
+
+        irxterm(envblk);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  T10: TSOFL=0 explicit → IRXANCHR slot flags == 0x00000000         */
+/* ------------------------------------------------------------------ */
+
+static void test_t10_tsofl_clear_flag(void)
+{
+    struct parmblock pb;
+    struct envblock *envblk = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- T10: TSOFL=0 → IRXANCHR slot non-TSO ---\n");
+
+    irx_anchor_table_reset();
+    build_parmblock_with_tsofl(&pb, /*tso=*/0);
+
+    rc = irx_init_initenvb(NULL, &pb, 0, &envblk, &reason);
+    CHECK(rc == 0, "irx_init_initenvb returns 0");
+
+    if (envblk != NULL)
+    {
+        irxanchr_entry_t *slot = irx_anchor_find_by_envblock(envblk);
+        CHECK(slot != NULL, "T10: slot found");
+        if (slot != NULL)
+        {
+            CHECK(slot->flags == 0U,
+                  "T10: TSOFL=0 → flags == 0x00000000");
+        }
+
+        irxterm(envblk);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -381,6 +483,8 @@ int main(void)
     test_t6_irxterm_after_initenvb();
     test_t7_irxinit_compat_wrapper();
     test_t8_bad_prev_eyecatcher();
+    test_t9_tsofl_set_flag();
+    test_t10_tsofl_clear_flag();
 
     printf("\n--- Results ---\n");
     printf("  Run:    %d\n", tests_run);
