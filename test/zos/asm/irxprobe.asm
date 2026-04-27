@@ -270,23 +270,25 @@ DUMPDONE DS    0H
          B     EXIT
 *
 **********************************************************************
-*  INIT - IRXINIT INITENVB, TSOFL=1, no caller-prev                  *
+*  INIT [module] - IRXINIT INITENVB; default module IRXTSPRM (TSO)   *
 **********************************************************************
 *
 DOINIT   DS    0H
          MVC   LINETXT(120),=CL120'INIT'
          BAL   R14,WLINE
          MVC   FCODE,=CL8'INITENVB'
+         MVC   PARMODE,=CL8'IRXTSPRM'
+         BAL   R14,SETPMOD            ARGBUF override (if non-blank)
          XC    PARMP,PARMP
          XC    USERP,USERP
          XC    PREVP,PREVP            R0 input = 0 (no prev)
-         OI    FLAGS+3,X'80'          TSOFL = 1 (placeholder)
          BAL   R14,DOIRXINIT
          LA    R15,0
          B     EXIT
 *
 **********************************************************************
-*  INITP - IRXINIT INITENVB, TSOFL=1, R0 = hex env address (prev)    *
+*  INITP hex - IRXINIT INITENVB, R0 = hex env address (prev),         *
+*              module fixed to IRXTSPRM                              *
 **********************************************************************
 *
 DOINITP  DS    0H
@@ -296,29 +298,55 @@ DOINITP  DS    0H
          LTR   R15,R15
          BNZ   ARGERR
          MVC   FCODE,=CL8'INITENVB'
+         MVC   PARMODE,=CL8'IRXTSPRM'
          XC    PARMP,PARMP
          XC    USERP,USERP
          MVC   PREVP,WORK_TMPA
-         OI    FLAGS+3,X'80'
          BAL   R14,DOIRXINIT
          LA    R15,0
          B     EXIT
 *
 **********************************************************************
-*  INITNT - IRXINIT INITENVB, TSOFL=0 (non-TSO)                      *
+*  INITNT [module] - IRXINIT INITENVB; default module IRXPARMS       *
+*                    (non-TSO defaults)                              *
 **********************************************************************
 *
 DOINITNT DS    0H
-         MVC   LINETXT(120),=CL120'INITNT (TSOFL=0)'
+         MVC   LINETXT(120),=CL120'INITNT'
          BAL   R14,WLINE
          MVC   FCODE,=CL8'INITENVB'
+         MVC   PARMODE,=CL8'IRXPARMS'
+         BAL   R14,SETPMOD            ARGBUF override (if non-blank)
          XC    PARMP,PARMP
          XC    USERP,USERP
          XC    PREVP,PREVP
-         XC    FLAGS,FLAGS            TSOFL = 0
          BAL   R14,DOIRXINIT
          LA    R15,0
          B     EXIT
+*
+**********************************************************************
+*  SETPMOD - if ARGBUF[0] is non-blank, copy first 8 chars (uppercase,*
+*            blank-padded) into PARMODE, overriding the default.     *
+**********************************************************************
+*
+SETPMOD  DS    0H
+         CLI   ARGBUF,C' '             ARGBUF blank?
+         BER   R14                     yes -> keep default, return
+*
+         ST    R14,WORK_R14H
+         MVC   PARMODE,=CL8' '         clear, will be overlaid
+         LA    R3,ARGBUF
+         LA    R5,PARMODE
+         LA    R7,8
+SPMCPY   CLI   0(R3),C' '
+         BE    SPMD
+         MVC   0(1,R5),0(R3)
+         OI    0(R5),X'40'             EBCDIC uppercase mask
+         LA    R3,1(,R3)
+         LA    R5,1(,R5)
+         BCT   R7,SPMCPY
+SPMD     L     R14,WORK_R14H
+         BR    R14
 *
 **********************************************************************
 *  TERM - IRXTERM with R0 = hex env address                          *
@@ -432,15 +460,23 @@ EXIT     DS    0H
 *  DOIRXINIT - common IRXINIT INITENVB call sequence                 *
 *                                                                    *
 *    Inputs:  FCODE   8-byte function code ('INITENVB')              *
+*             PARMODE 8-byte parameter-module name (CL8, blank-pad)  *
 *             PARMP   address of caller PARMBLOCK or 0               *
-*             USERP   user field address or 0                        *
+*             USERP   user field (fullword)                          *
 *             PREVP   value to load into R0 (caller-prev) or 0       *
-*             FLAGS   flags fullword (TSOFL bit etc.)                *
 *    Output:  WORK_NEWE   new ENVBLOCK address                       *
-*             WORK_NEWWB  workblock-extension address                *
 *             WORK_RSN    reason code                                *
 *             WORK_RC     RC from IRXINIT                            *
-*             prints  pre/post ECTENVBK and the four output values   *
+*             prints  pre/post ECTENVBK and the output values        *
+*                                                                    *
+*  IRXINIT INITENVB parameter list per CON-1 §3.x / SC28-1883-0:     *
+*    P1  function code           (CL8)                               *
+*    P2  parameter module name   (CL8, blank = use system default)   *
+*    P3  caller PARMBLOCK        (A, 0 = use module-supplied)        *
+*    P4  user field              (F)                                 *
+*    P5  reserved — addr of fullword zero (must be non-NULL)         *
+*    P6  out: ENVBLOCK address   (A)                                 *
+*    P7  out: reason code        (F)                                 *
 **********************************************************************
 *
 DOIRXINIT DS   0H
@@ -450,29 +486,30 @@ DOIRXINIT DS   0H
          MVC   LBLBUF(20),=CL20'  pre  ECTENVBK'
          L     R1,WORK_ENVB
          BAL   R14,WKVHEX
+         MVC   LBLBUF(20),=CL20'  module'
+         LA    R1,PARMODE
+         BAL   R14,WKVTXT8M
 *
          XC    WORK_NEWE,WORK_NEWE
-         XC    WORK_NEWWB,WORK_NEWWB
          XC    WORK_RSN,WORK_RSN
 *
-*  Build IRXINIT parameter list (all addresses high-bit clear; VL=1
-*  on last entry).
+*  Build IRXINIT parameter list (high-bit set on P7 only).
 *
          LA    R3,FCODE
-         ST    R3,PLIST+0
+         ST    R3,PLIST+0          P1: function code
+         LA    R3,PARMODE
+         ST    R3,PLIST+4          P2: parameter module name
          LA    R3,PARMP
-         ST    R3,PLIST+4
+         ST    R3,PLIST+8          P3: caller PARMBLOCK (or 0)
          LA    R3,USERP
-         ST    R3,PLIST+8
+         ST    R3,PLIST+12         P4: user field
+         LA    R3,RESVZ
+         ST    R3,PLIST+16         P5: addr of reserved zero
          LA    R3,WORK_NEWE
-         ST    R3,PLIST+12
-         LA    R3,WORK_NEWWB
-         ST    R3,PLIST+16
+         ST    R3,PLIST+20         P6: out envblock addr
          LA    R3,WORK_RSN
-         ST    R3,PLIST+20
-         LA    R3,FLAGS
-         ST    R3,PLIST+24
-         OI    PLIST+24,X'80'         high-bit on last entry
+         ST    R3,PLIST+24         P7: out reason code
+         OI    PLIST+24,X'80'      VL=1 marker on last entry
 *
          LOAD  EP=IRXINIT,ERRET=NOIRXIN
          LR    R3,R0                  R3 = IRXINIT entry-point addr
@@ -493,9 +530,6 @@ DOIRXINIT DS   0H
          BAL   R14,WKVDEC
          MVC   LBLBUF(20),=CL20'  new envblock'
          L     R1,WORK_NEWE
-         BAL   R14,WKVHEX
-         MVC   LBLBUF(20),=CL20'  workblok ext'
-         L     R1,WORK_NEWWB
          BAL   R14,WKVHEX
 *
          BAL   R14,READECT
@@ -827,54 +861,61 @@ PARSEHEX DS    0H
          L     R9,=F'0'                accumulator
          LA    R5,0                    digit count
 *
-*  Skip leading blanks
+*  Skip leading non-hex characters (spaces, NULs, anything else
+*  that REXX or LINKMVS may prepend to the parameter data).
 *
-PHSKIP   CLI   0(R3),C' '
-         BNE   PHLOOP
-         LA    R3,1(,R3)
+PHSKIP   CLI   0(R3),C'0'
+         BL    PHADV
+         CLI   0(R3),C'9'
+         BNH   PHLOOP                  '0'..'9' -> start parsing
+         CLI   0(R3),C'A'
+         BL    PHADV
+         CLI   0(R3),C'F'
+         BNH   PHLOOP                  'A'..'F'
+         CLI   0(R3),C'a'
+         BL    PHADV
+         CLI   0(R3),C'f'
+         BNH   PHLOOP                  'a'..'f'
+PHADV    LA    R3,1(,R3)
          BCT   R4,PHSKIP
-         LA    R15,4                   nothing but blanks
+         LA    R15,4                   no hex chars found
          BR    R14
 *
-*  Parse digits left-to-right; accept '0'-'9', 'A'-'F', 'a'-'f'.
-*  Stop on blank or NUL or after 8 digits.
+*  Parse hex digits left-to-right; stop at first non-hex char.
+*  Accept '0'-'9', 'A'-'F', 'a'-'f'.
 *
-PHLOOP   CLI   0(R3),C' '
-         BE    PHEND
-         CLI   0(R3),X'00'
-         BE    PHEND
-         IC    R10,0(,R3)              char (zero-extended)
-*
-         CLI   0(R3),C'0'
-         BL    PHERR
+PHLOOP   CLI   0(R3),C'0'
+         BL    PHEND
          CLI   0(R3),C'9'
-         BH    PHALPHA
-         N     R10,=F'15'              digit nibble
-         B     PHACCUM
-*
-PHALPHA  CLI   0(R3),C'A'
-         BL    PHERR
+         BNH   PHDIGIT
+         CLI   0(R3),C'A'
+         BL    PHEND
          CLI   0(R3),C'F'
-         BH    PHLOWER
-         B     PHLET
-PHLOWER  CLI   0(R3),C'a'
-         BL    PHERR
+         BNH   PHALPHA
+         CLI   0(R3),C'a'
+         BL    PHEND
          CLI   0(R3),C'f'
-         BH    PHERR
-PHLET    N     R10,=F'15'
+         BH    PHEND
+*
+PHALPHA  IC    R10,0(,R3)
+         N     R10,=F'15'
          LA    R10,9(,R10)
          N     R10,=F'15'              alpha nibble (10..15)
+         B     PHACCUM
+*
+PHDIGIT  IC    R10,0(,R3)
+         N     R10,=F'15'              digit nibble
 *
 PHACCUM  SLL   R9,4
          AR    R9,R10
          LA    R3,1(,R3)
          LA    R5,1(,R5)
          CL    R5,=F'8'
-         BNL   PHEND
+         BNL   PHEND                   collected 8 digits
          BCT   R4,PHLOOP
 *
 PHEND    LTR   R5,R5
-         BZ    PHERR                   no digits at all
+         BZ    PHERR                   no digits found
          ST    R9,WORK_TMPA
          LA    R15,0
          BR    R14
@@ -903,10 +944,11 @@ LINETXT  DS    CL120
 LBLBUF   DS    CL20
 *
 FCODE    DS    CL8
-PARMP    DS    F
-USERP    DS    F
-PREVP    DS    F
-FLAGS    DS    F
+PARMODE  DS    CL8                     IRXINIT P2: parm-module name
+PARMP    DS    F                       IRXINIT P3: caller PARMBLOCK
+USERP    DS    F                       IRXINIT P4: user field
+PREVP    DS    F                       R0 input: caller-prev env
+RESVZ    DC    F'0'                    IRXINIT P5 reserved zero
 PLIST    DS    8F
 *
 WORK_ASCB    DS  F
@@ -917,7 +959,6 @@ WORK_ENVB    DS  F
 WORK_ANCH    DS  F
 WORK_PARM    DS  F
 WORK_NEWE    DS  F
-WORK_NEWWB   DS  F
 WORK_RSN     DS  F
 WORK_RC      DS  F
 WORK_FINRC   DS  F
