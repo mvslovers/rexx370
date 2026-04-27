@@ -88,115 +88,232 @@ OPENED1  DS    0H
 *
          BAL   R14,WBANNER
 *
-*  Parse PARM (REXX 'ADDRESS LINKMVS' convention)
-*    R2 -> array of fullword addresses; high-order bit on last entry.
-*    Each address -> halfword length followed by character data.
-*    First entry  becomes SUBCMD (CL8, uppercase, blank-padded).
-*    Second entry becomes ARGBUF (optional).
+*  Build CMDBUF from the caller's parameter area, supporting both
+*  TSO CALL and REXX ADDRESS LINKMVS conventions.  Detection is by
+*  threshold on the halfword at R2+0:
 *
-         MVC   SUBCMD,BLANK80          subcommand defaults to blank
+*    halfword < 256  -> TSO CALL    (R1 -> halfword len + text)
+*    halfword >= 256 -> LINKMVS     (R1 -> array of descriptor addrs)
+*
+*  This works on z/OS because LINKMVS descriptors live in REXX's
+*  above-the-line storage, so any descriptor address starts at
+*  X'01000000' or higher (halfword >= 256).  TSO CALL parm length
+*  is bounded by ~120 bytes in practice, well under 256.
+*
+         BAL   R14,BUILDCMD
+*
+*  Initialise dispatch loop state
+*
+         XC    WORK_FINRC,WORK_FINRC
+         XC    LASTENV,LASTENV
+         LA    R3,CMDBUF
+         ST    R3,CMDPTR
+         L     R4,CMDLEN
+         LA    R5,0(R4,R3)             R5 = CMDBUF + length
+         ST    R5,CMDEND
+*
+*  Segment loop: extract subcmd (and optional args) from CMDBUF,
+*  dispatch, emit a segment marker, repeat until end of buffer.
+*  Subcommands are delimited by ';'.
+*
+SEGLOOP  L     R3,CMDPTR
+         L     R5,CMDEND
+*
+*  Skip leading separators (blanks and ';')
+*
+SKIPSEP  CR    R3,R5
+         BNL   ALLDONE
+         CLI   0(R3),C' '
+         BE    SKIPADV
+         CLI   0(R3),C';'
+         BE    SKIPADV
+         B     SKIPDONE
+SKIPADV  LA    R3,1(,R3)
+         B     SKIPSEP
+SKIPDONE DS    0H
+*
+*  Extract subcommand (first token in segment) into SUBCMD,
+*  uppercased and blank-padded to CL8.
+*
+         MVC   SUBCMD,BLANK80
+         LA    R6,SUBCMD
+         LA    R7,8                    max 8 chars
+SUBSCAN  CR    R3,R5
+         BNL   SUBEND
+         CLI   0(R3),C' '
+         BE    SUBEND
+         CLI   0(R3),C';'
+         BE    SUBEND
+         LTR   R7,R7
+         BZ    SUBOVER                 over 8 chars: skip rest
+         MVC   0(1,R6),0(R3)
+         OI    0(R6),X'40'             EBCDIC uppercase mask
+         LA    R6,1(,R6)
+         LA    R3,1(,R3)
+         BCTR  R7,0
+         B     SUBSCAN
+SUBOVER  CR    R3,R5
+         BNL   SUBEND
+         CLI   0(R3),C' '
+         BE    SUBEND
+         CLI   0(R3),C';'
+         BE    SUBEND
+         LA    R3,1(,R3)
+         B     SUBOVER
+SUBEND   DS    0H
+*
+*  Extract args (rest of segment until ';' or end) into ARGBUF.
+*
          MVC   ARGBUF(L'ARGBUF),BLANK80
 *
-*  ----- first parameter (subcommand)
+*  Skip blanks between subcmd and args
 *
-         L     R3,0(,R2)               R3 = first param descriptor addr
-         LR    R10,R3                  save raw value (incl. high bit)
-         N     R3,=X'7FFFFFFF'         clear high-bit for addressing
-         LTR   R3,R3
-         BZ    DISPATCH                no descriptor -> help
-         LH    R4,0(,R3)               R4 = halfword text length
-         LTR   R4,R4
-         BNP   ENDP1                   empty subcommand
-         LA    R3,2(,R3)               R3 -> text
-         LA    R5,SUBCMD               R5 -> dest
-         LA    R6,8                    max 8 chars
-         CR    R4,R6
-         BNH   GOTLEN1
-         LR    R4,R6
-GOTLEN1  LR    R7,R4
-COPYSUB  MVC   0(1,R5),0(R3)
-         OI    0(R5),X'40'             EBCDIC uppercase mask
+ARGSKIP  CR    R3,R5
+         BNL   ARGREADY
+         CLI   0(R3),C' '
+         BNE   ARGREADY
          LA    R3,1(,R3)
-         LA    R5,1(,R5)
-         BCT   R7,COPYSUB
+         B     ARGSKIP
+ARGREADY DS    0H
+         LA    R6,ARGBUF
+         LA    R7,L'ARGBUF
+ARGSCAN  CR    R3,R5
+         BNL   ARGEND
+         CLI   0(R3),C';'
+         BE    ARGEND
+         LTR   R7,R7
+         BZ    ARGOVER
+         MVC   0(1,R6),0(R3)
+         LA    R6,1(,R6)
+         LA    R3,1(,R3)
+         BCTR  R7,0
+         B     ARGSCAN
+ARGOVER  CR    R3,R5
+         BNL   ARGEND
+         CLI   0(R3),C';'
+         BE    ARGEND
+         LA    R3,1(,R3)
+         B     ARGOVER
+ARGEND   DS    0H
 *
-ENDP1    LTR   R10,R10                 high-bit on first entry?
-         BM    DISPATCH                yes -> no further params
+*  Step past the ';' separator if present
 *
-*  ----- second parameter (argument; optional)
+         CR    R3,R5
+         BNL   POSTSEP
+         CLI   0(R3),C';'
+         BNE   POSTSEP
+         LA    R3,1(,R3)
+POSTSEP  ST    R3,CMDPTR
 *
-         LA    R2,4(,R2)
-         L     R3,0(,R2)
-         N     R3,=X'7FFFFFFF'
-         LTR   R3,R3
-         BZ    DISPATCH
-         LH    R4,0(,R3)
-         LTR   R4,R4
-         BNP   DISPATCH
-         LA    R3,2(,R3)
-         LA    R6,L'ARGBUF
-         CR    R4,R6
-         BNH   GOTLEN2
-         LR    R4,R6
-GOTLEN2  BCTR  R4,0
-         EX    R4,EXMVCARG
-         B     DISPATCH
-EXMVCARG MVC   ARGBUF(0),0(R3)         executed via EX
+*  Emit segment marker:  '== <subcmd> =='
 *
-*  Dispatch on SUBCMD
+         MVC   LINETXT(120),BLANK120
+         MVI   LINETXT,C'='
+         MVI   LINETXT+1,C'='
+         MVC   LINETXT+3(8),SUBCMD
+         MVI   LINETXT+12,C'='
+         MVI   LINETXT+13,C'='
+         BAL   R14,WLINE
 *
-DISPATCH DS    0H
+*  Dispatch on SUBCMD; each handler returns via BR R14 (eventually
+*  through HANDRET).
+*
          CLC   SUBCMD,=CL8'DUMP'
-         BE    DODUMP
+         BE    GO_DUMP
          CLC   SUBCMD,=CL8'INIT'
-         BE    DOINIT
+         BE    GO_INIT
          CLC   SUBCMD,=CL8'INITP'
-         BE    DOINITP
+         BE    GO_INITP
          CLC   SUBCMD,=CL8'INITNT'
-         BE    DOINITNT
+         BE    GO_INITNT
          CLC   SUBCMD,=CL8'TERM'
-         BE    DOTERM
+         BE    GO_TERM
+         CLC   SUBCMD,=CL8'TERM_LAS'
+         BE    GO_TERMLA
          CLC   SUBCMD,=CL8'EXEC'
-         BE    DOEXEC
+         BE    GO_EXEC
          CLC   SUBCMD,=CL8'MARK'
-         BE    DOMARK
+         BE    GO_MARK
          CLC   SUBCMD,BLANK80
-         BE    DOHELP
+         BE    GO_HELP
 *
-         MVC   LINETXT(120),=CL120'?? unknown subcommand'
-         MVC   LINETXT+22(8),SUBCMD
+         MVC   LINETXT(120),=CL120'?? unknown subcommand:'
+         MVC   LINETXT+23(8),SUBCMD
          BAL   R14,WLINE
          LA    R15,4
+         B     UPDRC
+*
+GO_DUMP   BAL  R14,DODUMP
+         B     UPDRC
+GO_INIT   BAL  R14,DOINIT
+         B     UPDRC
+GO_INITP  BAL  R14,DOINITP
+         B     UPDRC
+GO_INITNT BAL  R14,DOINITNT
+         B     UPDRC
+GO_TERM   BAL  R14,DOTERM
+         B     UPDRC
+GO_TERMLA BAL  R14,DOTERMLA
+         B     UPDRC
+GO_EXEC   BAL  R14,DOEXEC
+         B     UPDRC
+GO_MARK   BAL  R14,DOMARK
+         B     UPDRC
+GO_HELP   BAL  R14,DOHELP
+         B     UPDRC
+*
+*  UPDRC: track max RC across segments; loop to next segment.
+*
+UPDRC    L     R3,WORK_FINRC
+         CR    R15,R3
+         BNH   UPDRCLP
+         ST    R15,WORK_FINRC
+UPDRCLP  B     SEGLOOP
+*
+*  ALLDONE: end of CMDBUF reached, exit with accumulated RC.
+*
+ALLDONE  L     R15,WORK_FINRC
          B     EXIT
+*
+**********************************************************************
+*  HANDRET - common return path for handlers.  Updates the running    *
+*           max RC in WORK_FINRC, then returns to the dispatch loop  *
+*           via the saved R14 (WORK_R14D).                           *
+**********************************************************************
+*
+HANDRET  L     R3,WORK_FINRC
+         CR    R15,R3
+         BNH   HRSAME
+         ST    R15,WORK_FINRC
+HRSAME   L     R14,WORK_R14D
+         BR    R14
 *
 **********************************************************************
 *  HELP                                                              *
 **********************************************************************
 *
-DOHELP   DS    0H
+DOHELP   ST    R14,WORK_R14D
          BAL   R14,WHELP
          LA    R15,0
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
-*  MARK - emit '== text ==' separator line                           *
+*  MARK text - emit a free-text marker line                          *
 **********************************************************************
 *
-DOMARK   DS    0H
-         MVC   LINETXT(120),=CL120'== '
-         MVC   LINETXT+3(70),ARGBUF
+DOMARK   ST    R14,WORK_R14D
+         MVC   LINETXT(120),=CL120'-- '
+         MVC   LINETXT+3(L'ARGBUF),ARGBUF
          BAL   R14,WLINE
          LA    R15,0
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
 *  DUMP - read-only inspection of ECTENVBK, IRXANCHR, ENVBLOCK,      *
 *         PARMBLOCK.                                                  *
 **********************************************************************
 *
-DODUMP   DS    0H
-         MVC   LINETXT(120),=CL120'DUMP'
-         BAL   R14,WLINE
+DODUMP   ST    R14,WORK_R14D
 *
 *  Walk PSA -> ASCB -> ASXB -> LWA -> ECT
 *
@@ -265,17 +382,14 @@ DUMPENV  DS    0H
          BZ    DUMPDONE
          BAL   R14,WPARM
 *
-DUMPDONE DS    0H
-         LA    R15,0
-         B     EXIT
+DUMPDONE LA    R15,0
+         B     HANDRET
 *
 **********************************************************************
 *  INIT [module] - IRXINIT INITENVB; default module IRXTSPRM (TSO)   *
 **********************************************************************
 *
-DOINIT   DS    0H
-         MVC   LINETXT(120),=CL120'INIT'
-         BAL   R14,WLINE
+DOINIT   ST    R14,WORK_R14D
          MVC   FCODE,=CL8'INITENVB'
          MVC   PARMODE,=CL8'IRXTSPRM'
          BAL   R14,SETPMOD            ARGBUF override (if non-blank)
@@ -284,16 +398,14 @@ DOINIT   DS    0H
          XC    PREVP,PREVP            R0 input = 0 (no prev)
          BAL   R14,DOIRXINIT
          LA    R15,0
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
 *  INITP hex - IRXINIT INITENVB, R0 = hex env address (prev),         *
 *              module fixed to IRXTSPRM                              *
 **********************************************************************
 *
-DOINITP  DS    0H
-         MVC   LINETXT(120),=CL120'INITP'
-         BAL   R14,WLINE
+DOINITP  ST    R14,WORK_R14D
          BAL   R14,PARSEHEX           ARGBUF -> WORK_TMPA
          LTR   R15,R15
          BNZ   ARGERR
@@ -304,16 +416,14 @@ DOINITP  DS    0H
          MVC   PREVP,WORK_TMPA
          BAL   R14,DOIRXINIT
          LA    R15,0
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
 *  INITNT [module] - IRXINIT INITENVB; default module IRXPARMS       *
 *                    (non-TSO defaults)                              *
 **********************************************************************
 *
-DOINITNT DS    0H
-         MVC   LINETXT(120),=CL120'INITNT'
-         BAL   R14,WLINE
+DOINITNT ST    R14,WORK_R14D
          MVC   FCODE,=CL8'INITENVB'
          MVC   PARMODE,=CL8'IRXPARMS'
          BAL   R14,SETPMOD            ARGBUF override (if non-blank)
@@ -322,7 +432,7 @@ DOINITNT DS    0H
          XC    PREVP,PREVP
          BAL   R14,DOIRXINIT
          LA    R15,0
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
 *  SETPMOD - if ARGBUF[0] is non-blank, copy first 8 chars (uppercase,*
@@ -349,21 +459,46 @@ SPMD     L     R14,WORK_R14H
          BR    R14
 *
 **********************************************************************
-*  TERM - IRXTERM with R0 = hex env address                          *
+*  TERM hex - IRXTERM with the hex env address from ARGBUF.          *
 **********************************************************************
 *
-DOTERM   DS    0H
-         MVC   LINETXT(120),=CL120'TERM'
-         BAL   R14,WLINE
+DOTERM   ST    R14,WORK_R14D
          BAL   R14,PARSEHEX
          LTR   R15,R15
          BNZ   ARGERR
+         BAL   R14,DOIRXTERM
+         LA    R15,0
+         B     HANDRET
 *
+**********************************************************************
+*  TERM_LAST - IRXTERM on the env that the most-recent successful    *
+*              INIT/INITP/INITNT in this same invocation produced.   *
+*              State is carried in LASTENV.  Empty -> diagnostic.    *
+**********************************************************************
+*
+DOTERMLA ST    R14,WORK_R14D
+         L     R1,LASTENV
+         LTR   R1,R1
+         BZ    TLNONE
+         ST    R1,WORK_TMPA
+         BAL   R14,DOIRXTERM
+         LA    R15,0
+         B     HANDRET
+TLNONE   MVC   LINETXT(120),=CL120'  ?? no prior INIT in this run'
+         BAL   R14,WLINE
+         LA    R15,4
+         B     HANDRET
+*
+**********************************************************************
+*  DOIRXTERM - shared IRXTERM call.  Caller has placed the env       *
+*              address in WORK_TMPA.  Returns via BR R14 (caller's   *
+*              return slot is its own; this routine uses WORK_R14T). *
+**********************************************************************
+*
+DOIRXTERM ST   R14,WORK_R14T
          MVC   LBLBUF(20),=CL20'  arg envblock'
          L     R1,WORK_TMPA
          BAL   R14,WKVHEX
-*
-*  Capture ECTENVBK pre-call
 *
          BAL   R14,READECT
          MVC   LBLBUF(20),=CL20'  pre  ECTENVBK'
@@ -389,8 +524,8 @@ DOTERM   DS    0H
          L     R1,WORK_RC
          BAL   R14,WKVDEC
 *
-         LA    R15,0
-         B     EXIT
+         L     R14,WORK_R14T
+         BR    R14
 *
 **********************************************************************
 *  EXEC - IRXEXEC stub.  Calling IRXEXEC requires an EXECBLK with    *
@@ -400,9 +535,7 @@ DOTERM   DS    0H
 *         follow-up to issue #74.                                    *
 **********************************************************************
 *
-DOEXEC   DS    0H
-         MVC   LINETXT(120),=CL120'EXEC (stub)'
-         BAL   R14,WLINE
+DOEXEC   ST    R14,WORK_R14D
          BAL   R14,PARSEHEX
          LTR   R15,R15
          BNZ   ARGERR
@@ -414,34 +547,34 @@ DOEXEC   DS    0H
          MVC   LINETXT(120),=CL120'  see test/zos/README.md case A7'
          BAL   R14,WLINE
          LA    R15,0
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
-*  ARGERR - bad hex argument                                         *
+*  ARGERR - bad hex argument; consumes the segment, RC=4             *
 **********************************************************************
 *
-ARGERR   DS    0H
-         MVC   LINETXT(120),=CL120'  ?? bad hex argument: '
+ARGERR   MVC   LINETXT(120),=CL120'  ?? bad hex argument: '
          MVC   LINETXT+24(40),ARGBUF
          BAL   R14,WLINE
          LA    R15,4
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
-*  NOIRXIN / NOIRXTM - LOAD EP= failure handlers                     *
+*  NOIRXIN / NOIRXTM - LOAD EP= failure handlers; both abort the     *
+*                      current segment with RC=8 and return to the   *
+*                      dispatch loop so the rest of the sequence     *
+*                      still runs.                                   *
 **********************************************************************
 *
-NOIRXIN  DS    0H
-         MVC   LINETXT(120),=CL120'  ?? LOAD EP=IRXINIT failed'
+NOIRXIN  MVC   LINETXT(120),=CL120'  ?? LOAD EP=IRXINIT failed'
          BAL   R14,WLINE
          LA    R15,8
-         B     EXIT
+         B     HANDRET
 *
-NOIRXTM  DS    0H
-         MVC   LINETXT(120),=CL120'  ?? LOAD EP=IRXTERM failed'
+NOIRXTM  MVC   LINETXT(120),=CL120'  ?? LOAD EP=IRXTERM failed'
          BAL   R14,WLINE
          LA    R15,8
-         B     EXIT
+         B     HANDRET
 *
 **********************************************************************
 *  EXIT - close SYSPRINT, restore regs, return                       *
@@ -522,6 +655,18 @@ DOIRXINIT DS   0H
 *
          DELETE EP=IRXINIT
 *
+*  On a successful INIT (RC=0) record the new env address in
+*  LASTENV so a later TERM_LAST in the same invocation can find it.
+*
+         L     R3,WORK_RC
+         LTR   R3,R3
+         BNZ   DIRXNORC
+         L     R3,WORK_NEWE
+         LTR   R3,R3
+         BZ    DIRXNORC
+         ST    R3,LASTENV
+DIRXNORC DS    0H
+*
          MVC   LBLBUF(20),=CL20'  IRXINIT RC'
          L     R1,WORK_RC
          BAL   R14,WKVDEC
@@ -539,6 +684,95 @@ DOIRXINIT DS   0H
 *
          L     R14,WORK_R14R
          BR    R14
+*
+**********************************************************************
+*  BUILDCMD - copy the caller's parameter text into CMDBUF and       *
+*             record its length in CMDLEN.  Detects calling          *
+*             convention from the halfword at R2+0:                  *
+*                                                                    *
+*    halfword < 256  -> TSO CALL    R2 -> halfword len + text         *
+*    halfword >= 256 -> LINKMVS     R2 -> array of descriptor addrs   *
+*                                                                    *
+*  For LINKMVS, walks the descriptor list and concatenates each      *
+*  parameter's text into CMDBUF separated by single spaces, so that  *
+*  segment processing sees the same form a TSO CALL would deliver.   *
+*  Truncates if the combined text would exceed L'CMDBUF.             *
+**********************************************************************
+*
+BUILDCMD ST    R14,WORK_R14C
+         MVI   CMDBUF,C' '
+         MVC   CMDBUF+1(L'CMDBUF-1),CMDBUF       fill via overlap MVC
+         XC    CMDLEN,CMDLEN
+*
+         LH    R3,0(,R2)
+         CL    R3,=F'256'
+         BL    BLD_TSO                 halfword < 256 -> TSO CALL
+*
+*  ----- LINKMVS path
+*
+         LR    R6,R2                   R6 = list pointer
+         LA    R5,CMDBUF
+         LA    R7,L'CMDBUF             remaining bytes in CMDBUF
+BLDLMK   L     R3,0(,R6)
+         LR    R8,R3                   save raw value (high bit)
+         N     R3,=X'7FFFFFFF'
+         LTR   R3,R3
+         BZ    BLD_DONE
+         LH    R4,0(,R3)
+         LA    R3,2(,R3)               R3 -> text
+         LTR   R4,R4
+         BNP   BLD_NEXT                empty descriptor
+         CR    R4,R7
+         BNH   BLD_OK
+         LR    R4,R7                   cap to remaining
+BLD_OK   LR    R9,R4                   save text length
+         BCTR  R4,0
+         EX    R4,BLD_MVC
+         AR    R5,R9
+         SR    R7,R9
+BLD_NEXT LTR   R8,R8                   high bit on this descriptor?
+         BM    BLD_DONE                yes -> last entry
+         LTR   R7,R7
+         BNP   BLD_DONE                no room for separator
+         MVI   0(R5),C' '
+         LA    R5,1(,R5)
+         BCTR  R7,0
+         LA    R6,4(,R6)               next descriptor
+         B     BLDLMK
+*
+*  ----- TSO CALL path
+*
+BLD_TSO  LH    R4,0(,R2)
+         LA    R3,2(,R2)               R3 -> text
+         LA    R6,L'CMDBUF
+         CR    R4,R6
+         BNH   BLD_TSOK
+         LR    R4,R6                   cap to L'CMDBUF
+BLD_TSOK LR    R9,R4
+         LTR   R4,R4
+         BNP   BLD_RET
+         BCTR  R4,0
+         EX    R4,BLD_TMVC
+         LA    R5,CMDBUF
+         AR    R5,R9
+         B     BLD_RET
+*
+*  ----- finish: compute used length and return
+*
+BLD_DONE DS    0H
+BLD_RET  LA    R3,CMDBUF
+         LA    R4,L'CMDBUF
+         LR    R6,R5
+         SR    R6,R3                   R6 = bytes used
+         ST    R6,CMDLEN
+         L     R14,WORK_R14C
+         BR    R14
+*
+*  EX targets (must not fall through into them)
+*
+         B     BLD_RET                 safety: skip the EX-only MVCs
+BLD_MVC  MVC   0(0,R5),0(R3)
+BLD_TMVC MVC   CMDBUF(0),0(R3)
 *
 **********************************************************************
 *  READECT - re-read ECTENVBK -> WORK_ENVB                           *
@@ -937,6 +1171,14 @@ BLANK120 DC    CL120' '
 SUBCMD   DS    CL8
 ARGBUF   DS    CL64
 *
+*  Sequenced-subcommand command buffer, populated by BUILDCMD
+*
+CMDBUF   DS    CL128
+CMDLEN   DS    F                       bytes used in CMDBUF
+CMDPTR   DS    F                       current scan position
+CMDEND   DS    F                       end-of-buffer pointer
+LASTENV  DS    F                       env from most recent INIT*
+*
 LINEBUF  DS    0CL121
 LINEBUF_CC DC  C' '
 LINETXT  DS    CL120
@@ -971,6 +1213,9 @@ WORK_R14L    DS  F
 WORK_R14H    DS  F
 WORK_R14B    DS  F
 WORK_R14W    DS  F
+WORK_R14C    DS  F                     BUILDCMD save slot
+WORK_R14D    DS  F                     handler dispatch save slot
+WORK_R14T    DS  F                     DOIRXTERM save slot
 *
 SYSPRINT DCB   DDNAME=SYSPRINT,DSORG=PS,MACRF=PM,LRECL=121,RECFM=FBA,  X
                BLKSIZE=121
