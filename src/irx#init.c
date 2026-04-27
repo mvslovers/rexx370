@@ -398,7 +398,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
 #endif
         uint32_t slot_token = 0;
         /* Ignore IRX_ANCHOR_RC_FULL — non-fatal, env remains usable. */
-        (void)irx_anchor_alloc_slot(envblk, tcb, &slot_token);
+        (void)irx_anchor_alloc_slot(envblk, tcb, is_tso, &slot_token);
     }
 
     /* ----------------------------------------------------------------
@@ -529,10 +529,9 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
         {
             continue;
         }
-        if (!(slots[i].flags & IRXANCHR_FLAG_IN_USE))
-        {
-            continue;
-        }
+        /* Slot occupancy is determined solely by envblock_ptr; the
+         * flags field marks TSO-attachment, not in-use status (CON-14
+         * IRXPROBE Phase α). FINDENVB walks both TSO and non-TSO envs. */
         if (slots[i].tcb_ptr != tcbptr)
         {
             continue;

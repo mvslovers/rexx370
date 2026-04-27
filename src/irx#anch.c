@@ -267,7 +267,8 @@ int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
 
 /* ---- common registry functions ---- */
 
-int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token)
+int irx_anchor_alloc_slot(void *envblock, void *tcb, int is_tso,
+                          uint32_t *out_token)
 {
     irxanchr_header_t *hdr;
     irxanchr_entry_t *slots;
@@ -321,10 +322,15 @@ int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token)
         }
 
         /* Populate aux fields before bumping USED: a concurrent
-         * find_by_tcb scans 0..USED and must see a complete entry. */
+         * find_by_tcb scans 0..USED and must see a complete entry.
+         *
+         * flags=0x40000000 marks the slot as TSO-attached (verified
+         * IRXPROBE Phase α Case A1 vs A3, CON-14). Non-TSO envs leave
+         * flags=0x00000000 — slot occupancy is tracked via envblock_ptr,
+         * not via this bit. */
         slots[i].token = anchor_fetch_inc(counter) + 1U;
         slots[i].tcb_ptr = (uint32_t)(unsigned long)tcb;
-        slots[i].flags = IRXANCHR_FLAG_IN_USE;
+        slots[i].flags = is_tso ? IRXANCHR_FLAG_TSO_ATTACHED : 0U;
 #ifndef __MVS__
         /* On the 64-bit cross-compile host, envblock_ptr truncates the
          * pointer to 32 bits.  irx_init_findenvb needs to dereference

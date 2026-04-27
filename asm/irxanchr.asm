@@ -20,7 +20,7 @@
 *    +0x08 16B  (reserved)
 *    +0x18  4B  ANCHOR_HINT
 *    +0x1C  4B  TCB_PTR
-*    +0x20  4B  FLAGS            0x40000000 = in-use
+*    +0x20  4B  FLAGS            0x40000000 = TSO-attached
 *    +0x24  4B  (reserved)
 *
 *  Slot 0 is a permanent sentinel and is never allocated by the API.

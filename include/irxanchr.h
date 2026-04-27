@@ -105,8 +105,13 @@ void anch_push(struct envblock *new_env) asm("ANCHPUSH");
 #define IRXANCHR_SLOT_FREE     ((uint32_t)0x00000000U)
 #define IRXANCHR_SLOT_SENTINEL ((uint32_t)0xFFFFFFFFU)
 
-/* Flag bit set in the flags field when a slot is in use */
-#define IRXANCHR_FLAG_IN_USE ((uint32_t)0x40000000U)
+/* Top bit of the flags field — set when the slot represents a
+ * TSO-attached env (i.e. registered via ECTENVBK). For non-TSO envs
+ * (TSOFL=0) the flags field stays 0x00000000. Slot occupancy is
+ * determined by envblock_ptr (see IRXANCHR_SLOT_FREE / SLOT_SENTINEL),
+ * NOT by this bit. Verified against IBM TSO/E z/OS via IRXPROBE
+ * Phase α Case A1 vs A3 (CON-14). */
+#define IRXANCHR_FLAG_TSO_ATTACHED ((uint32_t)0x40000000U)
 
 /* ================================================================== */
 /*  Part 2: IRXANCHR Registry — Structs                               */
@@ -141,7 +146,7 @@ typedef struct
                             * all slots including rsvd1. */
     uint32_t anchor_hint;  /* +0x18  opaque hint for fast slot re-find        */
     uint32_t tcb_ptr;      /* +0x1C  TCB address at alloc time                */
-    uint32_t flags;        /* +0x20  IRXANCHR_FLAG_IN_USE when active         */
+    uint32_t flags;        /* +0x20  IRXANCHR_FLAG_TSO_ATTACHED for TSO envs  */
     uint32_t rsvd2;        /* +0x24  reserved                                 */
 } irxanchr_entry_t;
 
@@ -174,8 +179,12 @@ typedef char irxanchr_entry_flags_ofs_[(offsetof(irxanchr_entry_t, flags) == 32)
 /* ================================================================== */
 
 /* Claim a free slot; sets envblock_ptr, token, tcb_ptr, flags.
+ * is_tso=1 sets flags=IRXANCHR_FLAG_TSO_ATTACHED (TSO env); is_tso=0
+ * leaves flags=0x00000000 (non-TSO env). The flag does NOT track
+ * slot occupancy — that lives in envblock_ptr.
  * Returns 0 on success, non-zero if table full or invalid. */
-int irx_anchor_alloc_slot(void *envblock, void *tcb, uint32_t *out_token) asm("ANCHALOC");
+int irx_anchor_alloc_slot(void *envblock, void *tcb, int is_tso,
+                          uint32_t *out_token) asm("ANCHALOC");
 
 /* Release the slot for envblock (sets envblock_ptr = IRXANCHR_SLOT_FREE).
  * USED remains at high-watermark (never decremented).
