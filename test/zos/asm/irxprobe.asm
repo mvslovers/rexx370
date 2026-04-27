@@ -342,10 +342,15 @@ DOTERM   DS    0H
          L     R1,WORK_ENVB
          BAL   R14,WKVHEX
 *
+         LOAD  EP=IRXTERM,ERRET=NOIRXTM
+         LR    R3,R0                  R3 = IRXTERM entry-point addr
+*
          L     R0,WORK_TMPA           env address
-         L     R15,=V(IRXTERM)
+         LR    R15,R3
          BALR  R14,R15                CALL IRXTERM
          ST    R15,WORK_RC
+*
+         DELETE EP=IRXTERM
 *
          BAL   R14,READECT
          MVC   LBLBUF(20),=CL20'  post ECTENVBK'
@@ -392,6 +397,22 @@ ARGERR   DS    0H
          MVC   LINETXT+24(40),ARGBUF
          BAL   R14,WLINE
          LA    R15,4
+         B     EXIT
+*
+**********************************************************************
+*  NOIRXIN / NOIRXTM - LOAD EP= failure handlers                     *
+**********************************************************************
+*
+NOIRXIN  DS    0H
+         MVC   LINETXT(120),=CL120'  ?? LOAD EP=IRXINIT failed'
+         BAL   R14,WLINE
+         LA    R15,8
+         B     EXIT
+*
+NOIRXTM  DS    0H
+         MVC   LINETXT(120),=CL120'  ?? LOAD EP=IRXTERM failed'
+         BAL   R14,WLINE
+         LA    R15,8
          B     EXIT
 *
 **********************************************************************
@@ -453,11 +474,16 @@ DOIRXINIT DS   0H
          ST    R3,PLIST+24
          OI    PLIST+24,X'80'         high-bit on last entry
 *
+         LOAD  EP=IRXINIT,ERRET=NOIRXIN
+         LR    R3,R0                  R3 = IRXINIT entry-point addr
+*
          L     R0,PREVP               caller-prev or 0
          LA    R1,PLIST
-         L     R15,=V(IRXINIT)
+         LR    R15,R3
          BALR  R14,R15
          ST    R15,WORK_RC
+*
+         DELETE EP=IRXINIT
 *
          MVC   LBLBUF(20),=CL20'  IRXINIT RC'
          L     R1,WORK_RC

@@ -22,7 +22,8 @@
 //*
 //LKED     EXEC PGM=IEWL,COND=(0,LT,ASM),
 //             PARM='LIST,MAP,XREF,RENT,REUS,AMODE=31,RMODE=24'
-//SYSLIB   DD   DISP=SHR,DSN=SYS1.CSSLIB
+//* IRXINIT / IRXTERM are loaded at runtime via LOAD EP=, so no
+//* link-time SYSLIB resolution is needed.
 //SYSLIN   DD   DSN=&&OBJ,DISP=(OLD,DELETE)
 //         DD   *
   ENTRY IRXPROBE

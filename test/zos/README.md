@@ -87,13 +87,13 @@ test/zos/
    Submit `jcl/asmprob.jcl`. Verify RC=0 on both the `ASM` and `LKED`
    steps. The load module lands in `&SYSUID..REXX370.LOAD(IRXPROBE)`.
 
-   If assembly fails:
-   - `IRXINIT` / `IRXTERM` external references unresolved → confirm
-     `SYS1.CSSLIB` is in `LKED.SYSLIB` (and that the system has TSO/E
-     installed in LPA — it should on any modern z/OS).
-   - Other minor source-level fix-ups → patch in place and re-submit;
-     fold the fix back into `asm/irxprobe.asm` as you go and open a
-     follow-up commit on the issue branch.
+   `IRXINIT` and `IRXTERM` are loaded at runtime via `LOAD EP=`, so
+   the link step has no external references to resolve and no
+   `SYS1.CSSLIB` SYSLIB DD is required.
+
+   If assembly fails, patch in place and re-submit; fold the fix back
+   into `asm/irxprobe.asm` as you go and open a follow-up commit on
+   the issue branch.
 
 ## Running the eight test cases
 
