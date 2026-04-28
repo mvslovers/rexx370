@@ -44,6 +44,7 @@
 .env
 *.jcl
 !test/mvs/*.jcl
+!test/mvs/jcl/*.jcl
 !test/zos/jcl/*.jcl
 .build-warnings
 .mbt/

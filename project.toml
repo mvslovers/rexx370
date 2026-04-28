@@ -8,7 +8,7 @@ cflags = ["-std=gnu99", "-I./include"]
 
 [build.sources]
 c_dirs = ["src/", "test/mvs/"]
-asm_dirs = ["asm/"]
+asm_dirs = ["asm/", "test/mvs/asm/"]
 
 [mvs.build.datasets.source]
 suffix = "SOURCE"
@@ -853,6 +853,41 @@ include = [
 
 [link.module.dep_includes]
 "mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
+# TINITVL - Live MVS test caller for IRXINIT INITENVB.
+# Pure HLASM caller (no C runtime, no @@CRT0). Drives IRXINIT
+# through SC28-1883-0 §14 VLIST contract; IRXINIT itself is
+# resolved at run time via LOAD EP=IRXINIT from STEPLIB —
+# include list contains ONLY the test caller, no IRX#* NCAL
+# pull-in, so the test exercises the real production load module.
+#
+# Invocation:
+#   Batch  :  EXEC PGM=TINITVL  (see test/mvs/jcl/tinitvl.jcl)
+#
+# WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#87.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TINITVL"
+entry = "TINITVL"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = ["TINITVL"]
+
+# ---------------------------------------------------------------
+# TTERMVL - Live MVS test caller for IRXINIT INITENVB + IRXTERM.
+# Same shape as TINITVL: pure HLASM, no C runtime, IRXINIT and
+# IRXTERM both resolved at run time via LOAD EP= from STEPLIB.
+#
+# Invocation:
+#   Batch  :  EXEC PGM=TTERMVL  (see test/mvs/jcl/ttermvl.jcl)
+#
+# WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#87.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TTERMVL"
+entry = "TTERMVL"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = ["TTERMVL"]
 
 # ---------------------------------------------------------------
 # IRXJCL - Batch entry point (PGM=IRXJCL)
