@@ -48,12 +48,8 @@ void *anch_walk(void)
 
 int anch_tso(void)
 {
-    CLIBPPA *ppa = __ppaget();
-    if (ppa == NULL)
-    {
-        return 0;
-    }
-    /* Both bits count as "TSO-capable": PPAFLAG_TSOFG is the TSO
+    /* Primary detection: crent370 CLIBPPA, populated by @@CRT0 startup.
+     * Both bits count as "TSO-capable": PPAFLAG_TSOFG is the TSO
      * foreground (ready-prompt / CALL); PPAFLAG_TSOBG is TSO
      * background (batch job driving IKJEFT01). Pure batch
      * (EXEC PGM=... directly) leaves both clear.
@@ -61,7 +57,21 @@ int anch_tso(void)
      * Note: the sibling CLIBCRT.crtflag bits carry the same names
      * but are never written by crent370 startup — detection lives
      * in the process-level CLIBPPA, not the per-task CLIBCRT. */
-    return (ppa->ppaflag & (PPAFLAG_TSOFG | PPAFLAG_TSOBG)) != 0;
+    CLIBPPA *ppa = __ppaget();
+    if (ppa != NULL)
+    {
+        return (ppa->ppaflag & (PPAFLAG_TSOFG | PPAFLAG_TSOBG)) != 0;
+    }
+
+    /* Fallback for HLASM-direct callers without crent370 startup
+     * (e.g. wrapper-direct entries via IRXTMPW, TINITVL test caller).
+     * Presence of an ECT in the PSA -> ASCB -> ASXB -> LWA -> ECT
+     * chain implies a TSO context regardless of which runtime the
+     * caller uses: TSO foreground populates ECT, TSO background
+     * (IKJEFT01) populates ECT, pure batch leaves LWA -> ECT NULL.
+     * This complements the CLIBPPA path conceptually — both bits
+     * (TSOFG and TSOBG) imply ECT presence. */
+    return anch_walk() != NULL;
 }
 
 /* Intentionally non-static: the test harness forward-declares this
