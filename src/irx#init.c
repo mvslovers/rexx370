@@ -496,6 +496,18 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * IRXINIT/IRXTERM self-references are installed by the compat
      * wrapper (Phase 6) which knows the wrapper symbol addresses.
      *
+     * Lifetime contract: the irxuid / irxmsgid / irxinout symbols
+     * resolve to CSECTs linked into the IRXINIT load module. The
+     * pointers installed here remain dereferencable for as long as
+     * that load module is resident in the calling task. Production
+     * callers (IRXTMPW under TSO logon — WP-I1c.6) hold IRXINIT
+     * resident for the entire session, so the pointers are valid for
+     * every subtask that finds the ENVBLOCK via IRXANCHR / ECTENVBK.
+     * Ad-hoc callers that DELETE IRXINIT (or end the task that
+     * LOADed it) before the ENVBLOCK is reused will invalidate these
+     * pointers. See follow-up TSK — Replaceable-Routine Load-Module
+     * Strategy: https://www.notion.so/3503d99387878124811ae0aae197277d
+     *
      * MODNAMET non-blank entries (replaceable-routine module overrides
      * via LOAD EP=) are intentionally ignored in this phase. The default
      * routines are always installed; caller-supplied module names for
