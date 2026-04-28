@@ -93,6 +93,85 @@ options = ["LIST", "MAP", "XREF", "AC=1", "RENT", "REUS"]
 include = ["IRXTMPW"]
 
 # ---------------------------------------------------------------
+# IRXINIT - HLASM Entry-Point Wrapper for the IRXINIT Programming
+#          Service (SC28-1883-0 §14). Parses the caller VLIST,
+#          extracts the function code, and delegates to the C-core
+#          dispatcher irx_init_dispatch (asm() alias IRXIDISP).
+#
+# Built as a separate load module (per IBM convention IRXINIT and
+# IRXTERM are independent load modules). The wrapper is the entry
+# point; the C-core (IRX#INIT, IRX#TERM, IRX#STOR, IRX#ANCH,
+# IRX#UID, IRX#MSID) is NCAL-linked into the same load module so
+# the BALR R14,R15 to =V(IRXIDISP) resolves.
+#
+# WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "IRXINIT"
+entry = "IRXINIT"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = [
+  "IRXINIT",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
+# IRXTERM - HLASM Entry-Point Wrapper for the IRXTERM Programming
+#          Service (SC28-1883-0 §15). Reads R0=ENVBLOCK, calls the
+#          C-core irx_init_term (asm() alias IRXITERM), and reads
+#          back ECTENVBK via anch_curr (alias ANCHCURR) to return
+#          the predecessor envblock in R0.
+#
+# WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "IRXTERM"
+entry = "IRXTERM"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = [
+  "IRXTERM",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
 # TSTANCH - ENVBLOCK anchor smoketest pseudomodule
 # Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
 # Pulls in the full phase-1/phase-2 object set so IRXINIT and
