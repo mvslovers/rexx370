@@ -33,10 +33,12 @@ IRXTMPW  CSECT
          LR    R8,R15
 *
 * --- try loading IRXANCHR ---
-         LOAD  EP=IRXANCHR,ERRET=DUMMY
+         LOAD  EP=IRXANCHR,ERRET=NOANCH
 *
 * --- restore registers for IKJEFT01 ---
-DUMMY    DS    0H
+NOANCH   DS    0H
+         LOAD  EP=IRXINIT,ERRET=NOINIT
+NOINIT   DS    0H
          LR    R0,R5
          LR    R1,R6
          LR    R14,R7
