@@ -4,12 +4,21 @@
 ** this routine. It is a replaceable routine — callers can install
 ** a custom implementation via the Module Name Table (MODNAMET).
 **
-** Default behaviour:
-**   Subpool 0 (or no specific subpool) → calloc/free (crent370 heap)
-**   Subpool > 0 (from PARMBLOCK)       → getmain/freemain (clibos.h)
+** Behaviour:
+**   MVS  → getmain/freemain (clibos.h) for ALL subpools, including 0.
+**          crent370 getmain() embeds an 8-byte prefix (subpool +
+**          length) so freemain() recovers them — no caller-side
+**          length tracking required. Bypassing the calloc/free path
+**          keeps irxstor independent of CLIBCRT, so the entry-point
+**          wrappers (asm/irxinit.asm, asm/irxterm.asm) can dispatch
+**          into the C-core without going through @@CRT0 first.
+**          Caveat: getmain() calls wtof() on its failure path, which
+**          IS CLIBCRT-dependent — see #85.
+**   Host → calloc/free (cross-compile / unit tests).
 **
 ** Ref: SC28-1883-0, Chapter 16 (Storage Management)
 ** Ref: Architecture Design v0.1.0, Section 5.5
+** Ref: GitHub mvslovers/rexx370#85
 */
 
 #include <stdlib.h>
@@ -37,6 +46,7 @@
 int irxstor(int function, int length, void **addr_ptr,
             struct envblock *envblock)
 {
+#ifdef __MVS__
     int subpool = 0;
 
     /* Determine subpool from PARMBLOCK if available */
@@ -48,6 +58,9 @@ int irxstor(int function, int length, void **addr_ptr,
             subpool = pb->parmblock_subpool;
         }
     }
+#else
+    (void)envblock;
+#endif
 
     switch (function)
     {
@@ -57,21 +70,20 @@ int irxstor(int function, int length, void **addr_ptr,
                 return 20;
             }
 #ifdef __MVS__
-            if (subpool > 0)
             {
-                /* Specific subpool: use GETMAIN R,LV=,SP= */
-                void *ptr = getmain((unsigned)length, subpool);
+                /* getmain() zero-fills internally and embeds the
+                 * subpool + length in an 8-byte prefix that
+                 * freemain() recovers, so no caller-side length
+                 * tracking is needed. */
+                void *ptr = getmain((unsigned)length, (unsigned)subpool);
                 if (ptr == NULL)
                 {
                     return 20;
                 }
-                memset(ptr, 0, (unsigned)length);
                 *addr_ptr = ptr;
             }
-            else
-#endif
+#else
             {
-                /* Default: crent370 heap (calloc zeros the memory) */
                 void *ptr = calloc(1, (size_t)length);
                 if (ptr == NULL)
                 {
@@ -79,6 +91,7 @@ int irxstor(int function, int length, void **addr_ptr,
                 }
                 *addr_ptr = ptr;
             }
+#endif
             return 0;
 
         case RXSMFRE:
@@ -87,15 +100,10 @@ int irxstor(int function, int length, void **addr_ptr,
                 return 20;
             }
 #ifdef __MVS__
-            if (subpool > 0)
-            {
-                freemain(*addr_ptr);
-            }
-            else
+            freemain(*addr_ptr);
+#else
+            free(*addr_ptr);
 #endif
-            {
-                free(*addr_ptr);
-            }
             *addr_ptr = NULL;
             return 0;
 
