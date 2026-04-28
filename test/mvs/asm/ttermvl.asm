@@ -12,9 +12,10 @@
 *            R0  out = predecessor ENVBLOCK (or original on failure)
 *            R15 out = RC (0 ok, 4 warning, 20 bad ENVBLOCK)
 *
-*  WTO output (60-char fixed layout):
-*    TTERMVL OK   ENVBLOCK=xxxxxxxx PRED=xxxxxxxx RC=xxxxxxxx
-*    TTERMVL FAIL ENVBLOCK=xxxxxxxx PRED=xxxxxxxx RC=xxxxxxxx
+*  WTO output (50-char fixed layout — keeps the source DC inside
+*  the IFOX00 col-16-to-col-71 operand window):
+*    TTERMVL OK   ENV=xxxxxxxx PRD=xxxxxxxx RC=xxxxxxxx
+*    TTERMVL FAIL ENV=xxxxxxxx PRD=xxxxxxxx RC=xxxxxxxx
 *
 *  Return code (R15 to JCL):
 *     0  IRXINIT ok and IRXTERM RC in {0, 4}
@@ -185,17 +186,17 @@ WTOSETUP DS    0H
          MVC   WTOWORK(WTOSKLEN),WTOSKEL
          BR    R14
 *
-*  --- FILLHEX: fill ENV@22, PRED@36, RC@48 in text portion -----
+*  --- FILLHEX: fill ENV@17, PRD@30, RC@42 in text portion ------
 *  Text portion of the WPL starts at WTOWORK+4. The RC slot shows
 *  WRCT if TERM ran, otherwise WRCI (FAILRC and FAILEMIT both
 *  funnel here after the appropriate slot has been set).
 FILLHEX  DS    0H
          ST    R14,SAVR14
          L     R1,OUTENV
-         LA    R2,WTOWORK+4+22
+         LA    R2,WTOWORK+4+17
          BAL   R14,FMTHEX
          L     R1,WPRED
-         LA    R2,WTOWORK+4+36
+         LA    R2,WTOWORK+4+30
          BAL   R14,FMTHEX
 *  Pick the diagnostically-relevant RC: TERM RC if TERM ran (WRCT
 *  non-zero or WRCI=0), otherwise INIT RC.
@@ -207,7 +208,7 @@ FILLHEX  DS    0H
          BZ    FHRCT               both zero -> show WRCT (=0)
          B     FHEMIT              WRCT=0 but WRCI!=0 -> show WRCI
 FHRCT    L     R1,WRCT
-FHEMIT   LA    R2,WTOWORK+4+48
+FHEMIT   LA    R2,WTOWORK+4+42
          BAL   R14,FMTHEX
          L     R14,SAVR14
          BR    R14
@@ -228,19 +229,24 @@ PARMODE  DC    CL8' '
 RESVZ    DC    F'0'
 HEXTAB   DC    C'0123456789ABCDEF'
 *
-*  --- WTO list-form skeleton (60-char text) -------------------
-WTOSKEL  WTO   MF=L,                                                   *
-               TEXT='                                                            '
+*  --- WTO parameter list skeleton (hand-built, SVC-35 standard)
+*  See asm/tinitvl.asm prologue for rationale (IFOX00 col-71 limit
+*  rules out a TEXT='<60 spaces>' literal in WTO MF=L).
+WTOSKEL  DS    0H
+         DC    AL2(WTOEND-WTOSKEL)
+         DC    AL2(0)
+         DC    60C' '
+WTOEND   EQU   *
 WTOSKLEN EQU   *-WTOSKEL
 *
-*  --- 60-char message templates -------------------------------
-*    01234567890123456789012345678901234567890123456789012345678901
-*    0         1         2         3         4         5         6
-*    TTERMVL OK   ENVBLOCK=XXXXXXXX PRED=XXXXXXXX RC=XXXXXXXX
-*                          ^22            ^36          ^48
-OKMSG    DC    CL60'TTERMVL OK   ENVBLOCK=XXXXXXXX PRED=XXXXXXXX RC=XXXXXXXX'
-FAILMSG  DC    CL60'TTERMVL FAIL ENVBLOCK=XXXXXXXX PRED=XXXXXXXX RC=XXXXXXXX'
-MSGLEN   EQU   60
+*  --- 50-char message templates ------------------------------
+*    01234567890123456789012345678901234567890123456789
+*    0         1         2         3         4
+*    TTERMVL OK   ENV=XXXXXXXX PRD=XXXXXXXX RC=XXXXXXXX
+*                     ^17           ^30          ^42
+OKMSG    DC    CL50'TTERMVL OK   ENV=XXXXXXXX PRD=XXXXXXXX RC=XXXXXXXX'
+FAILMSG  DC    CL50'TTERMVL FAIL ENV=XXXXXXXX PRD=XXXXXXXX RC=XXXXXXXX'
+MSGLEN   EQU   50
 *
 *  --- workarea DSECT ------------------------------------------
 WAREA    DSECT
