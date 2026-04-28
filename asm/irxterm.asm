@@ -67,7 +67,8 @@ IRXTERM  CSECT
          GETMAIN RU,LV=(0)
          LR    R8,R1               R8 = workarea ptr
 *
-*  Chain DSAs: caller SA <-> our DSA. WDPREV = +4 (= old WSAVE+4).
+*  Chain DSAs: caller SA <-> our DSA. Offsets +4/+8 are hardcoded
+*  to WDPREV / WDNEXT in the WAREA DSECT — keep in sync.
          ST    R13,4(,R1)          our DSA back-chain = caller SA
          ST    R1,8(,R13)          caller forward     = our DSA
          LR    R13,R1
@@ -146,7 +147,8 @@ EPILOG   EQU   *
 *  18F save area at +0..+71 maps onto the standard MVS save-area
 *  offsets used by SAVE/RETURN, and WDLWA / WDNAB extend it to
 *  the 80-byte PDP DSA. WPOOL provides the bump-allocator pool
-*  for nested c2asm370 frames.
+*  for nested c2asm370 frames; see the WPOOL block below for the
+*  sizing and zero-init rationale.
 WAREA    DSECT
 WDFLAGS  DS    F                   +0  DSAFLAGS (must be 0)
 WDPREV   DS    F                   +4  DSAPREV  (back chain)
@@ -171,9 +173,12 @@ WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
 *  Wrapper-local storage (after the PDP-DSA proper).
 WCPLIST  DS    2F                  C-call plist for IRXITERM
 WREASON  DS    F                   reason-code OUT cell (discarded)
-*  Stack pool for nested c2asm370 PDPPRLG frames.
+*  Stack pool for nested c2asm370 PDPPRLG frames. Sized for typical
+*  IRXIDISP call depth (5-10 nested frames @ 88-300 bytes each); 8 KB
+*  has comfortable margin. Intentionally not zero-filled — c2asm370-
+*  emitted code SAVE-writes R14-R12 before reading any frame slot, so
+*  XC initialization would cost 8 KB without functional benefit.
 WPOOL    DS    2048F               8 KB scratchpad
-WPOOLEND EQU   *
 WALEN    EQU   *-WAREA
 *
          END   IRXTERM
