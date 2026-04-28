@@ -38,6 +38,10 @@
 #include "irxpars.h"
 #include "irxwkblk.h"
 
+#ifdef __MVS__
+#include <clibos.h> /* __load(), __delete() — crent370 */
+#endif
+
 /* Lock the CON-1 §3.1 ENVBLOCK size on MVS — the IBM-reserved tail
  * at +304..+319 must stay intact so the physical layout remains
  * byte-exact against SC28-1883-0/-4. Only meaningful on the real
@@ -69,6 +73,66 @@ typedef char envblock_size_is_320_[(sizeof(struct envblock) == 320) ? 1 : -1];
             goto cleanup;                                         \
         (ptr) = _tmp;                                             \
     } while (0)
+
+/* ================================================================== */
+/*  Shared helper: load_default_parmblock                             */
+/*                                                                    */
+/*  CON-1 §6.3 step 4 module fallback. When no caller PARMBLOCK and   */
+/*  no previous-env PARMBLOCK can supply the defaults, load the       */
+/*  default PARMBLOCK module (IRXTSPRM under TSO, IRXPARMS in batch)  */
+/*  and copy its FLAGS / MASKS / LANGUAGE / SUBPOOL into the          */
+/*  effective slots. The module is DELETE'd before returning — only   */
+/*  the byte values are needed; pb_copy is built later in step 5.     */
+/*                                                                    */
+/*  Returns 0 on success (defaults applied), non-zero on LOAD or      */
+/*  validation failure (caller falls back to hardcoded defaults).     */
+/*                                                                    */
+/*  ISPF detection (IRXISPRM) and caller-supplied PARMMOD overrides   */
+/*  are deferred. Storage for the loaded module is whatever subpool   */
+/*  __load() chose (subpool 0); we DELETE it immediately.             */
+/* ================================================================== */
+
+#ifdef __MVS__
+static int load_default_parmblock(int is_tso,
+                                  unsigned char eff_flags[4],
+                                  unsigned char eff_masks[4],
+                                  unsigned char eff_language[3],
+                                  int *eff_subpool)
+{
+    const char *modname = is_tso ? "IRXTSPRM" : "IRXPARMS";
+    unsigned size = 0;
+    char ac = 0;
+    void *ep = __load(NULL, modname, &size, &ac);
+
+    if (ep == NULL)
+    {
+        return 4; /* LOAD failed */
+    }
+
+    struct parmblock *modpb = (struct parmblock *)ep;
+    int rc = 0;
+
+    /* All three default modules carry the IBM-standard 'IRXPARMS'
+     * eye-catcher per asm/irx{parms,tsprm,isprm}.asm. Validate before
+     * trusting the data. */
+    if (memcmp(modpb->parmblock_id, PARMBLOCK_ID, 8) != 0 ||
+        memcmp(modpb->parmblock_version, PARMBLOCK_VERSION_0042, 4) != 0)
+    {
+        rc = 8; /* eye-catcher / version mismatch */
+    }
+    else
+    {
+        memcpy(eff_flags, modpb->parmblock_flags, 4);
+        memcpy(eff_masks, modpb->parmblock_masks, 4);
+        memcpy(eff_language, modpb->parmblock_language, 3);
+        *eff_subpool = modpb->parmblock_subpool;
+    }
+
+    /* Always release the module: we only needed the byte values. */
+    (void)__delete(modname);
+    return rc;
+}
+#endif /* __MVS__ */
 
 /* ================================================================== */
 /*  Shared helper: init_subcomtb                                      */
@@ -160,16 +224,19 @@ cleanup:
 }
 
 /* ================================================================== */
-/*  irx_init_initenvb — INITENVB 9-step C-core (WP-I1c.1)            */
+/*  irx_init_initenvb — INITENVB 9-step C-core (WP-I1c.1, WP-I1c.4)  */
 /*                                                                    */
 /*  Steps:                                                            */
-/*   1. Previous-env lookup (caller hint → TCB anchor find; stub for  */
-/*      parent-TCB walk and module fallback — WP-I1c.2)              */
+/*   1. Previous-env lookup with module fallback                      */
+/*      (caller hint → TCB anchor find → LOAD IRXTSPRM/IRXPARMS;      */
+/*      parent-TCB walk still stubbed — WP-I1c.2)                     */
 /*   2. PARMBLOCK build with flags/mask inheritance (CON-1 §3.2)      */
 /*   3. Env-type detection: TSOFL from parmblock or anch_tso()        */
-/*   4. ENVBLOCK allocation (VERSION='0042', 320 bytes on MVS)        */
+/*   4. ENVBLOCK allocation (VERSION='0042', 320 bytes on MVS;        */
+/*      subpool from eff_subpool via stack-local bootstrap parmblock) */
 /*   5. PARMBLOCK copy allocation and link                            */
-/*   6. IRXEXTE placeholder (zeroed; COUNT=IRXEXTE_ENTRY_COUNT)       */
+/*   6. IRXEXTE allocation + default routine pointers                 */
+/*      (irxuid / irxmsgid / irxinout — WP-I1c.4)                     */
 /*   7. IRXANCHR slot allocation                                      */
 /*   8. ECTENVBK unconditional overwrite when TSOFL=1 (MVS only;     */
 /*      IRXPROBE-verified Phase α, CON-14 cases A1/A3)               */
@@ -202,13 +269,26 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     }
 
     /* ----------------------------------------------------------------
-     * Step 1: Previous-env lookup.
+     * Step 1: Previous-env lookup with module fallback.
      *
      * Priority order (CON-1 §6.3):
      *   a) Caller-supplied prev_envblock hint (if eye-catcher valid)
      *   b) Non-reentrant: find by current TCB in IRXANCHR table
-     *   c) Parent-TCB walk (TSO only)    — stubbed, WP-I1c.2
-     *   d) Module fallback (LOAD/BLDL)   — stubbed, WP-I1c.2
+     *   c) Parent-TCB walk (TSO only)            — stubbed, WP-I1c.2
+     *   d) Module fallback: LOAD IRXTSPRM/IRXPARMS (CON-1 §6.3 step 4)
+     *
+     * (d) avoids the subpool-0 trap that otherwise costs ENVBLOCK
+     * survival across subtask transitions under TSO: the IRXTSPRM
+     * module sets SUBPOOL=78 (TSO private storage), which lets the
+     * ENVBLOCK outlive the allocating subtask. With hardcoded
+     * defaults (subpool 0) the env dies at TINITVL CALL return.
+     * Live-verified 2026-04-28.
+     *
+     * P2 PARMMOD (caller-supplied module name from VLIST P2) is
+     * forwarded through the wrapper but NOT honoured here yet — the
+     * use-case for letting a caller pick a different default module
+     * has not materialised. When it does, replace the auto-pick below
+     * with the caller string.
      * ---------------------------------------------------------------- */
     {
         struct envblock *prev = NULL;
@@ -249,11 +329,24 @@ int irx_init_initenvb(struct envblock *prev_envblock,
         }
         else
         {
-            /* Defaults */
-            memset(eff_flags, 0, 4);
-            memset(eff_masks, 0, 4);
-            memcpy(eff_language, "ENU", 3);
-            eff_subpool = 0;
+            /* (d) Module fallback. On MVS attempt LOAD; on host or
+             * LOAD failure, fall back to hardcoded defaults. */
+            int loaded = 0;
+#ifdef __MVS__
+            if (load_default_parmblock(anch_tso(),
+                                       eff_flags, eff_masks,
+                                       eff_language, &eff_subpool) == 0)
+            {
+                loaded = 1;
+            }
+#endif
+            if (!loaded)
+            {
+                memset(eff_flags, 0, 4);
+                memset(eff_masks, 0, 4);
+                memcpy(eff_language, "ENU", 3);
+                eff_subpool = 0;
+            }
         }
     }
 
@@ -308,13 +401,37 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     }
 
     /* ----------------------------------------------------------------
+     * Bootstrap subpool plumbing for steps 4 and 5.
+     *
+     * irxstor() reads the target subpool from
+     * envblock->envblock_parmblock->parmblock_subpool. At this point
+     * we have neither — the ENVBLOCK is what step 4 is about to
+     * allocate. To get it into eff_subpool (e.g. 78 under TSO so the
+     * env survives subtask transitions) we hand irxstor a stack-local
+     * synthetic context that exposes only the resolved subpool.
+     *
+     * The synthetic structs live for the duration of irx_init_initenvb
+     * and are referenced briefly by envblk->envblock_parmblock between
+     * step 4 and step 5; after step 5 we overwrite that slot with the
+     * heap-allocated pb_copy. RXSMFRE does not read parmblock_subpool
+     * (freemain recovers it from getmain's prefix), so the stale
+     * pointer in cleanup paths is harmless.
+     * ---------------------------------------------------------------- */
+    struct parmblock bootstrap_pb;
+    struct envblock bootstrap_env;
+    memset(&bootstrap_pb, 0, sizeof(bootstrap_pb));
+    memset(&bootstrap_env, 0, sizeof(bootstrap_env));
+    bootstrap_pb.parmblock_subpool = eff_subpool;
+    bootstrap_env.envblock_parmblock = &bootstrap_pb;
+
+    /* ----------------------------------------------------------------
      * Step 4: ENVBLOCK allocation (GETMAIN, subpool eff_subpool,
      * 320 bytes on MVS, eye-catcher 'ENVBLOCK', version '0042').
      * ---------------------------------------------------------------- */
     {
         void *storage = NULL;
         int rc = irxstor(RXSMGET, (int)sizeof(struct envblock),
-                         &storage, NULL);
+                         &storage, &bootstrap_env);
         if (rc != 0)
         {
             reason = 1;
@@ -327,6 +444,10 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     memcpy(envblk->envblock_version, ENVBLOCK_VERSION_0042, 4);
     envblk->envblock_length = (int)sizeof(struct envblock);
     envblk->envblock_userfield = (void *)(unsigned long)user_field;
+    /* Temporary parmblock pointer so step 5 (and any follow-up
+     * irxstor call) reads the right subpool. Replaced with pb_copy
+     * at the end of step 5. */
+    envblk->envblock_parmblock = &bootstrap_pb;
 
     /* ----------------------------------------------------------------
      * Step 5: PARMBLOCK copy allocation.
@@ -362,10 +483,40 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     envblk->envblock_parmblock = pb_copy;
 
     /* ----------------------------------------------------------------
-     * Step 6: IRXEXTE placeholder.
-     * Allocate sizeof(struct irxexte) bytes, zero-filled. Set entry
-     * count; all routine slots remain NULL (filled by compat wrapper
-     * or WP-I1c.4).
+     * Step 6: IRXEXTE allocation + default routine pointers.
+     *
+     * Allocate sizeof(struct irxexte) bytes (zero-filled by GETMAIN /
+     * calloc), set the entry count, and install the rexx370 internal
+     * default routines for the slots that have a default implementation
+     * today: IRXUID, IRXMSGID, IRXINOUT (plus the active-routine peers).
+     * Slots whose service is not yet implemented (IRXEXEC, IRXLOAD,
+     * IRXJCL, IRXSTK, IRXSAY, IRXERS, IRXHST, IRXHLT, IRXTXT, IRXLIN,
+     * IRXRTE, IRXEXCOM, IRXIC, IRXSUBCM, IRXTERMA, IRXRLT) stay NULL
+     * and will be filled when the corresponding service is built.
+     * IRXINIT/IRXTERM self-references are installed by the compat
+     * wrapper (Phase 6) which knows the wrapper symbol addresses.
+     *
+     * Lifetime contract: the irxuid / irxmsgid / irxinout symbols
+     * resolve to CSECTs linked into the IRXINIT load module. The
+     * pointers installed here remain dereferencable for as long as
+     * that load module is resident in the calling task. Production
+     * callers (IRXTMPW under TSO logon — WP-I1c.6) hold IRXINIT
+     * resident for the entire session, so the pointers are valid for
+     * every subtask that finds the ENVBLOCK via IRXANCHR / ECTENVBK.
+     * Ad-hoc callers that DELETE IRXINIT (or end the task that
+     * LOADed it) before the ENVBLOCK is reused will invalidate these
+     * pointers. See follow-up TSK — Replaceable-Routine Load-Module
+     * Strategy: https://www.notion.so/3503d99387878124811ae0aae197277d
+     *
+     * MODNAMET non-blank entries (replaceable-routine module overrides
+     * via LOAD EP=) are intentionally ignored in this phase. The default
+     * routines are always installed; caller-supplied module names for
+     * IORT, EXROUT, GETFREER, EXECINIT, ATTNROUT, STACKRT, IRXEXECX,
+     * IDROUT, MSGIDRT, EXECTERM will be honoured in a future phase
+     * when an actual use-case appears. See follow-up TSK
+     * https://www.notion.so/3503d99387878124811ae0aae197277d
+     * (Replaceable-Routine Load-Module Strategy). MODNAMET DDNAME
+     * slots (INDD/OUTDD/LOADDD) are read by IRXEXEC (WP-I3) later.
      * ---------------------------------------------------------------- */
     {
         void *storage = NULL;
@@ -380,6 +531,12 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     }
 
     exte->irxexte_entry_count = IRXEXTE_ENTRY_COUNT;
+    exte->irxuid = (void *)irxuid;
+    exte->userid_routine = (void *)irxuid;
+    exte->irxmsgid = (void *)irxmsgid;
+    exte->msgid_routine = (void *)irxmsgid;
+    exte->irxinout = (void *)irxinout;
+    exte->io_routine = (void *)irxinout;
     envblk->envblock_irxexte = exte;
 
     /* ----------------------------------------------------------------
@@ -696,7 +853,6 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
 {
     struct envblock *envblk = NULL;
     struct workblok_ext *wkext = NULL;
-    struct irxexte *exte = NULL;
     struct subcomtb_header *subcmd = NULL;
     struct irx_wkblk_int *wkbi = NULL;
     int reason = 0;
@@ -732,39 +888,10 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
     }
     envblk->envblock_workblok_ext = wkext;
 
-    /* Fill in real IRXEXTE function pointers (replacing the placeholder
-     * installed by irx_init_initenvb() step 6 which left all slots NULL).
-     * Phase 2+: stubs remain NULL until the relevant module is implemented. */
-    exte = (struct irxexte *)envblk->envblock_irxexte;
-
-    exte->irxinit = NULL; /* Set to self after init completes — Phase 6 */
-    exte->irxterm = NULL; /* Same */
-    exte->irxuid = (void *)irxuid;
-    exte->userid_routine = (void *)irxuid;
-    exte->irxmsgid = (void *)irxmsgid;
-    exte->msgid_routine = (void *)irxmsgid;
-
-    exte->irxexec = NULL;
-    exte->irxexcom = NULL;
-    exte->irxjcl = NULL;
-    exte->irxrlt = NULL;
-    exte->irxsubcm = NULL;
-    exte->irxic = NULL;
-    exte->irxterma = NULL;
-    exte->load_routine = NULL;
-    exte->irxload = NULL;
-
-    exte->io_routine = (void *)irxinout;
-    exte->irxinout = (void *)irxinout;
-    exte->stack_routine = NULL;
-    exte->irxstk = NULL;
-    exte->irxsay = NULL;
-    exte->irxers = NULL;
-    exte->irxhst = NULL;
-    exte->irxhlt = NULL;
-    exte->irxtxt = NULL;
-    exte->irxlin = NULL;
-    exte->irxrte = NULL;
+    /* IRXEXTE default routine pointers (irxuid, irxmsgid, irxinout) are
+     * installed by irx_init_initenvb() step 6. Compat-wrapper-specific
+     * IRXEXTE overrides — e.g. self-references to the irxinit / irxterm
+     * symbols for Phase 6 — would go here. None today. */
 
     /* SUBCOMTB (host command environments). */
     {

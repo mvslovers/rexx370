@@ -143,16 +143,22 @@ static void test_t2_parmblock_copy(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  T3: IRXEXTE placeholder — COUNT set, all routine slots NULL       */
+/*  T3: IRXEXTE — COUNT set, default routine pointers installed       */
+/*                                                                    */
+/*  The C-core (irx_init_initenvb step 6) installs default routines    */
+/*  for IRXUID, IRXMSGID, IRXINOUT (and the active-routine peers).    */
+/*  Slots whose service is not yet implemented (IRXEXEC, IRXLOAD, …)  */
+/*  remain NULL. T7 covers the same expectations through the compat  */
+/*  wrapper irxinit().                                                */
 /* ------------------------------------------------------------------ */
 
-static void test_t3_irxexte_placeholder(void)
+static void test_t3_irxexte_defaults(void)
 {
     struct envblock *envblk = NULL;
     int reason = -1;
     int rc;
 
-    printf("\n--- T3: IRXEXTE placeholder ---\n");
+    printf("\n--- T3: IRXEXTE defaults ---\n");
 
     irx_anchor_table_reset();
 
@@ -166,13 +172,23 @@ static void test_t3_irxexte_placeholder(void)
 
         CHECK(exte->irxexte_entry_count == IRXEXTE_ENTRY_COUNT,
               "IRXEXTE entry count matches IRXEXTE_ENTRY_COUNT");
-        /* Placeholder: all routine pointers are NULL */
-        CHECK(exte->irxuid == NULL,
-              "placeholder IRXEXTE: irxuid is NULL");
-        CHECK(exte->irxmsgid == NULL,
-              "placeholder IRXEXTE: irxmsgid is NULL");
-        CHECK(exte->irxinout == NULL,
-              "placeholder IRXEXTE: irxinout is NULL");
+        CHECK(exte->irxuid != NULL,
+              "C-core wired irxuid in IRXEXTE");
+        CHECK(exte->userid_routine != NULL,
+              "C-core wired userid_routine in IRXEXTE");
+        CHECK(exte->irxmsgid != NULL,
+              "C-core wired irxmsgid in IRXEXTE");
+        CHECK(exte->msgid_routine != NULL,
+              "C-core wired msgid_routine in IRXEXTE");
+        CHECK(exte->irxinout != NULL,
+              "C-core wired irxinout in IRXEXTE");
+        CHECK(exte->io_routine != NULL,
+              "C-core wired io_routine in IRXEXTE");
+        /* Slots without an implementation yet stay NULL. */
+        CHECK(exte->irxexec == NULL,
+              "IRXEXTE: irxexec stays NULL (not yet implemented)");
+        CHECK(exte->irxload == NULL,
+              "IRXEXTE: irxload stays NULL (not yet implemented)");
 
         irxterm(envblk);
     }
@@ -642,7 +658,7 @@ int main(void)
 
     test_t1_basic_envblock();
     test_t2_parmblock_copy();
-    test_t3_irxexte_placeholder();
+    test_t3_irxexte_defaults();
     test_t4_anchor_slot_alloc();
     test_t5_two_concurrent_envs();
     test_t6_irxterm_after_initenvb();
