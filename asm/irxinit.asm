@@ -75,8 +75,17 @@ IRXINIT  CSECT
          USING *,R12
 *
 *  Capture caller-supplied registers needed across the wrapper body.
+*  R10 must be set BEFORE the NULL-R1 check below — the NULLPLST
+*  early-exit restores caller R0 from R10 and would otherwise fault.
          LR    R10,R0              R10 = previous-env hint (R0 in)
          LR    R11,R1              R11 = caller VLIST address
+*
+*  Defensive NULL check: a caller passing R1=0 (no parm list at all)
+*  must not provoke an S0C5 in PARSELP and must not leak the workarea
+*  we are about to GETMAIN. Bail before any allocation; we cannot
+*  reach a REASON slot either, so just return RC=20 with R0 intact.
+         LTR   R11,R11             VLIST pointer NULL?
+         BZ    NULLPLST            yes -> early exit, no GETMAIN
 *
 *  --- allocate dynamic workarea (DSA + locals + C-call plist) ---
          LA    R0,WALEN
@@ -115,16 +124,21 @@ PARSELP  L     R6,0(,R3)           raw VLIST entry (addr | maybe VL)
          LA    R4,4(,R4)
          BCT   R2,PARSELP
 *
-*  Walked all 7 slots without seeing the VL marker.
+*  Walked all 7 slots without seeing the VL marker. The slot-7
+*  WPARMS entry was filled from VLIST[6], which is past the caller's
+*  actual list end and therefore undefined. We MUST NOT treat it as
+*  a REASON-slot address — go to ERREARLY (no reason write).
          LA    R15,20
-         B     SETRSN
+         B     ERREARLY
 *
 PARSEVL  EQU   *
 *  VL marker found; R2 = remaining count (must be 1 if on slot 7).
          CH    R2,=H'1'
          BE    FCCHK
+*  VL on the wrong slot — caller list is short. WPARMS+24 was never
+*  filled (or holds a stale value); no usable REASON slot reachable.
          LA    R15,20
-         B     SETRSN
+         B     ERREARLY
 *
 FCCHK    EQU   *
 *  --- validate function code: exact CL8, no trailing blanks ---
@@ -136,7 +150,9 @@ FCCHK    EQU   *
          CLC   0(8,R2),=CL8'CHEKENVB'
          BE    BUILDC
 *
-*  Unknown function code (incl. trailing blanks).
+*  Unknown function code (incl. trailing blanks). Slot 7 was reached
+*  via the normal VL-marker path, so WPARMS+24 holds the caller's
+*  REASON slot address and is safe to write through.
          LA    R15,20
          B     SETRSN
 *
@@ -157,13 +173,18 @@ BUILDC   EQU   *
          L     R2,WPREV            R2 = previous-env hint
          ST    R2,WCPLIST+4
 *
-         L     R2,WPARMS+4         R2 = addr of PARMMOD slot
-         L     R3,0(,R2)           R3 = caller parmblock value
-         ST    R3,WCPLIST+8
+*  P2 (Parameters-Module-Name, WPARMS+4) is ignored for now —
+*  MODNAMET-resolution lands with WP-I1c.4. The caller's PARMBLOCK
+*  pointer per SC28-1883-0 §14 lives in P3 (In-Storage Parm List
+*  Address) at WPARMS+8, and the user field is P4 at WPARMS+12.
 *
-         L     R2,WPARMS+8         R2 = addr of USERFLD slot
+         L     R2,WPARMS+8         R2 = addr of P3 (parmblock ptr slot)
+         L     R3,0(,R2)           R3 = caller PARMBLOCK pointer
+         ST    R3,WCPLIST+8        -> caller_parmblock argument
+*
+         L     R2,WPARMS+12        R2 = addr of P4 (user field slot)
          L     R3,0(,R2)           R3 = user_field value
-         ST    R3,WCPLIST+12
+         ST    R3,WCPLIST+12       -> user_field argument
 *
          L     R2,WPARMS+20        R2 = addr of ENVBLK slot
          ST    R2,WCPLIST+16
@@ -193,19 +214,27 @@ FAILR0   EQU   *
          B     EPILOG
 *
 SETRSN   EQU   *
-*  --- error path: write RSN=1 to caller REASON slot if available ---
+*  --- error path WITH reason write ---------------------------------
 *
-*  WPARMS+24 holds the caller REASON slot address only when slot 7
-*  was reached during parsing. The "no VL marker anywhere" path
-*  walks all 7 slots and stores their addresses, so WPARMS+24 is
-*  valid there. The "VL on wrong slot" path bails before reaching
-*  slot 7 and leaves WPARMS+24 untouched (=0); skip the write.
+*  Reached only via FCCHK (function code mismatch after the VLIST
+*  parser saw the VL marker on slot 7). WPARMS+24 therefore holds
+*  the caller's REASON slot address and can be written safely.
          LR    R3,R15              R3 = RC (20)
          LR    R4,R10              R4 = caller's original R0
-         L     R7,WPARMS+24
-         LTR   R7,R7
-         BZ    EPILOG
+         L     R7,WPARMS+24        caller REASON slot address
          MVC   0(4,R7),=F'1'       reason code 1
+         B     EPILOG
+*
+ERREARLY EQU   *
+*  --- error path WITHOUT reason write -------------------------------
+*
+*  Used by the two VLIST-shape failures ("walked all 7 without VL"
+*  and "VL on wrong slot") where WPARMS+24 cannot be trusted to
+*  hold a real caller REASON slot address. R15 is already set; we
+*  return RC=20 with R0 restored to the caller's original R0.
+         LR    R3,R15              R3 = RC (20)
+         LR    R4,R10              R4 = caller's original R0
+*  Fall through to EPILOG.
 *
 EPILOG   EQU   *
 *  R3 = output RC, R4 = output R0 — both in safe regs (1..12).
@@ -220,6 +249,17 @@ EPILOG   EQU   *
          LR    R15,R3              R15 = output RC
 *
 *  Restore R14 and R1-R12 from caller SA (preserve our R0 / R15).
+         L     R14,12(,R13)
+         LM    R1,R12,24(R13)
+         BR    R14
+*
+NULLPLST DS    0H
+*  Caller passed R1=0 — no VLIST, no REASON slot reachable. We have
+*  not allocated a workarea yet, so just restore caller R14/R1-R12
+*  from the still-current caller SA (R13 unchanged) and return with
+*  R0 = caller's original R0 (saved into R10 above) and R15 = 20.
+         LA    R15,20              RC=20
+         LR    R0,R10              caller's original R0
          L     R14,12(,R13)
          LM    R1,R12,24(R13)
          BR    R14
