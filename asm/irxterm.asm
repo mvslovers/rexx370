@@ -22,8 +22,12 @@
 *  (irx#term.c, irx#anch.c, ...) is NCAL-linked into the same
 *  load module via project.toml include list.
 *
-*  Known gap (deferred): same crent370 C-runtime bootstrap concern
-*  as IRXINIT — see asm/irxinit.asm prologue. WP-I1c.5e follow-up.
+*  Bootstrap design: same as IRXINIT — workarea is a PDP-DSA with
+*  an embedded WPOOL stack pool so c2asm370 callees can run their
+*  PDPPRLG bump-allocator prologue. irxstor() uses GETMAIN on MVS,
+*  bypassing the CLIBCRT C-runtime. See asm/irxinit.asm prologue
+*  comment block and #85 for the full rationale and tail-risk
+*  caveat (wtof on the getmain failure path).
 *
 *  Ref: SC28-1883-0 §15 (IRXTERM Programming Service)
 *  Ref: WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83
@@ -56,17 +60,29 @@ IRXTERM  CSECT
 *  Capture R0 in (the ENVBLOCK to terminate).
          LR    R10,R0              R10 = caller R0 (envblock)
 *
-*  --- allocate dynamic workarea ---
-         LA    R0,WALEN
+*  --- allocate dynamic workarea (PDP-DSA + locals + WPOOL) -------
+*  WALEN ~ 8 KB so we cannot use LA (12-bit displacement); load via
+*  literal pool instead. Subpool 0 (RU form) and no zero-fill.
+         L     R0,=A(WALEN)
          GETMAIN RU,LV=(0)
          LR    R8,R1               R8 = workarea ptr
 *
-*  Chain save areas: caller SA <-> our DSA. WSAVE is at offset 0
-*  of the DSECT, so WSAVE+4 = offset 4 in our DSA.
+*  Chain DSAs: caller SA <-> our DSA. WDPREV = +4 (= old WSAVE+4).
          ST    R13,4(,R1)          our DSA back-chain = caller SA
          ST    R1,8(,R13)          caller forward     = our DSA
          LR    R13,R1
          USING WAREA,R13
+*
+*  --- initialize PDP-DSA fields the c2asm370 callees inspect ----
+*
+*  PDPPRLG (callee prologue) reads DSANAB at +76 of OUR DSA as the
+*  bump-allocator base. WDFLAGS (+0) and WDLWA (+72) must be zero
+*  per the PDP convention. R14-R12 (+12..+68) are written by the
+*  callee's SAVE-equivalent on entry.
+         XC    WDFLAGS(4),WDFLAGS  DSAFLAGS = 0
+         XC    WDLWA(4),WDLWA      DSALWA   = 0
+         LA    R0,WPOOL            R0 = start of stack pool
+         ST    R0,WDNAB            DSANAB   = WPOOL
 *
 *  --- build C-call plist for IRXITERM -----------------------------
 *
@@ -108,9 +124,10 @@ FAILR0   EQU   *
 *
 EPILOG   EQU   *
 *  R3 = RC, R4 = R0 output. Tear down workarea and return.
-         L     R13,WSAVE+4         R13 = caller SA
+         L     R13,WDPREV          R13 = caller SA (back chain in DSA)
 *
-         LA    R0,WALEN
+*  WALEN ~ 8 KB so the LA form does not fit; use literal pool.
+         L     R0,=A(WALEN)
          FREEMAIN RU,LV=(0),A=(8)
 *
          LR    R0,R4               R0  = output ENVBLOCK / original
@@ -122,11 +139,41 @@ EPILOG   EQU   *
 *
          LTORG
 *
-*  --- workarea DSECT ----------------------------------------------
+*  --- workarea DSECT (PDP-DSA shape) ------------------------------
+*
+*  Offsets +0..+79 follow pdptop.copy exactly so c2asm370 callees
+*  (PDPPRLG prologue) can chain through OUR DSA correctly. The
+*  18F save area at +0..+71 maps onto the standard MVS save-area
+*  offsets used by SAVE/RETURN, and WDLWA / WDNAB extend it to
+*  the 80-byte PDP DSA. WPOOL provides the bump-allocator pool
+*  for nested c2asm370 frames.
 WAREA    DSECT
-WSAVE    DS    18F                 standard 72-byte save area
+WDFLAGS  DS    F                   +0  DSAFLAGS (must be 0)
+WDPREV   DS    F                   +4  DSAPREV  (back chain)
+WDNEXT   DS    F                   +8  DSANEXT  (forward chain)
+WDR14    DS    F                   +12 caller R14 (set by SAVE)
+WDR15    DS    F                   +16 caller R15
+WDR0     DS    F                   +20 caller R0
+WDR1     DS    F                   +24 caller R1
+WDR2     DS    F                   +28 caller R2
+WDR3     DS    F                   +32 caller R3
+WDR4     DS    F                   +36 caller R4
+WDR5     DS    F                   +40 caller R5
+WDR6     DS    F                   +44 caller R6
+WDR7     DS    F                   +48 caller R7
+WDR8     DS    F                   +52 caller R8
+WDR9     DS    F                   +56 caller R9
+WDR10    DS    F                   +60 caller R10
+WDR11    DS    F                   +64 caller R11
+WDR12    DS    F                   +68 caller R12
+WDLWA    DS    F                   +72 DSALWA  (must be 0)
+WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
+*  Wrapper-local storage (after the PDP-DSA proper).
 WCPLIST  DS    2F                  C-call plist for IRXITERM
 WREASON  DS    F                   reason-code OUT cell (discarded)
+*  Stack pool for nested c2asm370 PDPPRLG frames.
+WPOOL    DS    2048F               8 KB scratchpad
+WPOOLEND EQU   *
 WALEN    EQU   *-WAREA
 *
          END   IRXTERM

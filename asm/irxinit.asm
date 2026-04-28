@@ -30,16 +30,18 @@
 *  (irx#init.c, irx#anch.c, ...) is NCAL-linked into the same
 *  load module via project.toml include list.
 *
-*  Known gap (deferred): the crent370 C runtime (CLIBCRT per-TCB
-*  control block) is normally initialized by the @@CRT0 entry on
-*  module load. Because the OS branches directly to IRXINIT here,
-*  __crtset() is not yet called. The first call into the C-core
-*  will hit calloc() with an uninitialized heap unless either
-*    (a) a runtime-bootstrap call (__crtset / @@CRTSET) is added
-*        in this prologue, or
-*    (b) irxstor() switches subpool 0 to GETMAIN on MVS.
-*  See WP-I1c.5e follow-up; the structural wrapper logic below is
-*  correct and stays valid once the bootstrap path is added.
+*  Bootstrap design: this wrapper pre-allocates a WPOOL stack pool
+*  inside its workarea and shapes the workarea as a PDP-DSA so
+*  c2asm370-compiled callees can use their PDPPRLG bump-allocator
+*  prologue (which reads DSANAB at offset +76 of the caller DSA).
+*  irxstor() routes all storage through GETMAIN/FREEMAIN on MVS so
+*  the CLIBCRT C-runtime is not on the call path — @@CRT0 is not
+*  required for the dispatch to succeed.
+*
+*  Caveat: crent370 getmain() calls wtof() on its failure path,
+*  which IS CLIBCRT-dependent; a getmain failure here (very
+*  unlikely on a healthy system) would crash secondarily trying
+*  to log. Acceptable tail risk on the bootstrap path. See #85.
 *
 *  Ref: SC28-1883-0 §14 (IRXINIT Programming Service)
 *  Ref: WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83
@@ -87,22 +89,33 @@ IRXINIT  CSECT
          LTR   R11,R11             VLIST pointer NULL?
          BZ    NULLPLST            yes -> early exit, no GETMAIN
 *
-*  --- allocate dynamic workarea (DSA + locals + C-call plist) ---
-         LA    R0,WALEN
+*  --- allocate dynamic workarea (PDP-DSA + locals + WPOOL) -------
+*  WALEN ~ 8 KB so we cannot use LA (12-bit displacement); load via
+*  literal pool instead. Subpool 0 (RU form) and no zero-fill.
+         L     R0,=A(WALEN)
          GETMAIN RU,LV=(0)
          LR    R8,R1               R8 = workarea ptr (saved for FREE)
 *
-*  Chain save areas: caller SA <-> our DSA. WSAVE is at offset 0
-*  of the DSECT, so WSAVE+4 = offset 4 in our DSA.
+*  Chain DSAs: caller SA <-> our DSA. WDPREV = +4 (= old WSAVE+4).
          ST    R13,4(,R1)          our DSA back-chain = caller SA
          ST    R1,8(,R13)          caller forward     = our DSA
          LR    R13,R1
          USING WAREA,R13
 *
+*  --- initialize PDP-DSA fields the c2asm370 callees inspect ----
+*
+*  PDPPRLG (callee prologue) reads DSANAB at +76 of OUR DSA as the
+*  bump-allocator base. WDFLAGS (+0) and WDLWA (+72) must be zero
+*  per the PDP convention. R14-R12 (+12..+68) are written by the
+*  callee's SAVE-equivalent on entry.
+         XC    WDFLAGS(4),WDFLAGS  DSAFLAGS = 0
+         XC    WDLWA(4),WDLWA      DSALWA   = 0
+         LA    R0,WPOOL            R0 = start of stack pool
+         ST    R0,WDNAB            DSANAB   = WPOOL
+*
 *  Zero the workarea fields that the SETRSN path inspects so we can
 *  reliably distinguish "slot address parsed" from "slot never seen".
-*  GETMAIN does not zero-fill (subpool 0, RU); WPARMS / WCPLIST start
-*  with whatever was in storage.
+*  GETMAIN RU does not zero-fill; WPARMS / WCPLIST start with junk.
          XC    WPARMS(28),WPARMS    7F  = 28 bytes
          XC    WCPLIST(24),WCPLIST  6F  = 24 bytes
 *
@@ -240,9 +253,10 @@ EPILOG   EQU   *
 *  R3 = output RC, R4 = output R0 — both in safe regs (1..12).
 *  Tear down: restore R13, FREEMAIN, set outputs, return.
 *
-         L     R13,WSAVE+4         R13 = caller SA (back chain in DSA)
+         L     R13,WDPREV          R13 = caller SA (back chain in DSA)
 *
-         LA    R0,WALEN
+*  WALEN ~ 8 KB so the LA form does not fit; use literal pool.
+         L     R0,=A(WALEN)
          FREEMAIN RU,LV=(0),A=(8)
 *
          LR    R0,R4               R0  = output ENVBLOCK / original
@@ -266,12 +280,43 @@ NULLPLST DS    0H
 *
          LTORG
 *
-*  --- workarea DSECT ---
+*  --- workarea DSECT (PDP-DSA shape) ------------------------------
+*
+*  Offsets +0..+79 follow pdptop.copy exactly so c2asm370 callees
+*  (PDPPRLG prologue) can chain through OUR DSA correctly. The
+*  18F save area at +0..+71 maps onto the standard MVS save-area
+*  offsets used by SAVE/RETURN, and WDLWA / WDNAB extend it to
+*  the 80-byte PDP DSA. WPOOL provides the bump-allocator pool
+*  for nested c2asm370 frames; 8 KB covers ~25-50 frames @ ~150-300
+*  bytes each, well above the deepest IRXINIT call chain.
 WAREA    DSECT
-WSAVE    DS    18F                 standard 72-byte save area
+WDFLAGS  DS    F                   +0  DSAFLAGS (must be 0)
+WDPREV   DS    F                   +4  DSAPREV  (back chain)
+WDNEXT   DS    F                   +8  DSANEXT  (forward chain)
+WDR14    DS    F                   +12 caller R14 (set by SAVE)
+WDR15    DS    F                   +16 caller R15
+WDR0     DS    F                   +20 caller R0
+WDR1     DS    F                   +24 caller R1
+WDR2     DS    F                   +28 caller R2
+WDR3     DS    F                   +32 caller R3
+WDR4     DS    F                   +36 caller R4
+WDR5     DS    F                   +40 caller R5
+WDR6     DS    F                   +44 caller R6
+WDR7     DS    F                   +48 caller R7
+WDR8     DS    F                   +52 caller R8
+WDR9     DS    F                   +56 caller R9
+WDR10    DS    F                   +60 caller R10
+WDR11    DS    F                   +64 caller R11
+WDR12    DS    F                   +68 caller R12
+WDLWA    DS    F                   +72 DSALWA  (must be 0)
+WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
+*  Wrapper-local storage (after the PDP-DSA proper).
 WPREV    DS    F                   saved R0 in (previous-env hint)
 WPARMS   DS    7F                  bare addresses parsed from VLIST
 WCPLIST  DS    6F                  parameter list for IRXIDISP call
+*  Stack pool for nested c2asm370 PDPPRLG frames.
+WPOOL    DS    2048F               8 KB scratchpad
+WPOOLEND EQU   *
 WALEN    EQU   *-WAREA
 *
          END   IRXINIT
