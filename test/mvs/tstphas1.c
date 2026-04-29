@@ -19,6 +19,7 @@
 
 #include "irx.h"
 #include "irxanchr.h"
+#include "irxenv.h"
 #include "irxfunc.h"
 #include "irxwkblk.h"
 
@@ -78,7 +79,7 @@ static int tests_skipped = 0;
 /* Build a minimal valid PARMBLOCK with TSOFL=1, mirroring the helper
  * in tstinit.c. The anchor write in IRXINIT only runs when the
  * effective TSOFL bit is 1, so smoke tests that want to observe a
- * slot write must opt in explicitly — anch_tso() returns 0 on the
+ * slot write must opt in explicitly — is_tso() returns 0 on the
  * cross-compile host and pure-batch MVS, which would otherwise
  * resolve TSOFL to 0. */
 static void build_tso_parmblock(struct parmblock *pb)
@@ -287,9 +288,9 @@ static void test_uid_msgid(void)
 int main(void)
 {
     printf("=== REXX/370 Phase 1 Smoke Test ===\n");
-    printf("    mode: %s\n", anch_tso() ? "TSO (ECT reachable)"
-                                        : "batch (no ECT — anchor "
-                                          "checks will skip)");
+    printf("    mode: %s\n", is_tso() ? "TSO (ECT reachable)"
+                                      : "batch (no ECT — anchor "
+                                        "checks will skip)");
 
     test_single_env();
     test_multiple_envs();

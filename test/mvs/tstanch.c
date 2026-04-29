@@ -27,6 +27,7 @@
 
 #include "irx.h"
 #include "irxanchr.h"
+#include "irxenv.h"
 #include "irxfunc.h"
 
 #ifdef __MVS__
@@ -76,7 +77,7 @@ static void dump_state(const char *label, struct envblock *env)
 {
     printf("  [%s]\n", label);
     printf("    ECTENVBK slot  = %p\n", (void *)anch_curr());
-    printf("    is_tso         = %d\n", anch_tso());
+    printf("    is_tso         = %d\n", is_tso());
     printf("    walk_to_ect    = %p\n", anch_walk());
     if (env != NULL)
     {
@@ -112,7 +113,7 @@ int main(void)
 
     if (anch_walk() != NULL)
     {
-        if (anch_tso())
+        if (is_tso())
         {
             /* TSO: IRXINIT unconditionally overwrites ECTENVBK (CON-14). */
             if (anch_curr() != env)
@@ -165,7 +166,7 @@ int main(void)
      * Non-TSO / batch: neither IRXINIT nor IRXTERM touched the slot;
      * it remains at initial_anchor. */
     {
-        struct envblock *expected = anch_tso() ? NULL : initial_anchor;
+        struct envblock *expected = is_tso() ? NULL : initial_anchor;
         if (anch_curr() != expected)
         {
             printf("FAIL: ECTENVBK not at expected value after IRXTERM\n");

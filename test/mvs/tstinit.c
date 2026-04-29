@@ -219,12 +219,12 @@ static void test_t4_anchor_slot_alloc(void)
         CHECK(slot != NULL, "irx_anchor_find_by_envblock returns non-NULL slot");
         if (slot != NULL)
         {
-            /* On the cross-compile host anch_tso() returns 0 and no
-             * caller_parmblock was supplied, so is_tso=0. The default
+            /* On the cross-compile host is_tso() returns 0 and no
+             * caller_parmblock was supplied, so tso_flag=0. The default
              * init path produces a non-TSO slot with flags=0. T9/T10
              * cover the TSOFL-driven flag values explicitly. */
 #ifdef __MVS__
-            /* TSO foreground or batch — anch_tso() may report either.
+            /* TSO foreground or batch — is_tso() may report either.
              * Verify the flag matches one of the two valid values. */
             CHECK(slot->flags == 0U ||
                       slot->flags == IRXANCHR_FLAG_TSO_ATTACHED,

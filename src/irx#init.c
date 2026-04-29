@@ -33,6 +33,7 @@
 #include "irxanchr.h"
 #include "irxbif.h"
 #include "irxbifs.h"
+#include "irxenv.h"
 #include "irxfunc.h"
 #include "irxio.h"
 #include "irxpars.h"
@@ -231,7 +232,7 @@ cleanup:
 /*      (caller hint → TCB anchor find → LOAD IRXTSPRM/IRXPARMS;      */
 /*      parent-TCB walk still stubbed — WP-I1c.2)                     */
 /*   2. PARMBLOCK build with flags/mask inheritance (CON-1 §3.2)      */
-/*   3. Env-type detection: TSOFL from parmblock or anch_tso()        */
+/*   3. Env-type detection: TSOFL from parmblock or is_tso()          */
 /*   4. ENVBLOCK allocation (VERSION='0042', 320 bytes on MVS;        */
 /*      subpool from eff_subpool via stack-local bootstrap parmblock) */
 /*   5. PARMBLOCK copy allocation and link                            */
@@ -255,7 +256,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     struct parmblock *pb_copy = NULL;
     struct irxexte *exte = NULL;
     int reason = 0;
-    int is_tso = 0; /* avoid name clash with tsofl macro in irx.h */
+    int tso_flag = 0; /* resolved in step 3 via is_tso() or caller PARMBLOCK */
 
     /* Effective parmblock fields, computed in step 2. */
     unsigned char eff_flags[4];
@@ -333,7 +334,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
              * LOAD failure, fall back to hardcoded defaults. */
             int loaded = 0;
 #ifdef __MVS__
-            if (load_default_parmblock(anch_tso(),
+            if (load_default_parmblock(is_tso(),
                                        eff_flags, eff_masks,
                                        eff_language, &eff_subpool) == 0)
             {
@@ -382,9 +383,9 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      *
      * TSOFL=1 → TSO environment. Detection hierarchy:
      *   - If the caller's parmblock had tsofl_mask set, respect it.
-     *   - Otherwise auto-detect via anch_tso().
+     *   - Otherwise auto-detect via is_tso().
      *
-     * The resolved is_tso value is reflected into pb_copy via the
+     * The resolved tso_flag value is reflected into pb_copy via the
      * bitfield accessor in step 5 (not by byte-level OR'ing here).
      * Byte-level writes against tsofl are platform-specific because
      * the int bitfield ordering differs between MVS (MSB-first) and
@@ -393,11 +394,11 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * ---------------------------------------------------------------- */
     if (caller_parmblock != NULL && caller_parmblock->tsofl_mask)
     {
-        is_tso = (caller_parmblock->tsofl != 0) ? 1 : 0;
+        tso_flag = (caller_parmblock->tsofl != 0) ? 1 : 0;
     }
     else
     {
-        is_tso = anch_tso();
+        tso_flag = is_tso();
     }
 
     /* ----------------------------------------------------------------
@@ -478,7 +479,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * (LSB-first). Mask is set to mark the value as caller-honoured for
      * any future inheritance lookup. Signed 1-bit field: -1 for true. */
     pb_copy->tsofl_mask = -1;
-    pb_copy->tsofl = is_tso ? -1 : 0;
+    pb_copy->tsofl = tso_flag ? -1 : 0;
 
     envblk->envblock_parmblock = pb_copy;
 
@@ -557,7 +558,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
 #endif
         uint32_t slot_token = 0;
         /* Ignore IRX_ANCHOR_RC_FULL — non-fatal, env remains usable. */
-        (void)irx_anchor_alloc_slot(envblk, tcb, is_tso, &slot_token);
+        (void)irx_anchor_alloc_slot(envblk, tcb, tso_flag, &slot_token);
     }
 
     /* ----------------------------------------------------------------
@@ -575,7 +576,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * (using pb_copy->tsofl which is platform-portable).
      * ---------------------------------------------------------------- */
 #ifdef __MVS__
-    if (is_tso)
+    if (tso_flag)
     {
         void *ect = anch_walk();
         if (ect != NULL)
