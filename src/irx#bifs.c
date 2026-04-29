@@ -3042,6 +3042,361 @@ static int bif_errortext(struct irx_parser *p, int argc, PLstr *argv,
 }
 
 /* ================================================================== */
+/*  Time / Date BIFs (WP-CPS-01)                                      */
+/* ================================================================== */
+
+#ifdef __MVS__
+#include <time64.h>
+#else
+#include <stdint.h>
+#include <sys/time.h>
+#include <time.h>
+#endif
+
+#define USEC_PER_SEC  1000000ULL
+#define SECS_PER_HOUR 3600UL
+#define MINS_PER_HOUR 60UL
+#define SECS_PER_DAY  86400UL
+/* Jan 1, 0001 is day 1 (REXX base). Unix epoch 1970-01-01 is day
+ * 719163: 1969 complete years * 365 = 718685 + 492 leap years
+ * - 19 centuries + 4 quad-centuries + 1 (day-1 base) = 719163. */
+#define REXX_DAY1_TO_EPOCH 719163UL
+#define TM_YEAR_BASE       1900
+#define YEAR_MOD_CENTURY   100
+#define MONTHS_PER_YEAR    12
+#define HOURS_PER_HALF_DAY 12
+#define WEEKDAYS_PER_WEEK  7
+#define TIME_BUF_LEN       32
+
+static const char *s_month_abbr[MONTHS_PER_YEAR] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+static const char *s_month_long[MONTHS_PER_YEAR] = {
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"};
+
+static const char *s_weekday[WEEKDAYS_PER_WEEK] = {
+    "Sunday", "Monday", "Tuesday", "Wednesday",
+    "Thursday", "Friday", "Saturday"};
+
+/* Return current time as microseconds since Unix epoch; also fill
+ * tm_out (UTC) if non-NULL. Single call captures both so that the
+ * HH:MM:SS and fractional parts in TIME('L') are consistent. */
+static uint64_t irx_time_now(struct tm *tm_out)
+{
+#ifdef __MVS__
+    uint64_t us = (uint64_t)uclock64();
+    if (tm_out != NULL)
+    {
+        time64_t t;
+        t.u64 = us / USEC_PER_SEC;
+        struct tm *p = gmtime64(&t);
+        if (p != NULL)
+        {
+            *tm_out = *p;
+        }
+    }
+    return us;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    if (tm_out != NULL)
+    {
+        time_t t = tv.tv_sec;
+        struct tm *p = gmtime(&t);
+        if (p != NULL)
+        {
+            *tm_out = *p;
+        }
+    }
+    return (uint64_t)tv.tv_sec * USEC_PER_SEC + (uint64_t)tv.tv_usec;
+#endif
+}
+
+static uint64_t stamp_load(unsigned int hi, unsigned int lo)
+{
+    return ((uint64_t)hi << 32) | (uint64_t)lo;
+}
+
+static void stamp_store(uint64_t us, unsigned int *hi, unsigned int *lo)
+{
+    *hi = (unsigned int)(us >> 32);
+    *lo = (unsigned int)(us & 0xFFFFFFFFU);
+}
+
+/* Parse the first character of the optional subform argument at argv[idx].
+ * Empty/absent/NULL -> default_sub. Validates against the `allowed` set.
+ * On invalid input raises SYNTAX 40.23 and returns '\0'. */
+static char parse_subform(struct irx_parser *p, int argc, PLstr *argv,
+                          int idx, const char *bif_name,
+                          const char *allowed, char default_sub)
+{
+    if (idx >= argc || argv[idx] == NULL || argv[idx]->len == 0)
+    {
+        return default_sub;
+    }
+    char c = (char)toupper((unsigned char)argv[idx]->pstr[0]);
+    const char *a = allowed;
+    while (*a)
+    {
+        if (*a == c)
+        {
+            return c;
+        }
+        a++;
+    }
+    char desc[64];
+    sprintf(desc, "%s: invalid subform '%c'", bif_name, c);
+    irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_OPTION_INVALID, desc);
+    return '\0';
+}
+
+/* TIME([subform]) — SC28-1883-0 §4.43 */
+static int bif_time(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
+{
+    char sub = parse_subform(p, argc, argv, 0, "TIME",
+                             "NERSMHLC", 'N');
+    if (sub == '\0')
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+
+    /* Lazy-init the environment-level init_stamp on the first TIME call. */
+    uint64_t init_us = 0;
+    if (wk != NULL)
+    {
+        init_us = stamp_load(wk->wkbi_init_stamp_hi, wk->wkbi_init_stamp_lo);
+        if (init_us == 0)
+        {
+            init_us = irx_time_now(NULL);
+            stamp_store(init_us, &wk->wkbi_init_stamp_hi,
+                        &wk->wkbi_init_stamp_lo);
+            /* Seed reset_stamp to init_stamp so TIME('R') first call is 0. */
+            stamp_store(init_us, &wk->wkbi_reset_stamp_hi,
+                        &wk->wkbi_reset_stamp_lo);
+        }
+    }
+
+    struct tm tm_now;
+    memset(&tm_now, 0, sizeof(tm_now));
+    uint64_t now_us = irx_time_now(&tm_now);
+
+    char buf[TIME_BUF_LEN];
+    int n = 0;
+
+    switch (sub)
+    {
+        case 'N': /* HH:MM:SS */
+            n = sprintf(buf, "%02d:%02d:%02d",
+                        tm_now.tm_hour, tm_now.tm_min, tm_now.tm_sec);
+            break;
+
+        case 'E': /* elapsed since init_stamp (seconds.microseconds) */
+        {
+            uint64_t delta = (wk != NULL && init_us != 0)
+                                 ? (now_us - init_us)
+                                 : 0ULL;
+            unsigned long secs = (unsigned long)(delta / USEC_PER_SEC);
+            unsigned long usec = (unsigned long)(delta % USEC_PER_SEC);
+            n = sprintf(buf, "%lu.%06lu", secs, usec);
+            break;
+        }
+
+        case 'R': /* elapsed since reset_stamp; update reset_stamp */
+        {
+            uint64_t reset_us = (wk != NULL)
+                                    ? stamp_load(wk->wkbi_reset_stamp_hi,
+                                                 wk->wkbi_reset_stamp_lo)
+                                    : 0ULL;
+            uint64_t delta = (reset_us != 0) ? (now_us - reset_us) : 0ULL;
+            unsigned long secs = (unsigned long)(delta / USEC_PER_SEC);
+            unsigned long usec = (unsigned long)(delta % USEC_PER_SEC);
+            n = sprintf(buf, "%lu.%06lu", secs, usec);
+            if (wk != NULL)
+            {
+                stamp_store(now_us, &wk->wkbi_reset_stamp_hi,
+                            &wk->wkbi_reset_stamp_lo);
+            }
+            break;
+        }
+
+        case 'S': /* total seconds since midnight */
+            n = sprintf(buf, "%d",
+                        (int)(tm_now.tm_hour * (int)SECS_PER_HOUR +
+                              tm_now.tm_min * (int)MINS_PER_HOUR +
+                              tm_now.tm_sec));
+            break;
+
+        case 'M': /* total minutes since midnight */
+            n = sprintf(buf, "%d",
+                        (int)(tm_now.tm_hour * (int)MINS_PER_HOUR +
+                              tm_now.tm_min));
+            break;
+
+        case 'H': /* total hours since midnight */
+            n = sprintf(buf, "%d", tm_now.tm_hour);
+            break;
+
+        case 'L': /* HH:MM:SS.uuuuuu */
+        {
+            unsigned long usec = (unsigned long)(now_us % USEC_PER_SEC);
+            n = sprintf(buf, "%02d:%02d:%02d.%06lu",
+                        tm_now.tm_hour, tm_now.tm_min, tm_now.tm_sec, usec);
+            break;
+        }
+
+        case 'C': /* hh:mmXM (12-hour civil) */
+        {
+            int h12 = tm_now.tm_hour % HOURS_PER_HALF_DAY;
+            if (h12 == 0)
+            {
+                h12 = HOURS_PER_HALF_DAY;
+            }
+            const char *ampm = (tm_now.tm_hour < HOURS_PER_HALF_DAY)
+                                   ? "am"
+                                   : "pm";
+            n = sprintf(buf, "%d:%02d%s", h12, tm_now.tm_min, ampm);
+            break;
+        }
+
+        default:
+            return IRXPARS_SYNTAX;
+    }
+
+    if (n <= 0)
+    {
+        return IRXPARS_SYNTAX;
+    }
+    int lrc = Lfx(p->alloc, result, (size_t)n);
+    if (lrc != LSTR_OK)
+    {
+        return translate_lstr_rc(lrc);
+    }
+    memcpy(result->pstr, buf, (size_t)n);
+    result->len = (size_t)n;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+/* DATE([subform]) — SC28-1883-0 §4.7 */
+static int bif_date(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
+{
+    char sub = parse_subform(p, argc, argv, 0, "DATE",
+                             "NSEUDBDMWJ", 'N');
+    if (sub == '\0')
+    {
+        return IRXPARS_SYNTAX;
+    }
+
+    struct tm tm_now;
+    memset(&tm_now, 0, sizeof(tm_now));
+    uint64_t now_us = irx_time_now(&tm_now);
+    (void)now_us;
+
+    char buf[TIME_BUF_LEN];
+    int n = 0;
+
+    switch (sub)
+    {
+        case 'N': /* dd Mon yyyy */
+        {
+            int mon = tm_now.tm_mon;
+            if (mon < 0 || mon >= MONTHS_PER_YEAR)
+            {
+                mon = 0;
+            }
+            n = sprintf(buf, "%d %s %d",
+                        tm_now.tm_mday,
+                        s_month_abbr[mon],
+                        tm_now.tm_year + TM_YEAR_BASE);
+            break;
+        }
+
+        case 'S': /* yyyymmdd */
+            n = sprintf(buf, "%04d%02d%02d",
+                        tm_now.tm_year + TM_YEAR_BASE,
+                        tm_now.tm_mon + 1,
+                        tm_now.tm_mday);
+            break;
+
+        case 'E': /* dd/mm/yy */
+            n = sprintf(buf, "%02d/%02d/%02d",
+                        tm_now.tm_mday,
+                        tm_now.tm_mon + 1,
+                        tm_now.tm_year % YEAR_MOD_CENTURY);
+            break;
+
+        case 'U': /* mm/dd/yy */
+            n = sprintf(buf, "%02d/%02d/%02d",
+                        tm_now.tm_mon + 1,
+                        tm_now.tm_mday,
+                        tm_now.tm_year % YEAR_MOD_CENTURY);
+            break;
+
+        case 'B': /* days since Jan 1, 0001 (base date) */
+        {
+            unsigned long epoch_days =
+                (unsigned long)(now_us / USEC_PER_SEC / SECS_PER_DAY);
+            unsigned long base_days = epoch_days + REXX_DAY1_TO_EPOCH;
+            n = sprintf(buf, "%lu", base_days);
+            break;
+        }
+
+        case 'D': /* day-of-year (Julian ordinal, 1-based) */
+            n = sprintf(buf, "%d", tm_now.tm_yday + 1);
+            break;
+
+        case 'M': /* full month name */
+        {
+            int mon = tm_now.tm_mon;
+            if (mon < 0 || mon >= MONTHS_PER_YEAR)
+            {
+                mon = 0;
+            }
+            n = sprintf(buf, "%s", s_month_long[mon]);
+            break;
+        }
+
+        case 'W': /* full weekday name */
+        {
+            int wday = tm_now.tm_wday;
+            if (wday < 0 || wday >= WEEKDAYS_PER_WEEK)
+            {
+                wday = 0;
+            }
+            n = sprintf(buf, "%s", s_weekday[wday]);
+            break;
+        }
+
+        case 'J': /* yyddd (Julian date) */
+            n = sprintf(buf, "%02d%03d",
+                        tm_now.tm_year % YEAR_MOD_CENTURY,
+                        tm_now.tm_yday + 1);
+            break;
+
+        default:
+            return IRXPARS_SYNTAX;
+    }
+
+    if (n <= 0)
+    {
+        return IRXPARS_SYNTAX;
+    }
+    int lrc = Lfx(p->alloc, result, (size_t)n);
+    if (lrc != LSTR_OK)
+    {
+        return translate_lstr_rc(lrc);
+    }
+    memcpy(result->pstr, buf, (size_t)n);
+    result->len = (size_t)n;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+/* ================================================================== */
 /*  Registration                                                      */
 /* ================================================================== */
 
@@ -3115,6 +3470,9 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"LINESIZE", 0, 0, bif_linesize},
     {"VALUE", 1, 3, bif_value},
     {"SOURCELINE", 0, 1, bif_sourceline},
+    /* Time / Date (WP-CPS-01) */
+    {"TIME", 0, 1, bif_time},
+    {"DATE", 0, 1, bif_date},
     /* Sentinel */
     {"", 0, 0, NULL}};
 
