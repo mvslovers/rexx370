@@ -360,7 +360,7 @@ LSTRING_SRC="../lstring370/src/lstr#cor.c  ../lstring370/src/lstr#cvt.c \
              ../lstring370/src/lstr#sub.c  ../lstring370/src/lstr#wrd.c \
              ../lstring370/src/lstr#xlt.c"
 PHASE1_SRC="src/irx#init.c src/irx#term.c src/irx#stor.c \
-            src/irx#anch.c src/irx#uid.c  src/irx#msid.c \
+            src/irx#anch.c src/irx#env.c  src/irx#uid.c  src/irx#msid.c \
             src/irx#cond.c src/irx#bif.c  src/irx#bifs.c"
 PHASE2_SRC="src/irx#io.c   src/irx#lstr.c src/irx#tokn.c \
             src/irx#vpol.c src/irx#pars.c src/irx#ctrl.c"
@@ -382,6 +382,7 @@ run tstparse    # PARSE instruction (WP-16)          (74/74)
 run tstproc     # PROCEDURE EXPOSE (WP-17)           (53/53)
 run tsthelo     # Hello-world end-to-end (WP-18)     (16/16)
 run tstanrm     # ECTENVBK anchor read-mostly        (24/24)
+run tstfind     # FINDENVB + CHEKENVB (WP-I1c.2)     (44/44)
 run tstarit     # Arithmetic engine (WP-20)          (128/128)
 run tstarext    # Direct IRXARITH API (WP-20 + B)    (113/113)
 run tstbif      # BIF registry (WP-21a)              (29/29)
@@ -392,7 +393,7 @@ Note: `TSTANCH` (the ENVBLOCK anchor smoketest) is linked on MVS as
 a standalone load module but is invoked from TSO/Batch — it does not
 have a runnable Linux cross-compile entry of its own.
 
-Full matrix: 14 binaries, **1156 tests green** as of WP-21b Phase H close-out.
+Full matrix: 15 binaries, **1200 tests green** as of WP-I1c.2 close-out.
 
 ## Work packages
 

@@ -52,6 +52,8 @@
 /* Simulated ECTENVBK slot for host cross-compile tests. */
 #ifndef __MVS__
 void *_simulated_ectenvbk = NULL;
+/* Host-only TSO simulation flag from irx#env.c. */
+extern int _simulated_is_tso;
 #endif
 
 /* Forward-declare the slot accessor from irx#anch.c. */
@@ -434,6 +436,466 @@ static void test_c5_dispatch_chekenvb(void)
 }
 
 /* ================================================================== */
+/*  F6–F10: Stage 1a cache + Stage 1b secondary (host only)          */
+/*                                                                    */
+/*  These tests control _simulated_is_tso and use direct             */
+/*  irx_anchor_alloc_slot calls with a fake (non-zero) TCB to make   */
+/*  Stage 1b primary miss, then exercise Stage 1a and Stage 1b       */
+/*  secondary. On MVS the same paths are exercised by real            */
+/*  multi-task scenarios (AC-12/AC-13 via irxdbg find).              */
+/* ================================================================== */
+
+#ifndef __MVS__
+
+/* Register a minimal valid ENVBLOCK in IRXANCHR with a fake non-zero TCB
+ * so Stage 1b primary will not match on host (current_tcb=0 ≠ fake_tcb).
+ * Caller provides a zeroed + eye-catchered fake_eb. Returns token on
+ * success, 0 on failure. */
+static uint32_t register_fake_env(struct envblock *eb, int is_tso_flag)
+{
+    void *fake_tcb = (void *)0x00DEAD00; /* non-zero; won't match host tcbptr=0 */
+    uint32_t token = 0;
+    int rc = irx_anchor_alloc_slot(eb, fake_tcb, is_tso_flag, &token);
+    return (rc == 0) ? token : 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  F6: Stage 1a cache hit                                            */
+/*                                                                    */
+/*  ECTENVBK is seeded with a valid TSO-flagged env whose tcb_ptr     */
+/*  does not match the host current_tcb (=0). Stage 1b primary misses */
+/*  (tcb mismatch). Stage 1a reads the cache, validates, returns.     */
+/* ------------------------------------------------------------------ */
+
+static void test_f6_stage1a_cache_hit(void)
+{
+    struct envblock fake_eb;
+    uint32_t token;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F6: findenvb Stage 1a cache hit ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 0;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&fake_eb, 0, sizeof(fake_eb));
+    memcpy(fake_eb.envblock_id, ENVBLOCK_ID, 8);
+    token = register_fake_env(&fake_eb, 1 /* TSO-flagged */);
+    if (token == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        return;
+    }
+
+    /* Seed ECTENVBK cache directly. */
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = &fake_eb;
+        }
+    }
+
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 0, "F6: findenvb returns 0 via Stage 1a cache hit");
+    CHECK(found == &fake_eb, "F6: findenvb returns the cached envblock");
+    CHECK(reason == 0, "F6: reason code is 0");
+
+    irx_anchor_free_slot(&fake_eb);
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  F7: Stage 1a stale cache → Stage 1b secondary fallback            */
+/*                                                                    */
+/*  ECTENVBK points to an env with a valid eye-catcher that is NOT    */
+/*  registered in IRXANCHR (simulates a freed env). Stage 1a finds    */
+/*  the slot NULL from irx_anchor_find_by_envblock and falls through  */
+/*  to Stage 1b secondary, which finds the live TSO env and           */
+/*  repopulates the cache.                                            */
+/* ------------------------------------------------------------------ */
+
+static void test_f7_stage1a_stale_cache(void)
+{
+    struct envblock fake_eb;
+    struct envblock stale_eb; /* valid eye-catcher, NOT in IRXANCHR */
+    uint32_t token;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F7: findenvb Stage 1a stale → Stage 1b secondary ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&fake_eb, 0, sizeof(fake_eb));
+    memcpy(fake_eb.envblock_id, ENVBLOCK_ID, 8);
+    token = register_fake_env(&fake_eb, 1);
+    if (token == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    /* Stale cache entry: correct eye-catcher but not in IRXANCHR. */
+    memset(&stale_eb, 0, sizeof(stale_eb));
+    memcpy(stale_eb.envblock_id, ENVBLOCK_ID, 8);
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = &stale_eb;
+        }
+    }
+
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 0, "F7: findenvb returns 0 after stale cache → Stage 1b secondary");
+    CHECK(found == &fake_eb, "F7: findenvb returns the valid TSO env");
+
+    /* Stage 1b secondary must have repopulated the cache. */
+    {
+        struct envblock **slot = ectenvbk_slot();
+        CHECK(slot != NULL && *slot == &fake_eb,
+              "F7: ECTENVBK repopulated after Stage 1b secondary");
+    }
+
+    irx_anchor_free_slot(&fake_eb);
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+    _simulated_is_tso = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  F8: Stage 1b secondary — no cache, no TCB match                   */
+/*                                                                    */
+/*  ECTENVBK is NULL. Stage 1b primary misses (tcb mismatch). Stage   */
+/*  1a sees an empty cache. Stage 1b secondary finds the TSO-flagged  */
+/*  env and populates ECTENVBK.                                       */
+/* ------------------------------------------------------------------ */
+
+static void test_f8_stage1b_secondary_no_cache(void)
+{
+    struct envblock fake_eb;
+    uint32_t token;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F8: findenvb Stage 1b secondary — no cache ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&fake_eb, 0, sizeof(fake_eb));
+    memcpy(fake_eb.envblock_id, ENVBLOCK_ID, 8);
+    token = register_fake_env(&fake_eb, 1);
+    if (token == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 0, "F8: Stage 1b secondary returns 0");
+    CHECK(found == &fake_eb, "F8: Stage 1b secondary returns TSO env");
+
+    /* Verify cache was populated. */
+    {
+        struct envblock **slot = ectenvbk_slot();
+        CHECK(slot != NULL && *slot == &fake_eb,
+              "F8: ECTENVBK populated by Stage 1b secondary");
+    }
+
+    irx_anchor_free_slot(&fake_eb);
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+    _simulated_is_tso = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  F9: Stage 1b secondary skips non-TSO env → RC=4                   */
+/*                                                                    */
+/*  Only a non-TSO-flagged env is in IRXANCHR. is_tso()=1 so Stage   */
+/*  1b secondary runs, but skips the slot (no IRXANCHR_FLAG_TSO_     */
+/*  ATTACHED). Result: RC=4.                                          */
+/* ------------------------------------------------------------------ */
+
+static void test_f9_stage1b_no_tso_env(void)
+{
+    struct envblock fake_eb;
+    uint32_t token;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F9: findenvb Stage 1b secondary — only non-TSO env ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&fake_eb, 0, sizeof(fake_eb));
+    memcpy(fake_eb.envblock_id, ENVBLOCK_ID, 8);
+    token = register_fake_env(&fake_eb, 0 /* is_tso=0 — no TSO flag */);
+    if (token == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 4, "F9: findenvb returns 4 when only non-TSO env present");
+    CHECK(found == NULL, "F9: out_envblock is NULL");
+    CHECK(reason == 4, "F9: reason code is 4");
+
+    irx_anchor_free_slot(&fake_eb);
+    _simulated_is_tso = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  F10: Stage 1a hit after Stage 1b secondary populated cache        */
+/*                                                                    */
+/*  First FINDENVB takes Stage 1b secondary and populates ECTENVBK.  */
+/*  Second FINDENVB hits Stage 1a directly via the populated cache.   */
+/* ------------------------------------------------------------------ */
+
+static void test_f10_stage1a_after_1b_populate(void)
+{
+    struct envblock fake_eb;
+    uint32_t token;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F10: findenvb Stage 1a hit after Stage 1b secondary populate ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&fake_eb, 0, sizeof(fake_eb));
+    memcpy(fake_eb.envblock_id, ENVBLOCK_ID, 8);
+    token = register_fake_env(&fake_eb, 1);
+    if (token == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    /* First call: Stage 1b primary misses, Stage 1a misses (no cache),
+     * Stage 1b secondary finds fake_eb and populates ECTENVBK. */
+    rc = irx_init_findenvb(&found, &reason);
+    if (rc != 0 || found != &fake_eb)
+    {
+        printf("  SKIP: first findenvb did not take Stage 1b secondary path\n");
+        irx_anchor_free_slot(&fake_eb);
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    /* Second call: same TCB mismatch, Stage 1a now hits via the cache
+     * populated by the first call's Stage 1b secondary. */
+    found = NULL;
+    reason = -1;
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 0, "F10: second findenvb returns 0 via Stage 1a cache");
+    CHECK(found == &fake_eb, "F10: second findenvb returns same envblock");
+    CHECK(reason == 0, "F10: reason code is 0");
+
+    irx_anchor_free_slot(&fake_eb);
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+    _simulated_is_tso = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  F11: Stage 1b secondary token-max selection                       */
+/*                                                                    */
+/*  Two TSO-flagged envs, both non-reentrant, different tcb_ptr       */
+/*  (neither matches host current_tcb=0). Stage 1b secondary must    */
+/*  return the one with the higher token.                             */
+/* ------------------------------------------------------------------ */
+
+static void test_f11_stage1b_secondary_token_max(void)
+{
+    struct envblock env_a;
+    struct envblock env_b;
+    uint32_t token_a;
+    uint32_t token_b;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F11: Stage 1b secondary — token-max selection ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&env_a, 0, sizeof(env_a));
+    memcpy(env_a.envblock_id, ENVBLOCK_ID, 8);
+    token_a = register_fake_env(&env_a, 1);
+
+    memset(&env_b, 0, sizeof(env_b));
+    memcpy(env_b.envblock_id, ENVBLOCK_ID, 8);
+    token_b = register_fake_env(&env_b, 1);
+
+    if (token_a == 0 || token_b == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        irx_anchor_free_slot(&env_a);
+        irx_anchor_free_slot(&env_b);
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    /* env_b was allocated second and has a higher token. */
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 0, "F11: Stage 1b secondary returns 0 with two TSO envs");
+    CHECK(found == &env_b, "F11: Stage 1b secondary returns highest-token env");
+
+    irx_anchor_free_slot(&env_a);
+    irx_anchor_free_slot(&env_b);
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+    _simulated_is_tso = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  F12: Stage 1b secondary skips reentrant TSO env                   */
+/*                                                                    */
+/*  A TSO-flagged env with rentrant=1 must be skipped by Stage 1b    */
+/*  secondary, just as Stage 1b primary skips reentrant envs.        */
+/* ------------------------------------------------------------------ */
+
+static void test_f12_stage1b_secondary_skips_reentrant(void)
+{
+    struct envblock rent_eb;
+    struct parmblock rent_pb;
+    uint32_t token;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F12: Stage 1b secondary — skips reentrant TSO env ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&rent_pb, 0, sizeof(rent_pb));
+    memcpy(rent_pb.parmblock_id, PARMBLOCK_ID, 8);
+    rent_pb.rentrant = -1;
+
+    memset(&rent_eb, 0, sizeof(rent_eb));
+    memcpy(rent_eb.envblock_id, ENVBLOCK_ID, 8);
+    rent_eb.envblock_parmblock = &rent_pb;
+
+    token = register_fake_env(&rent_eb, 1 /* TSO-flagged */);
+    if (token == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 4, "F12: Stage 1b secondary skips reentrant TSO env → RC=4");
+    CHECK(found == NULL, "F12: out_envblock is NULL");
+    CHECK(reason == 4, "F12: reason code is 4");
+
+    irx_anchor_free_slot(&rent_eb);
+    _simulated_is_tso = 0;
+}
+
+#endif /* !__MVS__ */
+
+/* ================================================================== */
 /*  main                                                               */
 /* ================================================================== */
 
@@ -452,6 +914,16 @@ int main(void)
     test_c3_bad_eyecatcher();
     test_c4_not_in_anchor();
     test_c5_dispatch_chekenvb();
+
+#ifndef __MVS__
+    test_f6_stage1a_cache_hit();
+    test_f7_stage1a_stale_cache();
+    test_f8_stage1b_secondary_no_cache();
+    test_f9_stage1b_no_tso_env();
+    test_f10_stage1a_after_1b_populate();
+    test_f11_stage1b_secondary_token_max();
+    test_f12_stage1b_secondary_skips_reentrant();
+#endif
 
     printf("\n--- Results ---\n");
     printf("  Run:    %d\n", tests_run);
