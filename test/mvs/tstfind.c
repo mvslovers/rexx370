@@ -774,6 +774,125 @@ static void test_f10_stage1a_after_1b_populate(void)
     _simulated_is_tso = 0;
 }
 
+/* ------------------------------------------------------------------ */
+/*  F11: Stage 1b secondary token-max selection                       */
+/*                                                                    */
+/*  Two TSO-flagged envs, both non-reentrant, different tcb_ptr       */
+/*  (neither matches host current_tcb=0). Stage 1b secondary must    */
+/*  return the one with the higher token.                             */
+/* ------------------------------------------------------------------ */
+
+static void test_f11_stage1b_secondary_token_max(void)
+{
+    struct envblock env_a;
+    struct envblock env_b;
+    uint32_t token_a;
+    uint32_t token_b;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F11: Stage 1b secondary — token-max selection ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&env_a, 0, sizeof(env_a));
+    memcpy(env_a.envblock_id, ENVBLOCK_ID, 8);
+    token_a = register_fake_env(&env_a, 1);
+
+    memset(&env_b, 0, sizeof(env_b));
+    memcpy(env_b.envblock_id, ENVBLOCK_ID, 8);
+    token_b = register_fake_env(&env_b, 1);
+
+    if (token_a == 0 || token_b == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        irx_anchor_free_slot(&env_a);
+        irx_anchor_free_slot(&env_b);
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    /* env_b was allocated second and has a higher token. */
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 0, "F11: Stage 1b secondary returns 0 with two TSO envs");
+    CHECK(found == &env_b, "F11: Stage 1b secondary returns highest-token env");
+
+    irx_anchor_free_slot(&env_a);
+    irx_anchor_free_slot(&env_b);
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+    _simulated_is_tso = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  F12: Stage 1b secondary skips reentrant TSO env                   */
+/*                                                                    */
+/*  A TSO-flagged env with rentrant=1 must be skipped by Stage 1b    */
+/*  secondary, just as Stage 1b primary skips reentrant envs.        */
+/* ------------------------------------------------------------------ */
+
+static void test_f12_stage1b_secondary_skips_reentrant(void)
+{
+    struct envblock rent_eb;
+    struct parmblock rent_pb;
+    uint32_t token;
+    struct envblock *found = NULL;
+    int reason = -1;
+    int rc;
+
+    printf("\n--- F12: Stage 1b secondary — skips reentrant TSO env ---\n");
+
+    irx_anchor_table_reset();
+    _simulated_is_tso = 1;
+    {
+        struct envblock **slot = ectenvbk_slot();
+        if (slot != NULL)
+        {
+            *slot = NULL;
+        }
+    }
+
+    memset(&rent_pb, 0, sizeof(rent_pb));
+    memcpy(rent_pb.parmblock_id, PARMBLOCK_ID, 8);
+    rent_pb.rentrant = -1;
+
+    memset(&rent_eb, 0, sizeof(rent_eb));
+    memcpy(rent_eb.envblock_id, ENVBLOCK_ID, 8);
+    rent_eb.envblock_parmblock = &rent_pb;
+
+    token = register_fake_env(&rent_eb, 1 /* TSO-flagged */);
+    if (token == 0)
+    {
+        printf("  SKIP: register_fake_env failed\n");
+        _simulated_is_tso = 0;
+        return;
+    }
+
+    rc = irx_init_findenvb(&found, &reason);
+
+    CHECK(rc == 4, "F12: Stage 1b secondary skips reentrant TSO env → RC=4");
+    CHECK(found == NULL, "F12: out_envblock is NULL");
+    CHECK(reason == 4, "F12: reason code is 4");
+
+    irx_anchor_free_slot(&rent_eb);
+    _simulated_is_tso = 0;
+}
+
 #endif /* !__MVS__ */
 
 /* ================================================================== */
@@ -802,6 +921,8 @@ int main(void)
     test_f8_stage1b_secondary_no_cache();
     test_f9_stage1b_no_tso_env();
     test_f10_stage1a_after_1b_populate();
+    test_f11_stage1b_secondary_token_max();
+    test_f12_stage1b_secondary_skips_reentrant();
 #endif
 
     printf("\n--- Results ---\n");
