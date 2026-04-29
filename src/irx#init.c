@@ -385,7 +385,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      *   - If the caller's parmblock had tsofl_mask set, respect it.
      *   - Otherwise auto-detect via is_tso().
      *
-     * The resolved is_tso value is reflected into pb_copy via the
+     * The resolved tso_flag value is reflected into pb_copy via the
      * bitfield accessor in step 5 (not by byte-level OR'ing here).
      * Byte-level writes against tsofl are platform-specific because
      * the int bitfield ordering differs between MVS (MSB-first) and

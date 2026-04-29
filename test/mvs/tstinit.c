@@ -220,7 +220,7 @@ static void test_t4_anchor_slot_alloc(void)
         if (slot != NULL)
         {
             /* On the cross-compile host is_tso() returns 0 and no
-             * caller_parmblock was supplied, so is_tso=0. The default
+             * caller_parmblock was supplied, so tso_flag=0. The default
              * init path produces a non-TSO slot with flags=0. T9/T10
              * cover the TSOFL-driven flag values explicitly. */
 #ifdef __MVS__
