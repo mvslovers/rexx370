@@ -69,6 +69,7 @@
 
 #include "irx.h"
 #include "irxanchr.h"
+#include "irxenv.h"
 #include "irxfunc.h"
 
 #ifndef __MVS__
@@ -111,7 +112,7 @@ static int tests_skipped = 0;
  * (the slot is the simulation global, always present) and on MVS
  * under TSO (the PSA→ASCB→ASXB→LWA→ECT walk completes); false only
  * on pure MVS batch where LWA is NULL. Gating on slot reachability
- * — not on anch_tso() — keeps the host cross-compile counts
+ * — not on is_tso() — keeps the host cross-compile counts
  * unchanged while still skipping the four/seven assertions that
  * cannot hold under batch. */
 #define CHECK_IF_REACHABLE(stmt, msg)                      \
@@ -345,9 +346,9 @@ static void case_d_non_tso_noop(void)
 int main(void)
 {
     printf("=== ECTENVBK TSOFL-conditional anchor tests (TSK-195) ===\n");
-    printf("    mode: %s\n", anch_tso() ? "TSO (ECT reachable)"
-                                        : "batch (no ECT — slot-state "
-                                          "assertions will skip)");
+    printf("    mode: %s\n", is_tso() ? "TSO (ECT reachable)"
+                                      : "batch (no ECT — slot-state "
+                                        "assertions will skip)");
 
     /* Silence unused-function warning on host where _test_get_anchor
      * is not exercised by any case today. The helper is kept for

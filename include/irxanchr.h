@@ -81,12 +81,6 @@
  * (typical in batch, where LWA is not established). */
 void *anch_walk(void) asm("ANCHWALK");
 
-/* TSO detection via crent370's CLIBPPA.ppaflag
- * (PPAFLAG_TSOFG for TSO foreground, PPAFLAG_TSOBG for TSO background
- * invoked via IKJEFT01). Returns 1 when either bit is set, 0 in pure
- * batch and on non-MVS builds. */
-int anch_tso(void) asm("ANCHISTS");
-
 /* Read ECTENVBK — the currently installed ENVBLOCK, or NULL when
  * the slot is empty or unreachable. */
 struct envblock *anch_curr(void) asm("ANCHCURR");
