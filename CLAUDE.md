@@ -360,7 +360,7 @@ LSTRING_SRC="../lstring370/src/lstr#cor.c  ../lstring370/src/lstr#cvt.c \
              ../lstring370/src/lstr#sub.c  ../lstring370/src/lstr#wrd.c \
              ../lstring370/src/lstr#xlt.c"
 PHASE1_SRC="src/irx#init.c src/irx#term.c src/irx#stor.c \
-            src/irx#anch.c src/irx#uid.c  src/irx#msid.c \
+            src/irx#anch.c src/irx#env.c  src/irx#uid.c  src/irx#msid.c \
             src/irx#cond.c src/irx#bif.c  src/irx#bifs.c"
 PHASE2_SRC="src/irx#io.c   src/irx#lstr.c src/irx#tokn.c \
             src/irx#vpol.c src/irx#pars.c src/irx#ctrl.c"

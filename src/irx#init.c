@@ -56,6 +56,9 @@ typedef char envblock_size_is_320_[(sizeof(struct envblock) == 320) ? 1 : -1];
 /* ECT ENVBK slot offset inside the ECT control block (IBM SYS1.AMODGEN). */
 #define ECT_ENVBK_OFF 0x030
 
+/* Forward-declare the ECTENVBK slot accessor from irx#anch.c. */
+struct envblock **ectenvbk_slot(void);
+
 /* Default host command environment names (8 bytes each, EBCDIC-safe). */
 #define DEFAULT_HOSTENV_TSO  "TSO     "
 #define DEFAULT_HOSTENV_MVS  "MVS     "
@@ -620,28 +623,56 @@ cleanup:
 }
 
 /* ================================================================== */
-/*  irx_init_findenvb — FINDENVB C-core (WP-I1c.2)                   */
+/*  Static helpers shared by irx_init_findenvb                        */
+/* ================================================================== */
+
+/* Extract the envblock pointer stored in a slot.
+ * MVS (24-bit): stored uint32_t is the full address.
+ * 64-bit cross-compile host: alloc_slot stashed the untruncated pointer
+ * in rsvd1[0..sizeof(void*)-1] to avoid 32-bit truncation (irx#anch.c). */
+static struct envblock *extract_eb_from_slot(const irxanchr_entry_t *slot)
+{
+#ifdef __MVS__
+    return (struct envblock *)(unsigned long)slot->envblock_ptr;
+#else
+    void *full_ptr = NULL;
+    memcpy(&full_ptr, slot->rsvd1, sizeof(void *));
+    return (struct envblock *)full_ptr;
+#endif
+}
+
+/* Return non-zero when eb carries the correct ENVBLOCK eye-catcher. */
+static int envblock_is_valid(const struct envblock *eb)
+{
+    return eb != NULL && memcmp(eb->envblock_id, ENVBLOCK_ID, 8) == 0;
+}
+
+/* ================================================================== */
+/*  irx_init_findenvb — FINDENVB C-core (WP-I1c.2, WP-I1c.7)        */
 /*                                                                    */
-/*  Returns the most recently allocated (highest token) active,       */
-/*  non-reentrant IRXANCHR slot whose TCB matches PSATOLD.            */
+/*  Three-stage search for the best (highest-token) active,           */
+/*  non-reentrant ENVBLOCK visible to the calling TCB:                */
 /*                                                                    */
-/*  We iterate the table directly (rather than calling                */
-/*  irx_anchor_find_by_tcb) for two reasons:                          */
-/*    1. irx_anchor_find_by_tcb returns the highest-token entry       */
-/*       regardless of the RENTRANT flag; we need to skip reentrant   */
-/*       environments.                                                */
-/*    2. irx_anchor_find_by_tcb early-exits on NULL tcb, but on the  */
-/*       cross-compile host all slots record tcb_ptr=0 (PSATOLD is   */
-/*       unavailable), so the NULL guard would prevent host testing.  */
+/*  Stage 1b primary  — exact TCB match in IRXANCHR (existing logic). */
+/*                      Runs first so a subtask with its own          */
+/*                      IRXINIT'd env hits here without ever touching */
+/*                      the shared ECTENVBK slot.                     */
+/*  Stage 1a cache    — read ECTENVBK, validate eye-catcher and IRXANCHR */
+/*                      registration, accept if TSO-attached and      */
+/*                      non-reentrant.                                */
+/*  Stage 1b secondary — only under is_tso(): linear IRXANCHR scan for */
+/*                      any live TSO-attached non-reentrant slot.     */
+/*                      On match, populates ECTENVBK cache for future */
+/*                      Stage 1a fast-path.                           */
 /*                                                                    */
-/*  Returns: 0=found, 4=no non-reentrant env on this TCB.            */
+/*  Returns: 0=found, 4=not found (reason_code=4).                   */
 /* ================================================================== */
 
 int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
 {
     irxanchr_header_t *hdr;
     irxanchr_entry_t *slots;
-    irxanchr_entry_t *best = NULL;
+    irxanchr_entry_t *best;
     uint32_t tcbptr;
     uint32_t i;
 
@@ -673,6 +704,13 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
 
     slots = (irxanchr_entry_t *)((char *)hdr + sizeof(irxanchr_header_t));
 
+    /* ----------------------------------------------------------------
+     * Stage 1b primary: scan IRXANCHR for exact TCB match, non-reentrant,
+     * token-max. Runs before the cache so a subtask that has its own
+     * IRXINIT'd env hits this path directly and never reads the shared
+     * ECTENVBK slot (which a sibling subtask's INITENVB may overwrite).
+     * ---------------------------------------------------------------- */
+    best = NULL;
     for (i = 0; i < hdr->used; i++)
     {
         struct envblock *eb;
@@ -683,27 +721,13 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
         {
             continue;
         }
-        /* Slot occupancy is determined solely by envblock_ptr; the
-         * flags field marks TSO-attachment, not in-use status (CON-14
-         * IRXPROBE Phase α). FINDENVB walks both TSO and non-TSO envs. */
         if (slots[i].tcb_ptr != tcbptr)
         {
             continue;
         }
 
-        /* On MVS (24-bit), the stored uint32_t holds the full address.
-         * On the 64-bit cross-compile host, alloc_slot stashed the full
-         * pointer in rsvd1 to avoid truncation (see irx#anch.c). */
-#ifdef __MVS__
-        eb = (struct envblock *)(unsigned long)slots[i].envblock_ptr;
-#else
-        {
-            void *full_ptr = NULL;
-            memcpy(&full_ptr, slots[i].rsvd1, sizeof(void *));
-            eb = (struct envblock *)full_ptr;
-        }
-#endif
-        if (eb == NULL || memcmp(eb->envblock_id, ENVBLOCK_ID, 8) != 0)
+        eb = extract_eb_from_slot(&slots[i]);
+        if (!envblock_is_valid(eb))
         {
             continue;
         }
@@ -721,24 +745,120 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
         }
     }
 
-    if (best == NULL)
+    if (best != NULL)
     {
-        *out_reason_code = 4;
-        return 4;
+        *out_envblock = extract_eb_from_slot(best);
+        return 0;
     }
 
-    /* Return the envblock address using the same full-pointer recovery
-     * as used in the loop above to avoid 32-bit truncation on host. */
-#ifdef __MVS__
-    *out_envblock = (struct envblock *)(unsigned long)best->envblock_ptr;
-#else
+    /* ----------------------------------------------------------------
+     * Stage 1a cache: read ECTENVBK, validate eye-catcher, confirm the
+     * env is still live in IRXANCHR (guards against a freed env whose
+     * cache pointer was never cleared). Accept only non-reentrant,
+     * TSO-attached envs — the TSO-flag check guards against a cache
+     * entry placed by a non-default-env INITENVB caller.
+     * ectenvbk_slot() returns NULL in batch (LWA absent), so this stage
+     * is a natural no-op outside TSO without an explicit is_tso() guard.
+     * ---------------------------------------------------------------- */
     {
-        void *full_ptr = NULL;
-        memcpy(&full_ptr, best->rsvd1, sizeof(void *));
-        *out_envblock = (struct envblock *)full_ptr;
+        struct envblock **ect_slot = ectenvbk_slot();
+        if (ect_slot != NULL && *ect_slot != NULL)
+        {
+            struct envblock *cached_eb = *ect_slot;
+            irxanchr_entry_t *cached_slot = NULL;
+
+            if (envblock_is_valid(cached_eb))
+            {
+                cached_slot = irx_anchor_find_by_envblock(cached_eb);
+            }
+
+            if (cached_slot != NULL &&
+                (cached_slot->flags & IRXANCHR_FLAG_TSO_ATTACHED) != 0)
+            {
+                struct parmblock *pb =
+                    (struct parmblock *)cached_eb->envblock_parmblock;
+                if (pb == NULL || !pb->rentrant)
+                {
+                    *out_envblock = cached_eb;
+                    return 0;
+                }
+            }
+        }
     }
+
+    /* ----------------------------------------------------------------
+     * Stage 1b secondary: only under TSO. Accept any live, non-reentrant,
+     * TSO-attached slot (token-max). Used for cross-subtask default-env
+     * discovery when no own-TCB env exists and the cache is stale.
+     *
+     * On match, populate the ECTENVBK cache so the next FINDENVB call
+     * from any subtask hits Stage 1a directly.
+     *
+     * ECTENVBK is an AS-wide shared slot. In multi-subtask scenarios it
+     * may be overwritten by sibling INITENVB calls, which is why Stage 1b
+     * primary runs first — a caller with its own env reaches it via
+     * TCB-match without touching the cache. The cache exists for the
+     * default-env-discovery case where no own-TCB env exists yet.
+     * ---------------------------------------------------------------- */
+    if (is_tso())
+    {
+        irxanchr_entry_t *sec_best = NULL;
+
+        for (i = 0; i < hdr->used; i++)
+        {
+            struct envblock *eb;
+            struct parmblock *pb;
+
+            if (slots[i].envblock_ptr == IRXANCHR_SLOT_FREE ||
+                slots[i].envblock_ptr == IRXANCHR_SLOT_SENTINEL)
+            {
+                continue;
+            }
+            if (!(slots[i].flags & IRXANCHR_FLAG_TSO_ATTACHED))
+            {
+                continue;
+            }
+
+            eb = extract_eb_from_slot(&slots[i]);
+            if (!envblock_is_valid(eb))
+            {
+                continue;
+            }
+
+            pb = (struct parmblock *)eb->envblock_parmblock;
+            if (pb != NULL && pb->rentrant)
+            {
+                continue;
+            }
+
+            if (sec_best == NULL || slots[i].token > sec_best->token)
+            {
+                sec_best = &slots[i];
+            }
+        }
+
+        if (sec_best != NULL)
+        {
+            struct envblock *eb = extract_eb_from_slot(sec_best);
+            struct envblock **ect_slot = ectenvbk_slot();
+
+            /* Populate ECTENVBK cache and backlink so subsequent FINDENVB
+             * calls hit Stage 1a and IRXTERM rolls back to the correct ECT. */
+            if (ect_slot != NULL)
+            {
+                *ect_slot = eb;
+#ifdef __MVS__
+                eb->envblock_ectptr = (char *)ect_slot - ECT_ENVBK_OFF;
 #endif
-    return 0;
+            }
+
+            *out_envblock = eb;
+            return 0;
+        }
+    }
+
+    *out_reason_code = 4;
+    return 4;
 }
 
 /* ================================================================== */
@@ -940,7 +1060,6 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         struct parmblock *pb = (struct parmblock *)envblk->envblock_parmblock;
         if (pb != NULL && pb->tsofl != 0)
         {
-            extern struct envblock **ectenvbk_slot(void);
             struct envblock **slot = ectenvbk_slot();
             if (slot != NULL)
             {
