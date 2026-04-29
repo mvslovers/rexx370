@@ -672,7 +672,7 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
 {
     irxanchr_header_t *hdr;
     irxanchr_entry_t *slots;
-    irxanchr_entry_t *best;
+    irxanchr_entry_t *best = NULL;
     uint32_t tcbptr;
     uint32_t i;
 
@@ -709,8 +709,11 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
      * token-max. Runs before the cache so a subtask that has its own
      * IRXINIT'd env hits this path directly and never reads the shared
      * ECTENVBK slot (which a sibling subtask's INITENVB may overwrite).
+     * Note: Stage 1b primary accepts both TSO and non-TSO envs
+     * — it's the caller's own env regardless of attach mode.
+     * Stages 1a and 1b secondary, by contrast, restrict to
+     * TSO-attached envs (default-env-discovery semantics).
      * ---------------------------------------------------------------- */
-    best = NULL;
     for (i = 0; i < hdr->used; i++)
     {
         struct envblock *eb;
@@ -775,6 +778,13 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
             if (cached_slot != NULL &&
                 (cached_slot->flags & IRXANCHR_FLAG_TSO_ATTACHED) != 0)
             {
+                /* Reentrant filter: defensive. In production paths this
+                 * branch is unreachable because INITENVB step 8 only
+                 * writes ECTENVBK when TSOFL=1, and a reentrant TSO env
+                 * is not produced by any current caller. Mirror Stage
+                 * 1b's filter regardless so the cache cannot leak a
+                 * reentrant env even if a future caller pattern reaches
+                 * that combination. */
                 struct parmblock *pb =
                     (struct parmblock *)cached_eb->envblock_parmblock;
                 if (pb == NULL || !pb->rentrant)
@@ -847,6 +857,10 @@ int irx_init_findenvb(struct envblock **out_envblock, int *out_reason_code)
             if (ect_slot != NULL)
             {
                 *ect_slot = eb;
+                /* envblock_ectptr backlink: MVS-only because on host
+                 * ectenvbk_slot points into the simulation buffer, not a
+                 * real ECT control block. Subsequent Stage 1a hits work
+                 * via *ect_slot regardless. */
 #ifdef __MVS__
                 eb->envblock_ectptr = (char *)ect_slot - ECT_ENVBK_OFF;
 #endif
