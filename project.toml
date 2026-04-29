@@ -93,6 +93,18 @@ options = ["LIST", "MAP", "XREF", "AC=1", "RENT", "REUS"]
 include = ["IRXTMPW"]
 
 # ---------------------------------------------------------------
+# ISTSO - EXTRACT-based TSO environment detector.
+# Returns 0 (batch) or 1 (TSO foreground/background) via R15.
+# Pure assembler NCAL member; TISTSO links it in for the live test.
+# WP-I1c.6 / GitHub mvslovers/rexx370#93.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "ISTSO"
+entry = "ISTSO"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = ["ISTSO"]
+
+# ---------------------------------------------------------------
 # IRXINIT - HLASM Entry-Point Wrapper for the IRXINIT Programming
 #          Service (SC28-1883-0 §14). Parses the caller VLIST,
 #          extracts the function code, and delegates to the C-core
@@ -888,6 +900,20 @@ name = "TTERMVL"
 entry = "TTERMVL"
 options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
 include = ["TTERMVL"]
+
+# ---------------------------------------------------------------
+# TISTSO - Live MVS test caller for ISTSO (EXTRACT-based TSO detect).
+# Pure HLASM; ISTSO is NCAL-linked in so L R15,=V(ISTSO) resolves.
+# Invocation:
+#   Batch : EXEC PGM=TISTSO  (see test/mvs/jcl/tistso.jcl)
+#   TSO   : CALL 'hlq.LOAD(TISTSO)'
+# WP-I1c.6 / GitHub mvslovers/rexx370#93.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TISTSO"
+entry = "TISTSO"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = ["TISTSO", "ISTSO"]
 
 # ---------------------------------------------------------------
 # IRXJCL - Batch entry point (PGM=IRXJCL)

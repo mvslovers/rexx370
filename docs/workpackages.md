@@ -17,6 +17,7 @@ Reference: [Architecture Design v0.2.0](https://www.notion.so/3283d9938787811ba3
 | WP-04 | IRXINIT + IRXTERM | 1 | DONE |
 | WP-05 | Phase 1 smoke test | 1 | DONE (38/38) |
 | WP-06 | Anchor protection tests | 1 | DONE — Case-(a)/(b)/(c) verification in test/test_anchor_readmostly.c; PR #46 d868b46 |
+| WP-I1c.6 | IRXTMPW IRXINIT residency + ISTSO TSO detector | 1 | DONE — LOAD EP=IRXINIT in IRXTMPW (PR #92); EXTRACT-based is_tso() wrapper for reliable TSO detection independent of ECT availability (PR #94) |
 | WP-10 | Tokenizer (IRX#TOKN) | 2 | DONE (70/70) — PR #2 |
 | WP-11b | LString adapter (IRX#LSTR) | 2 | DONE (50/50) — PR #4 |
 | WP-12 | Variable pool (IRX#VPOL) | 2 | DONE (47/47) — PR #6 |
