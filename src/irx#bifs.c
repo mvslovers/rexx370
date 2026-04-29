@@ -3053,7 +3053,7 @@ static int bif_errortext(struct irx_parser *p, int argc, PLstr *argv,
 #include <time.h>
 #endif
 
-#define USEC_PER_SEC  1000000ULL
+#define USEC_PER_SEC  1000000UL
 #define SECS_PER_HOUR 3600UL
 #define MINS_PER_HOUR 60UL
 #define SECS_PER_DAY  86400UL
@@ -3080,27 +3080,33 @@ static const char *s_weekday[WEEKDAYS_PER_WEEK] = {
     "Sunday", "Monday", "Tuesday", "Wednesday",
     "Thursday", "Friday", "Saturday"};
 
-/* Return current time as microseconds since Unix epoch; also fill
- * tm_out (UTC) if non-NULL. Single call captures both so that the
- * HH:MM:SS and fractional parts in TIME('L') are consistent. */
-static uint64_t irx_time_now(struct tm *tm_out)
+/* Fill sec_out (seconds since Unix epoch) and usec_out (microseconds
+ * within the current second). Also fill tm_out (UTC) if non-NULL.
+ * Uses multiply+subtract instead of divide — no @@UDIVDI on MVS. */
+static void irx_time_now(struct tm *tm_out, unsigned int *sec_out,
+                         unsigned int *usec_out)
 {
 #ifdef __MVS__
-    uint64_t us = (uint64_t)uclock64();
+    clock64_t sec64 = clock64();
+    uint64_t us64 = (uint64_t)uclock64();
+    *sec_out = (unsigned int)sec64;
+    /* subtract multiply-result to get usec fraction (no 64-bit divide) */
+    *usec_out = (unsigned int)(us64 - (uint64_t)sec64 * (uint64_t)USEC_PER_SEC);
     if (tm_out != NULL)
     {
         time64_t t;
-        t.u64 = us / USEC_PER_SEC;
+        t.u64 = sec64;
         struct tm *p = gmtime64(&t);
         if (p != NULL)
         {
             *tm_out = *p;
         }
     }
-    return us;
 #else
     struct timeval tv;
     gettimeofday(&tv, NULL);
+    *sec_out = (unsigned int)tv.tv_sec;
+    *usec_out = (unsigned int)tv.tv_usec;
     if (tm_out != NULL)
     {
         time_t t = tv.tv_sec;
@@ -3110,19 +3116,7 @@ static uint64_t irx_time_now(struct tm *tm_out)
             *tm_out = *p;
         }
     }
-    return (uint64_t)tv.tv_sec * USEC_PER_SEC + (uint64_t)tv.tv_usec;
 #endif
-}
-
-static uint64_t stamp_load(unsigned int hi, unsigned int lo)
-{
-    return ((uint64_t)hi << 32) | (uint64_t)lo;
-}
-
-static void stamp_store(uint64_t us, unsigned int *hi, unsigned int *lo)
-{
-    *hi = (unsigned int)(us >> 32);
-    *lo = (unsigned int)(us & 0xFFFFFFFFU);
 }
 
 /* Parse the first character of the optional subform argument at argv[idx].
@@ -3165,24 +3159,29 @@ static int bif_time(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
     struct irx_wkblk_int *wk = wkbi_from_parser(p);
 
     /* Lazy-init the environment-level init_stamp on the first TIME call. */
-    uint64_t init_us = 0;
+    unsigned int init_sec = 0, init_usec = 0;
     if (wk != NULL)
     {
-        init_us = stamp_load(wk->wkbi_init_stamp_hi, wk->wkbi_init_stamp_lo);
-        if (init_us == 0)
+        init_sec = wk->wkbi_init_stamp_sec;
+        if (init_sec == 0)
         {
-            init_us = irx_time_now(NULL);
-            stamp_store(init_us, &wk->wkbi_init_stamp_hi,
-                        &wk->wkbi_init_stamp_lo);
-            /* Seed reset_stamp to init_stamp so TIME('R') first call is 0. */
-            stamp_store(init_us, &wk->wkbi_reset_stamp_hi,
-                        &wk->wkbi_reset_stamp_lo);
+            irx_time_now(NULL, &init_sec, &init_usec);
+            wk->wkbi_init_stamp_sec = init_sec;
+            wk->wkbi_init_stamp_usec = init_usec;
+            /* Seed reset_stamp so TIME('R') first call returns 0. */
+            wk->wkbi_reset_stamp_sec = init_sec;
+            wk->wkbi_reset_stamp_usec = init_usec;
+        }
+        else
+        {
+            init_usec = wk->wkbi_init_stamp_usec;
         }
     }
 
     struct tm tm_now;
     memset(&tm_now, 0, sizeof(tm_now));
-    uint64_t now_us = irx_time_now(&tm_now);
+    unsigned int now_sec = 0, now_usec = 0;
+    irx_time_now(&tm_now, &now_sec, &now_usec);
 
     char buf[TIME_BUF_LEN];
     int n = 0;
@@ -3196,29 +3195,49 @@ static int bif_time(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
 
         case 'E': /* elapsed since init_stamp (seconds.microseconds) */
         {
-            uint64_t delta = (wk != NULL && init_us != 0)
-                                 ? (now_us - init_us)
-                                 : 0ULL;
-            unsigned long secs = (unsigned long)(delta / USEC_PER_SEC);
-            unsigned long usec = (unsigned long)(delta % USEC_PER_SEC);
+            unsigned long secs = 0;
+            unsigned long usec = 0;
+            if (wk != NULL && init_sec != 0)
+            {
+                secs = (unsigned long)(now_sec - init_sec);
+                int ud = (int)now_usec - (int)init_usec;
+                if (ud < 0)
+                {
+                    secs--;
+                    ud += (int)USEC_PER_SEC;
+                }
+                usec = (unsigned long)ud;
+            }
             n = sprintf(buf, "%lu.%06lu", secs, usec);
             break;
         }
 
         case 'R': /* elapsed since reset_stamp; update reset_stamp */
         {
-            uint64_t reset_us = (wk != NULL)
-                                    ? stamp_load(wk->wkbi_reset_stamp_hi,
-                                                 wk->wkbi_reset_stamp_lo)
-                                    : 0ULL;
-            uint64_t delta = (reset_us != 0) ? (now_us - reset_us) : 0ULL;
-            unsigned long secs = (unsigned long)(delta / USEC_PER_SEC);
-            unsigned long usec = (unsigned long)(delta % USEC_PER_SEC);
+            unsigned int reset_sec = 0, reset_usec = 0;
+            if (wk != NULL)
+            {
+                reset_sec = wk->wkbi_reset_stamp_sec;
+                reset_usec = wk->wkbi_reset_stamp_usec;
+            }
+            unsigned long secs = 0;
+            unsigned long usec = 0;
+            if (reset_sec != 0)
+            {
+                secs = (unsigned long)(now_sec - reset_sec);
+                int ud = (int)now_usec - (int)reset_usec;
+                if (ud < 0)
+                {
+                    secs--;
+                    ud += (int)USEC_PER_SEC;
+                }
+                usec = (unsigned long)ud;
+            }
             n = sprintf(buf, "%lu.%06lu", secs, usec);
             if (wk != NULL)
             {
-                stamp_store(now_us, &wk->wkbi_reset_stamp_hi,
-                            &wk->wkbi_reset_stamp_lo);
+                wk->wkbi_reset_stamp_sec = now_sec;
+                wk->wkbi_reset_stamp_usec = now_usec;
             }
             break;
         }
@@ -3241,12 +3260,10 @@ static int bif_time(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
             break;
 
         case 'L': /* HH:MM:SS.uuuuuu */
-        {
-            unsigned long usec = (unsigned long)(now_us % USEC_PER_SEC);
-            n = sprintf(buf, "%02d:%02d:%02d.%06lu",
-                        tm_now.tm_hour, tm_now.tm_min, tm_now.tm_sec, usec);
+            n = sprintf(buf, "%02d:%02d:%02d.%06u",
+                        tm_now.tm_hour, tm_now.tm_min, tm_now.tm_sec,
+                        now_usec);
             break;
-        }
 
         case 'C': /* hh:mmXM (12-hour civil) */
         {
@@ -3293,8 +3310,9 @@ static int bif_date(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
 
     struct tm tm_now;
     memset(&tm_now, 0, sizeof(tm_now));
-    uint64_t now_us = irx_time_now(&tm_now);
-    (void)now_us;
+    unsigned int now_sec = 0, now_usec = 0;
+    irx_time_now(&tm_now, &now_sec, &now_usec);
+    (void)now_usec;
 
     char buf[TIME_BUF_LEN];
     int n = 0;
@@ -3339,7 +3357,7 @@ static int bif_date(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
         case 'B': /* days since Jan 1, 0001 (base date) */
         {
             unsigned long epoch_days =
-                (unsigned long)(now_us / USEC_PER_SEC / SECS_PER_DAY);
+                (unsigned long)(now_sec / (unsigned long)SECS_PER_DAY);
             unsigned long base_days = epoch_days + REXX_DAY1_TO_EPOCH;
             n = sprintf(buf, "%lu", base_days);
             break;

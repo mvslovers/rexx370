@@ -115,12 +115,12 @@ struct irx_wkblk_int
     void *wkbi_condinfo; /* -> condition information block */
 
     /* --- Time BIF stamps (WP-CPS-01) --------------------------------- */
-    /* Zero-initialized by irxstor(RXSMGET); zero == uninitialised.
-     * Stored as unsigned int hi/lo pairs for c2asm370 compatibility.  */
-    unsigned int wkbi_init_stamp_hi;  /* usec epoch at first TIME() call, hi */
-    unsigned int wkbi_init_stamp_lo;  /* usec epoch at first TIME() call, lo */
-    unsigned int wkbi_reset_stamp_hi; /* TIME('R') reference stamp, hi */
-    unsigned int wkbi_reset_stamp_lo; /* TIME('R') reference stamp, lo */
+    /* Zero-initialized by irxstor(RXSMGET); zero sec == uninitialised.
+     * Stored as (sec, usec) pairs to avoid 64-bit division on MVS.    */
+    unsigned int wkbi_init_stamp_sec;   /* epoch sec at first TIME() call */
+    unsigned int wkbi_init_stamp_usec;  /* usec part at first TIME() call */
+    unsigned int wkbi_reset_stamp_sec;  /* TIME('R') reference stamp, sec */
+    unsigned int wkbi_reset_stamp_usec; /* TIME('R') reference stamp, usec */
 
     /* --- Error Recovery --- */
     int wkbi_error_number;   /* Last REXX error number         */
