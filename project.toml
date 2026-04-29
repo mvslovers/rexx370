@@ -866,6 +866,35 @@ include = [
 [link.module.dep_includes]
 "mvslovers/lstring370" = "*"
 
+[[link.module]]
+name = "TSTTIM"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTTIM",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
 # ---------------------------------------------------------------
 # TINITVL - Live MVS test caller for IRXINIT INITENVB.
 # Pure HLASM caller (no C runtime, no @@CRT0). Drives IRXINIT

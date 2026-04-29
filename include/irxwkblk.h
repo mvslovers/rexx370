@@ -114,10 +114,13 @@ struct irx_wkblk_int
     int wkbi_condflags;  /* Active SIGNAL ON conditions    */
     void *wkbi_condinfo; /* -> condition information block */
 
-    /* --- Elapsed Time --- */
-    int wkbi_elapsed_hi;    /* Elapsed time clock (high word) */
-    int wkbi_elapsed_lo;    /* Elapsed time clock (low word)  */
-    int wkbi_elapsed_reset; /* Elapsed time reset flag        */
+    /* --- Time BIF stamps (WP-CPS-01) --------------------------------- */
+    /* Zero-initialized by irxstor(RXSMGET); zero sec == uninitialised.
+     * Stored as (sec, usec) pairs to avoid 64-bit division on MVS.    */
+    unsigned int wkbi_init_stamp_sec;   /* epoch sec at first TIME() call */
+    unsigned int wkbi_init_stamp_usec;  /* usec part at first TIME() call */
+    unsigned int wkbi_reset_stamp_sec;  /* TIME('R') reference stamp, sec */
+    unsigned int wkbi_reset_stamp_usec; /* TIME('R') reference stamp, usec */
 
     /* --- Error Recovery --- */
     int wkbi_error_number;   /* Last REXX error number         */
