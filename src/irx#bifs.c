@@ -3302,7 +3302,7 @@ static int bif_time(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
 static int bif_date(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
 {
     char sub = parse_subform(p, argc, argv, 0, "DATE",
-                             "NSEUDBDMWJ", 'N');
+                             "NSEUBDMWJ", 'N');
     if (sub == '\0')
     {
         return IRXPARS_SYNTAX;
