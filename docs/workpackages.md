@@ -13,12 +13,11 @@ Reference: [Architecture Design v0.2.0](https://www.notion.so/3283d9938787811ba3
 |---|---|---|---|
 | WP-01 | Project skeleton + headers | 1 | DONE |
 | WP-02 | IRXSTOR, IRXUID, IRXMSGID | 1 | DONE |
-| WP-03 | ECTENVBK anchor (IRX#ANCH) | 1 | DONE — ECTENVBK read-mostly discipline per CON-1 §6.1 | 
-|   |   |   |(PR #45, PR #46 d868b46) |
+| WP-03 | ECTENVBK anchor (IRX#ANCH) | 1 | DONE — ECTENVBK read-mostly discipline per CON-1 §6.1 (PR #45, PR #46 d868b46) |
 | WP-04 | IRXINIT + IRXTERM | 1 | DONE |
 | WP-05 | Phase 1 smoke test | 1 | DONE (38/38) |
-| WP-06 | Anchor protection tests | 1 | DONE — Case-(a)/(b)/(c) verification |
-|   |   |   | in test/test_anchor_readmostly.c; PR #46 d868b46 |
+| WP-06 | Anchor protection tests | 1 | DONE — Case-(a)/(b)/(c) verification in test/test_anchor_readmostly.c; PR #46 d868b46 |
+| WP-I1c.6 | IRXTMPW IRXINIT residency + ISTSO TSO detector | 1 | DONE — LOAD EP=IRXINIT in IRXTMPW (PR #92); EXTRACT-based is_tso() wrapper for reliable TSO detection independent of ECT availability (PR #94) |
 | WP-10 | Tokenizer (IRX#TOKN) | 2 | DONE (70/70) — PR #2 |
 | WP-11b | LString adapter (IRX#LSTR) | 2 | DONE (50/50) — PR #4 |
 | WP-12 | Variable pool (IRX#VPOL) | 2 | DONE (47/47) — PR #6 |
@@ -30,12 +29,7 @@ Reference: [Architecture Design v0.2.0](https://www.notion.so/3283d9938787811ba3
 | WP-18 | Hello World end-to-end (IRX#EXEC) | 2 | DONE (16/16) — PR #14 |
 | WP-20 | Arithmetic engine (IRXARITH) | 3 | DONE (128/128) — PR #24 |
 | WP-21a | String BIFs (IRXBIFS) | 3 | DONE (29/29 + 87/87) — PR #26 |
-| WP-21b | Misc BIFs | 3 | DONE — 23 BIFs across Phases | 
-|   |   |   |A (#28, registry), B (#30, IRXARITH API), | 
-|   |   |   | C (#36, numeric), D (#38, conversion), | 
-|   |   |   | E (#39, reflection), F (#42, environment); |
-|   |   |   | Phase H closes the work package. |
-|   |   |   | Suite: 1156 total across 14 cross-compile binaries |
+| WP-21b | Misc BIFs | 3 | DONE — 23 BIFs across Phases A (#28, registry), B (#30, IRXARITH API), C (#36, numeric), D (#38, conversion), E (#39, reflection), F (#42, environment); Phase H closes the work package. Suite: 1156 total across 14 cross-compile binaries |
 | WP-22 | Built-in misc functions | 3 | OPEN |
 | WP-23 | INTERPRET instruction | 3 | OPEN |
 | WP-30 | EXECIO command | 4 | OPEN |

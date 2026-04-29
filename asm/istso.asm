@@ -1,4 +1,4 @@
-         TITLE 'TSOENV - TSO Environment Detection'
+         TITLE 'ISTSO - TSO Environment Detection'
 *
 *  ISTSO - Determine whether the current task is running under TSO
 *          (foreground interactive or IKJEFTSR background).
