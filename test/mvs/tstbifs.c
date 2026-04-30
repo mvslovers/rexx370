@@ -1842,7 +1842,7 @@ static void test_phase_f_sourceline(void)
     }
 }
 
-/* Build a caller-supplied PARMBLOCK with tsofl=1 set. */
+/* Build a caller-supplied PARMBLOCK with tsofl=1 set (TSO env). */
 static void build_tso_pb(struct parmblock *pb)
 {
     memset(pb, 0, sizeof(*pb));
@@ -1852,6 +1852,41 @@ static void build_tso_pb(struct parmblock *pb)
     pb->tsofl = -1;
     memset(pb->parmblock_addrspn, ' ', 8);
     memset(pb->parmblock_ffff, 0xFF, 8);
+}
+
+/* Build a caller-supplied PARMBLOCK with tsofl=0 set (batch/MVS env).
+ * Use when a test must assert "MVS" as the ADDRESS default regardless
+ * of whether the test binary is executing under TSO or batch. */
+static void build_batch_pb(struct parmblock *pb)
+{
+    memset(pb, 0, sizeof(*pb));
+    memcpy(pb->parmblock_id, PARMBLOCK_ID, 8);
+    memcpy(pb->parmblock_version, PARMBLOCK_VERSION_0042, 4);
+    pb->tsofl_mask = -1;
+    pb->tsofl = 0;
+    memset(pb->parmblock_addrspn, ' ', 8);
+    memset(pb->parmblock_ffff, 0xFF, 8);
+}
+
+/* Open a fixture using a batch parmblock (tsofl=0 → default env "MVS"). */
+static int fixture_open_batch(struct fixture *f)
+{
+    struct parmblock batch_pb;
+    build_batch_pb(&batch_pb);
+    memset(f, 0, sizeof(*f));
+    if (irxinit(&batch_pb, &f->env) != 0)
+    {
+        return -1;
+    }
+    f->alloc = irx_lstr_init(f->env);
+    if (f->alloc == NULL)
+    {
+        irxterm(f->env);
+        f->env = NULL;
+        return -1;
+    }
+    f->pool = vpool_create(f->alloc, NULL);
+    return (f->pool != NULL) ? 0 : -1;
 }
 
 /* Open a fixture using a TSO parmblock (tsofl=1). */
@@ -1879,8 +1914,24 @@ static void test_cps03_address(void)
 {
     printf("--- ADDRESS() BIF (WP-CPS-03) ---\n");
 
-    /* AC-1: Default env (no parmblock → is_tso()=0 on host) returns "MVS". */
-    EXPECT_OK("address()", "MVS", "ADDRESS() default is MVS on host");
+    /* AC-1: Explicit batch parmblock (tsofl=0) → address() returns "MVS".
+     * Uses fixture_open_batch instead of fixture_open so the assertion
+     * holds under both batch and TSO (IKJEFT01) execution. */
+    {
+        struct fixture fx;
+        if (fixture_open_batch(&fx) != 0)
+        {
+            CHECK(0, "ADDRESS batch default: fixture_open_batch");
+        }
+        else
+        {
+            int rc = run_src(&fx, "x = address()\n");
+            CHECK(rc == IRXPARS_OK, "ADDRESS() batch default: parse ok");
+            CHECK(var_eq(&fx, "X", "MVS"),
+                  "ADDRESS() batch default: returns MVS");
+            fixture_close(&fx);
+        }
+    }
 
     /* AC-1: TSO env (tsofl=1) returns "TSO". */
     {
@@ -1898,13 +1949,15 @@ static void test_cps03_address(void)
         }
     }
 
-    /* AC-2: Isolation — two concurrent envs each see their own setting. */
+    /* AC-2: Isolation — two concurrent envs each see their own setting.
+     * Uses fixture_open_batch for the MVS side so the assertion holds
+     * regardless of whether the test runs under batch or IKJEFT01. */
     {
         struct fixture fa;
         struct fixture fb;
-        if (fixture_open(&fa) != 0)
+        if (fixture_open_batch(&fa) != 0)
         {
-            CHECK(0, "ADDRESS isolation: fixture_open MVS");
+            CHECK(0, "ADDRESS isolation: fixture_open_batch MVS");
         }
         else if (fixture_open_tso(&fb) != 0)
         {
