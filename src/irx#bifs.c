@@ -3082,21 +3082,31 @@ static const char *s_weekday[WEEKDAYS_PER_WEEK] = {
 
 /* Fill sec_out (seconds since Unix epoch) and usec_out (microseconds
  * within the current second). Also fill tm_out (UTC) if non-NULL.
- * Uses multiply+subtract instead of divide — no @@UDIVDI on MVS. */
+ *
+ * clock64() (TM64CLCK) returns milliseconds on crent370, not seconds as
+ * the header comment states — see mvslovers/crent370#33.  uclock64()
+ * correctly returns microseconds.  We use uclock64() throughout and split
+ * via __64_divmod_u32 (@@64VU32) to avoid 64-bit division (@@UDIVDI). */
 static void irx_time_now(struct tm *tm_out, unsigned int *sec_out,
                          unsigned int *usec_out)
 {
 #ifdef __MVS__
-    clock64_t sec64 = clock64();
-    uint64_t us64 = (uint64_t)uclock64();
-    *sec_out = (unsigned int)sec64;
-    /* subtract multiply-result to get usec fraction (no 64-bit divide) */
-    *usec_out = (unsigned int)(us64 - (uint64_t)sec64 * (uint64_t)USEC_PER_SEC);
+    uclock64_t uc64 = uclock64(); /* microseconds since Unix epoch */
+    utime64_t ut;
+    utime64_t sec_big;
+    utime64_t usec_big;
+
+    ut.u64 = uc64;
+    /* sec_big = uc64 / 1 000 000;  usec_big = uc64 % 1 000 000 */
+    __64_divmod_u32(&ut, (uint32_t)USEC_PER_SEC, &sec_big, &usec_big);
+    *sec_out = __64_to_u32(&sec_big);   /* < 2^32 until year 2106 */
+    *usec_out = __64_to_u32(&usec_big); /* 0..999999 */
+
     if (tm_out != NULL)
     {
-        time64_t t;
-        t.u64 = sec64;
-        struct tm *p = gmtime64(&t);
+        struct tm tm_local;
+        memset(&tm_local, 0, sizeof(tm_local));
+        struct tm *p = gmtime64_r((const time64_t *)&sec_big, &tm_local);
         if (p != NULL)
         {
             *tm_out = *p;
