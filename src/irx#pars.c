@@ -3503,6 +3503,120 @@ static int kw_trace(struct irx_parser *p)
 }
 
 /* ------------------------------------------------------------------ */
+/*  WP-CPS-05: ADDRESS keyword/instruction                            */
+/* ------------------------------------------------------------------ */
+
+/* Pad/truncate src to exactly 8 bytes in dest, space-filling short
+ * strings.  Matches the SUBCOMTB / PARMBLOCK 8-byte env-name
+ * convention. */
+static void store_address(char *dest, const char *src, int src_len)
+{
+    int n = (src_len > 8) ? 8 : src_len;
+    memcpy(dest, src, n);
+    if (n < 8)
+    {
+        memset(dest + n, ' ', 8 - n);
+    }
+}
+
+static int kw_address(struct irx_parser *p)
+{
+    const struct irx_token *t;
+    struct irx_wkblk_int *wk = NULL;
+
+    if (p->envblock != NULL && p->envblock->envblock_userfield != NULL)
+    {
+        wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+    }
+
+    t = cur_tok(p);
+
+    /* Form 1: Toggle — bare ADDRESS with no argument.
+     * Per SC28-1883-0 §6.1: switches between current and previous
+     * environment using a two-slot stack.
+     * TODO(post-REXXCPS): implement two-slot environment toggle stack;
+     * current setting is left unchanged until host-command routing
+     * (Phase 4) provides the second slot. */
+    if (tok_ends_clause(t))
+    {
+        return IRXPARS_OK;
+    }
+
+    /* Form 2: VALUE — context-sensitive keyword followed by expression.
+     * "address VALUE" and "address value" both trigger this path
+     * because Symbol tokens are upper-cased by the tokenizer.
+     * "address V" does not match (length differs) → falls through to
+     * String-Form below. */
+    if (sym_matches(t, "VALUE"))
+    {
+        Lstr expr_result;
+        int rc;
+
+        advance_tok(p);
+
+        if (tok_ends_clause(cur_tok(p)))
+        {
+            skip_to_clause_end(p);
+            return fail(p, IRXPARS_SYNTAX);
+        }
+
+        Lzeroinit(&expr_result);
+        rc = irx_pars_eval_expr(p, &expr_result);
+        if (rc != IRXPARS_OK)
+        {
+            Lfree(p->alloc, &expr_result);
+            return rc;
+        }
+
+        if (wk != NULL)
+        {
+            store_address(wk->wkbi_address,
+                          (const char *)expr_result.pstr,
+                          (int)expr_result.len);
+        }
+        Lfree(p->alloc, &expr_result);
+        skip_to_clause_end(p);
+        return IRXPARS_OK;
+    }
+
+    /* Forms 3 and 4: Symbol or String token — env-name.
+     * Peek one token ahead (past the env-token) to decide the form:
+     *   String-Form (Form 4): next token is EOL/EOC → write env to
+     *     wkbi_address; token text taken directly (not evaluated as a
+     *     variable).  Symbol text is tokenizer-uppercased; String text
+     *     is case-preserved — both correct per SC28-1883-0 §6.1.
+     *   One-Shot-Form (Form 3): another token follows before EOL/EOC.
+     *     TODO(post-REXXCPS): dispatch expression as host command to
+     *     env without changing the default ADDRESS setting; deferred
+     *     to host command routing (Phase 4). */
+    if (t->tok_type == TOK_SYMBOL || t->tok_type == TOK_STRING)
+    {
+        const struct irx_token *tnext = peek_tok(p, 1);
+
+        if (tnext != NULL && !tok_ends_clause(tnext))
+        {
+            /* One-Shot-Form stub: consume entire clause, no action. */
+            skip_to_clause_end(p);
+            return IRXPARS_OK;
+        }
+
+        /* String-Form: write env-name to wkbi_address. */
+        if (wk != NULL)
+        {
+            store_address(wk->wkbi_address,
+                          (const char *)t->tok_text,
+                          (int)t->tok_length);
+        }
+        advance_tok(p);
+        skip_to_clause_end(p);
+        return IRXPARS_OK;
+    }
+
+    skip_to_clause_end(p);
+    return fail(p, IRXPARS_SYNTAX);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Keyword table (WP-13 registers no handlers)                       */
 /*                                                                    */
 /*  WP-14 adds SAY. WP-15 adds DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL. */
@@ -3532,6 +3646,7 @@ static const struct irx_keyword g_keyword_table[] = {
     {"PARSE", kw_parse},
     {"NUMERIC", kw_numeric},
     {"TRACE", kw_trace},
+    {"ADDRESS", kw_address},
     {NULL, NULL}};
 
 static const struct irx_keyword *find_keyword(const unsigned char *name,
