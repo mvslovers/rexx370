@@ -3492,6 +3492,13 @@ static int bif_trace(struct irx_parser *p, int argc, PLstr *argv,
 {
     struct irx_wkblk_int *wk = wkbi_from_parser(p);
 
+    /* wkbi_trace is guaranteed to hold a valid letter from
+     * "NAILRCFEO" by two invariants: init_wkblk_int seeds it to
+     * TRACE_NORMAL ('N') at workblock creation, and parse_trace_option
+     * validates against the same allowed-set before any write here.
+     * The cast to char in the result-build below is therefore safe.
+     * (Letters are EBCDIC under MVS, ASCII under host — the allowed-
+     * set string is platform-native in both cases.) */
     int old_letter = (wk != NULL) ? wk->wkbi_trace : (int)TRACE_NORMAL;
     int old_toggle = (wk != NULL) ? wk->wkbi_interactive : 0;
 
