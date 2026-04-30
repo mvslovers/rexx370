@@ -29,6 +29,7 @@
 #include "irxbif.h"
 #include "irxcond.h"
 #include "irxfunc.h"
+#include "irxlstr.h"
 #include "irxpars.h"
 #include "irxtokn.h"
 #include "irxvpool.h"
@@ -78,7 +79,13 @@ static int fixture_open(struct fixture *f)
     {
         return -1;
     }
-    f->alloc = lstr_default_alloc();
+    f->alloc = irx_lstr_init(f->env);
+    if (f->alloc == NULL)
+    {
+        irxterm(f->env);
+        f->env = NULL;
+        return -1;
+    }
     f->pool = vpool_create(f->alloc, NULL);
     return (f->pool != NULL) ? 0 : -1;
 }
