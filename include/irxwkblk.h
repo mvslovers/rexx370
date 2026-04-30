@@ -164,6 +164,13 @@ struct irx_wkblk_int
     /* alongside wkbi_bif_registry above; add a new _reserved[] array */
     /* when a future WP needs another word.                           */
     unsigned int wkbi_random_seed;
+
+    /* --- ADDRESS state (WP-CPS-03) --------------------------------- */
+    /* 8-byte space-padded host command environment name, consistent
+     * with SUBCOMTB and PARMBLOCK conventions.  Seeded at env
+     * creation from pb->tsofl ("TSO     " or "MVS     "); write path
+     * follows in WP-CPS-05 (ADDRESS keyword).                        */
+    char wkbi_address[8];
 };
 
 #define WKBLK_INT_ID "WKBI"

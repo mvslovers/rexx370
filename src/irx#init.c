@@ -220,6 +220,24 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
     wk->wkbi_sigl = 0;
     wk->wkbi_rc = 0;
 
+    /* Seed ADDRESS setting from pb->tsofl (WP-CPS-03).
+     * Using pb->tsofl honours any caller-supplied tsofl_mask rather
+     * than calling is_tso() again, which would override the caller's
+     * intent.  Under ISPF the default ADDRESS environment is still
+     * "TSO", not "ISPEXEC", so a plain TSOFL check is sufficient. */
+    {
+        struct parmblock *pb =
+            (struct parmblock *)envblk->envblock_parmblock;
+        if (pb != NULL && pb->tsofl)
+        {
+            memcpy(wk->wkbi_address, DEFAULT_HOSTENV_TSO, 8);
+        }
+        else
+        {
+            memcpy(wk->wkbi_address, DEFAULT_HOSTENV_MVS, 8);
+        }
+    }
+
     *wk_out = wk;
     return 0;
 

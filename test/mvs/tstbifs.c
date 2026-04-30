@@ -1842,6 +1842,105 @@ static void test_phase_f_sourceline(void)
     }
 }
 
+/* Build a caller-supplied PARMBLOCK with tsofl=1 set. */
+static void build_tso_pb(struct parmblock *pb)
+{
+    memset(pb, 0, sizeof(*pb));
+    memcpy(pb->parmblock_id, PARMBLOCK_ID, 8);
+    memcpy(pb->parmblock_version, PARMBLOCK_VERSION_0042, 4);
+    pb->tsofl_mask = -1;
+    pb->tsofl = -1;
+    memset(pb->parmblock_addrspn, ' ', 8);
+    memset(pb->parmblock_ffff, 0xFF, 8);
+}
+
+/* Open a fixture using a TSO parmblock (tsofl=1). */
+static int fixture_open_tso(struct fixture *f)
+{
+    struct parmblock tso_pb;
+    build_tso_pb(&tso_pb);
+    memset(f, 0, sizeof(*f));
+    if (irxinit(&tso_pb, &f->env) != 0)
+    {
+        return -1;
+    }
+    f->alloc = irx_lstr_init(f->env);
+    if (f->alloc == NULL)
+    {
+        irxterm(f->env);
+        f->env = NULL;
+        return -1;
+    }
+    f->pool = vpool_create(f->alloc, NULL);
+    return (f->pool != NULL) ? 0 : -1;
+}
+
+static void test_cps03_address(void)
+{
+    printf("--- ADDRESS() BIF (WP-CPS-03) ---\n");
+
+    /* AC-1: Default env (no parmblock → is_tso()=0 on host) returns "MVS". */
+    EXPECT_OK("address()", "MVS", "ADDRESS() default is MVS on host");
+
+    /* AC-1: TSO env (tsofl=1) returns "TSO". */
+    {
+        struct fixture fx;
+        if (fixture_open_tso(&fx) != 0)
+        {
+            CHECK(0, "ADDRESS TSO: fixture_open_tso");
+        }
+        else
+        {
+            int rc = run_src(&fx, "x = address()\n");
+            CHECK(rc == IRXPARS_OK, "ADDRESS() TSO: parse ok");
+            CHECK(var_eq(&fx, "X", "TSO"), "ADDRESS() TSO: returns TSO");
+            fixture_close(&fx);
+        }
+    }
+
+    /* AC-2: Isolation — two concurrent envs each see their own setting. */
+    {
+        struct fixture fa;
+        struct fixture fb;
+        if (fixture_open(&fa) != 0)
+        {
+            CHECK(0, "ADDRESS isolation: fixture_open MVS");
+        }
+        else if (fixture_open_tso(&fb) != 0)
+        {
+            CHECK(0, "ADDRESS isolation: fixture_open_tso TSO");
+            fixture_close(&fa);
+        }
+        else
+        {
+            int rca = run_src(&fa, "x = address()\n");
+            int rcb = run_src(&fb, "x = address()\n");
+            CHECK(rca == IRXPARS_OK, "ADDRESS isolation: fa parse ok");
+            CHECK(rcb == IRXPARS_OK, "ADDRESS isolation: fb parse ok");
+            CHECK(var_eq(&fa, "X", "MVS"), "ADDRESS isolation: fa returns MVS");
+            CHECK(var_eq(&fb, "X", "TSO"), "ADDRESS isolation: fb returns TSO");
+            fixture_close(&fb);
+            fixture_close(&fa);
+        }
+    }
+
+    /* AC-3: Result is trimmed — length("TSO") is 3, not 8. */
+    {
+        struct fixture fx;
+        if (fixture_open_tso(&fx) != 0)
+        {
+            CHECK(0, "ADDRESS trim: fixture_open_tso");
+        }
+        else
+        {
+            int rc = run_src(&fx, "x = length(address())\n");
+            CHECK(rc == IRXPARS_OK, "ADDRESS trim: parse ok");
+            CHECK(var_eq(&fx, "X", "3"), "ADDRESS() trimmed length is 3");
+            fixture_close(&fx);
+        }
+    }
+}
+
 int main(void)
 {
     printf("=== WP-21a + WP-21b Phase C+D+E+F: BIFs ===\n");
@@ -1870,6 +1969,7 @@ int main(void)
     test_phase_f_sourceline();
     test_error_paths();
     test_find_phrase_cap();
+    test_cps03_address();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
