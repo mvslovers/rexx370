@@ -72,7 +72,7 @@ NOANCH   DS    0H
          LA    R1,PARMODE
          ST    R1,WVLIST+4       P2: parm module name addr
          LA    R1,RESZERO
-         ST    R1,WVLIST+8       P3: caller PARMBLOCK = addr of null word
+         ST    R1,WVLIST+8       P3: caller PARMBLK = addr of null word
          ST    R1,WVLIST+12      P4: user field = addr of null word
          ST    R1,WVLIST+16      P5: reserved = addr of null word
          LA    R1,WENVOUT

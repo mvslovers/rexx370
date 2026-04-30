@@ -71,7 +71,7 @@ EPILOG   DS    0H
 *
          LTORG
 *
-* --- WTO parameter list skeleton (hand-built for IFOX00 col-71 limit) ---
+* --- WTO parameter list skeleton (hand-built for IFOX00 col-71) ---
 *  Layout: AL2(total len) AL2(MCS flags) 23C' '
 WTOSKEL  DS    0H
          DC    AL2(WTOEND-WTOSKEL)
