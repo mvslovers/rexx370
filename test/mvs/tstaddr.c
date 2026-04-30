@@ -168,6 +168,30 @@ static int wk_address_eq(struct fixture *f, const char *want8)
     return memcmp(wk->wkbi_address, want8, sizeof(wk->wkbi_address)) == 0;
 }
 
+/* Snapshot wkbi_address into caller buffer for before/after comparison.
+ * Buffer must be at least sizeof(wkbi_address) == 8 bytes. */
+static void wk_address_snap(struct fixture *f, char *out)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)f->env->envblock_userfield;
+    if (wk != NULL)
+    {
+        memcpy(out, wk->wkbi_address, sizeof(wk->wkbi_address));
+    }
+}
+
+/* Compare wkbi_address against a raw buffer snapped via wk_address_snap. */
+static int wk_address_eq_buf(struct fixture *f, const char *buf)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)f->env->envblock_userfield;
+    if (wk == NULL)
+    {
+        return 0;
+    }
+    return memcmp(wk->wkbi_address, buf, sizeof(wk->wkbi_address)) == 0;
+}
+
 /* ================================================================== */
 /*  AC-1: address value address() — round-trip no-op                  */
 /* ================================================================== */
@@ -176,17 +200,19 @@ static void test_rexxcps_pattern(void)
 {
     printf("\n--- ADDRESS instr: REXXCPS pattern (AC-1 / AC-8) ---\n");
 
-    /* Default env on host: wkbi_address seeded as "MVS     " (8 bytes).
-     * address value address() evaluates address() -> "MVS" (trimmed),
-     * store_address pads back to "MVS     " — net no-op. */
+    /* address value address() evaluates address() (returns trimmed env name),
+     * store_address pads it back — net no-op regardless of the default env
+     * (MVS on batch, TSO under IKJEFT01).  Snap before, compare after. */
     {
         struct fixture fx;
         if (fixture_open(&fx) == 0)
         {
+            char initial[8];
+            wk_address_snap(&fx, initial);
             int rc = run_src(&fx, "address value address()\n");
             CHECK(rc == IRXPARS_OK,
                   "rexxcps: address value address() executes");
-            CHECK(wk_address_eq(&fx, "MVS     "),
+            CHECK(wk_address_eq_buf(&fx, initial),
                   "rexxcps: wkbi_address unchanged after round-trip");
             fixture_close(&fx);
         }
@@ -345,16 +371,19 @@ static void test_toggle_form(void)
         }
     }
 
-    /* Default setting is also unchanged when ADDRESS is bare. */
+    /* Default setting is also unchanged when ADDRESS is bare.
+     * Snap before to avoid hardcoding "MVS" vs "TSO" default. */
     {
         struct fixture fx;
         if (fixture_open(&fx) == 0)
         {
+            char initial[8];
+            wk_address_snap(&fx, initial);
             int rc = run_src(&fx, "address\n");
             CHECK(rc == IRXPARS_OK,
                   "toggle-stub default: bare address on default executes");
-            CHECK(wk_address_eq(&fx, "MVS     "),
-                  "toggle-stub default: MVS default unchanged");
+            CHECK(wk_address_eq_buf(&fx, initial),
+                  "toggle-stub default: default unchanged");
             fixture_close(&fx);
         }
     }
@@ -368,15 +397,18 @@ static void test_one_shot_form(void)
 {
     printf("\n--- ADDRESS instr: One-Shot-Form stub (AC-5) ---\n");
 
-    /* One-Shot: parse cleanly, current setting unchanged. */
+    /* One-Shot: parse cleanly, current setting unchanged.
+     * Snap before to avoid hardcoding "MVS" vs "TSO" default. */
     {
         struct fixture fx;
         if (fixture_open(&fx) == 0)
         {
+            char initial[8];
+            wk_address_snap(&fx, initial);
             int rc = run_src(&fx, "address TSO 'LISTDS'\n");
             CHECK(rc == IRXPARS_OK,
                   "one-shot: address TSO 'LISTDS' executes");
-            CHECK(wk_address_eq(&fx, "MVS     "),
+            CHECK(wk_address_eq_buf(&fx, initial),
                   "one-shot: default setting unchanged (stub)");
             fixture_close(&fx);
         }
