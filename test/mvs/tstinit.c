@@ -39,6 +39,7 @@
 #include "irx.h"
 #include "irx_init.h"
 #include "irxanchr.h"
+#include "irxenv.h"
 #include "irxfunc.h"
 #include "irxwkblk.h"
 
@@ -136,7 +137,8 @@ static void test_t2_parmblock_copy(void)
               "PARMBLOCK eye-catcher is 'IRXPARMS'");
         CHECK(memcmp(pb->parmblock_version, PARMBLOCK_VERSION_0042, 4) == 0,
               "PARMBLOCK version is '0042' (rexx370 deviation, CON-4)");
-        CHECK(pb->parmblock_subpool == 0, "default subpool is 0");
+        CHECK(pb->parmblock_subpool == (is_tso() ? PARMBLOCK_SUBPOOL_TSO : 0),
+              "subpool is platform default (0=batch, 78=TSO)");
 
         irxterm(envblk);
     }
