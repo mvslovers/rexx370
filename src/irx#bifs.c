@@ -3156,6 +3156,36 @@ static char parse_subform(struct irx_parser *p, int argc, PLstr *argv,
     return '\0';
 }
 
+/* ADDRESS() — SC28-1883-0 §4.3 (WP-CPS-03)
+ * Returns the name of the current default host command environment,
+ * trimmed of trailing spaces (e.g. "TSO", not "TSO     ").
+ * The 8-byte space-padded setting is stored in wkbi_address, seeded at
+ * env creation; write path follows in WP-CPS-05 (ADDRESS keyword). */
+static int bif_address(struct irx_parser *p, int argc, PLstr *argv,
+                       PLstr result)
+{
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+    const char *addr = (wk != NULL) ? wk->wkbi_address : "MVS     ";
+
+    /* Trim trailing spaces: scan backward from byte 7. */
+    int len = 8;
+    while (len > 1 && addr[len - 1] == ' ')
+    {
+        len--;
+    }
+
+    int lrc = Lfx(p->alloc, result, (size_t)len);
+    if (lrc != LSTR_OK)
+    {
+        return translate_lstr_rc(lrc);
+    }
+    memcpy(result->pstr, addr, (size_t)len);
+    result->len = len;
+    (void)argc;
+    (void)argv;
+    return IRXPARS_OK;
+}
+
 /* TIME([subform]) — SC28-1883-0 §4.43 */
 static int bif_time(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
 {
@@ -3618,6 +3648,8 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     {"DATE", 0, 1, bif_date},
     /* Trace (WP-CPS-02) */
     {"TRACE", 0, 1, bif_trace},
+    /* Address (WP-CPS-03) */
+    {"ADDRESS", 0, 0, bif_address},
     /* Sentinel */
     {"", 0, 0, NULL}};
 
