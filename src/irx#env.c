@@ -12,4 +12,9 @@ int is_tso(void)
 {
     return _simulated_is_tso;
 }
+#else
+/* The real is_tso() lives in asm/istso.asm (CSECT ISTSO). An empty
+ * translation unit produces no ESD entries and breaks the NCAL linker;
+ * this dummy gives it something to see without affecting behaviour. */
+static int _irx_env_dummy = 0;
 #endif
