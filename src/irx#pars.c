@@ -22,6 +22,7 @@
 #include "irx.h"
 #include "irxarith.h"
 #include "irxbif.h"
+#include "irxbifs.h"
 #include "irxctrl.h"
 #include "irxlstr.h"
 #include "irxpars.h"
@@ -3370,6 +3371,138 @@ static int kw_parse(struct irx_parser *p)
 }
 
 /* ------------------------------------------------------------------ */
+/*  TRACE keyword handler (WP-CPS-04)                                 */
+/*                                                                    */
+/*  TRACE                     Toggle wkbi_interactive; letter kept.   */
+/*  TRACE VALUE expr          Evaluate expr, validate, write both.    */
+/*  TRACE option              Token text as option string, validate.  */
+/*  TRACE number              Skip-form: consume, no-op.              */
+/*                                                                    */
+/*  Ref: SC28-1883-0 §6.13                                            */
+/* ------------------------------------------------------------------ */
+
+static int kw_trace(struct irx_parser *p)
+{
+    const struct irx_token *t;
+    struct irx_wkblk_int *wk = NULL;
+
+    if (p->envblock != NULL && p->envblock->envblock_userfield != NULL)
+    {
+        wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+    }
+
+    t = cur_tok(p);
+
+    /* Form 1: Toggle — bare TRACE with no argument.
+     * Per SC28-1883-0 §6.13: interactive debug is toggled; the trace
+     * option letter is unchanged. */
+    if (tok_ends_clause(t))
+    {
+        if (wk != NULL)
+        {
+            wk->wkbi_interactive ^= 1;
+        }
+        return IRXPARS_OK;
+    }
+
+    /* Form 2: VALUE — context-sensitive keyword followed by expression. */
+    if (sym_matches(t, "VALUE"))
+    {
+        Lstr expr_result;
+        char new_letter = '\0';
+        int new_toggle = 0;
+        int rc;
+
+        advance_tok(p);
+
+        if (tok_ends_clause(cur_tok(p)))
+        {
+            skip_to_clause_end(p);
+            return fail(p, IRXPARS_SYNTAX);
+        }
+
+        Lzeroinit(&expr_result);
+        rc = irx_pars_eval_expr(p, &expr_result);
+        if (rc != IRXPARS_OK)
+        {
+            Lfree(p->alloc, &expr_result);
+            return rc;
+        }
+
+        if (parse_trace_option(p, &expr_result, &new_letter, &new_toggle) != 0)
+        {
+            Lfree(p->alloc, &expr_result);
+            skip_to_clause_end(p);
+            return IRXPARS_SYNTAX;
+        }
+        Lfree(p->alloc, &expr_result);
+
+        if (wk != NULL)
+        {
+            wk->wkbi_trace = (int)new_letter;
+            wk->wkbi_interactive = new_toggle;
+        }
+        skip_to_clause_end(p);
+        return IRXPARS_OK;
+    }
+
+    /* Form 3: Skip-form — Number-Literal token (optionally signed).
+     * Skip-form (TRACE n) consumed but not enforced; statement tracer
+     * is not yet active so the skip count has no effect anyway. */
+    if (t->tok_type == TOK_NUMBER)
+    {
+        advance_tok(p);
+        skip_to_clause_end(p);
+        return IRXPARS_OK;
+    }
+    if ((tok_is_op_char(t, TOK_OPERATOR, '+') ||
+         tok_is_op_char(t, TOK_OPERATOR, '-')) &&
+        peek_tok(p, 1) != NULL &&
+        peek_tok(p, 1)->tok_type == TOK_NUMBER)
+    {
+        advance_tok(p); /* sign */
+        advance_tok(p); /* number */
+        skip_to_clause_end(p);
+        return IRXPARS_OK;
+    }
+
+    /* Form 4: String-form — Symbol or String literal.
+     * Token text is taken directly as the option string (not evaluated
+     * as a variable). 'trace I' and 'trace ''I''' are equivalent. */
+    {
+        Lstr opt;
+        char new_letter = '\0';
+        int new_toggle = 0;
+        int rc;
+
+        Lzeroinit(&opt);
+        rc = lstr_set_bytes(p->alloc, &opt,
+                            (const char *)t->tok_text, t->tok_length);
+        if (rc != LSTR_OK)
+        {
+            return fail(p, IRXPARS_NOMEM);
+        }
+        advance_tok(p);
+
+        if (parse_trace_option(p, &opt, &new_letter, &new_toggle) != 0)
+        {
+            Lfree(p->alloc, &opt);
+            skip_to_clause_end(p);
+            return IRXPARS_SYNTAX;
+        }
+        Lfree(p->alloc, &opt);
+
+        if (wk != NULL)
+        {
+            wk->wkbi_trace = (int)new_letter;
+            wk->wkbi_interactive = new_toggle;
+        }
+        skip_to_clause_end(p);
+        return IRXPARS_OK;
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Keyword table (WP-13 registers no handlers)                       */
 /*                                                                    */
 /*  WP-14 adds SAY. WP-15 adds DO/IF/SELECT/CALL/RETURN/EXIT/SIGNAL. */
@@ -3398,6 +3531,7 @@ static const struct irx_keyword g_keyword_table[] = {
     {"ARG", kw_arg},
     {"PARSE", kw_parse},
     {"NUMERIC", kw_numeric},
+    {"TRACE", kw_trace},
     {NULL, NULL}};
 
 static const struct irx_keyword *find_keyword(const unsigned char *name,

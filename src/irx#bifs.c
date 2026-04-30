@@ -3464,8 +3464,8 @@ static int bif_date(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
  * toggle is always written — plain "L" clears any prior toggle (no
  * sticky toggle; full replace semantics for Read-Modify-Write).
  * Returns 0 on success; -1 on error (SYNTAX 40.23 already raised). */
-static int parse_trace_option(struct irx_parser *p, PLstr opt,
-                              char *letter_out, int *toggle_out)
+int parse_trace_option(struct irx_parser *p, PLstr opt,
+                       char *letter_out, int *toggle_out)
 {
     const char *s = (const char *)opt->pstr;
     int n = (int)opt->len;

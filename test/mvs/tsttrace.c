@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  tsttrace.c - WP-CPS-02 TRACE() BIF unit tests                    */
+/*  tsttrace.c - WP-CPS-02 TRACE() BIF + WP-CPS-04 TRACE instruction  */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -500,6 +500,261 @@ static void test_trace_empty_arg(void)
 }
 
 /* ================================================================== */
+/*  WP-CPS-04: TRACE instruction-form tests                           */
+/* ================================================================== */
+
+/* Read wkbi_trace/wkbi_interactive directly from the fixture. */
+static int wk_letter(struct fixture *f)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)f->env->envblock_userfield;
+    return (wk != NULL) ? wk->wkbi_trace : (int)TRACE_NORMAL;
+}
+
+static int wk_interactive(struct fixture *f)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)f->env->envblock_userfield;
+    return (wk != NULL) ? wk->wkbi_interactive : 0;
+}
+
+/* AC-1 + AC-5: String-form sets trace letter. */
+static void test_instr_string_form(void)
+{
+    printf("\n--- TRACE instr: string-form ---\n");
+
+    /* trace off -> 'O' */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace off\n");
+            CHECK(rc == IRXPARS_OK, "instr: 'trace off' executes");
+            CHECK(wk_letter(&fx) == 'O', "instr: 'trace off' sets 'O'");
+            fixture_close(&fx);
+        }
+    }
+
+    /* trace 'I' (string literal) -> 'I' */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace 'I'\n");
+            CHECK(rc == IRXPARS_OK, "instr: trace 'I' executes");
+            CHECK(wk_letter(&fx) == 'I', "instr: trace 'I' sets 'I'");
+            fixture_close(&fx);
+        }
+    }
+
+    /* trace I (bare symbol) -> 'I' */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace I\n");
+            CHECK(rc == IRXPARS_OK, "instr: trace I (symbol) executes");
+            CHECK(wk_letter(&fx) == 'I', "instr: trace I sets 'I'");
+            fixture_close(&fx);
+        }
+    }
+
+    /* trace A -> 'A'; verify via TRACE() BIF */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace A\n");
+            CHECK(rc == IRXPARS_OK, "instr: trace A executes");
+            rc = run_src(&fx, "x = TRACE()\n");
+            CHECK(rc == IRXPARS_OK && var_eq(&fx, "X", "A"),
+                  "instr: trace A verified via TRACE()");
+            fixture_close(&fx);
+        }
+    }
+}
+
+/* AC-2 + AC-3: VALUE-form evaluates expression. */
+static void test_instr_value_form(void)
+{
+    printf("\n--- TRACE instr: VALUE-form ---\n");
+
+    /* trace value 'A' -> 'A' */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace value 'A'\n");
+            CHECK(rc == IRXPARS_OK, "instr: trace value 'A' executes");
+            CHECK(wk_letter(&fx) == 'A', "instr: trace value 'A' sets 'A'");
+            fixture_close(&fx);
+        }
+    }
+
+    /* trace value tracevar; tracevar='Off' -> 'O' */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "tracevar = 'Off'\n");
+            CHECK(rc == IRXPARS_OK, "instr: set tracevar='Off'");
+            rc = run_src(&fx, "trace value tracevar\n");
+            CHECK(rc == IRXPARS_OK, "instr: trace value tracevar executes");
+            CHECK(wk_letter(&fx) == 'O',
+                  "instr: trace value tracevar sets 'O'");
+            fixture_close(&fx);
+        }
+    }
+
+    /* AC-4: trace value trace() round-trip */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace value 'E'\n");
+            CHECK(rc == IRXPARS_OK, "instr: set to 'E' first");
+            rc = run_src(&fx, "trace value trace()\n");
+            CHECK(rc == IRXPARS_OK, "instr: trace value trace() executes");
+            CHECK(wk_letter(&fx) == 'E',
+                  "instr: round-trip trace value trace() preserves 'E'");
+            fixture_close(&fx);
+        }
+    }
+}
+
+/* AC-6: Toggle-form flips wkbi_interactive; letter unchanged. */
+static void test_instr_toggle_form(void)
+{
+    printf("\n--- TRACE instr: toggle-form ---\n");
+
+    /* Default: interactive=0, letter='N'.
+     * After bare 'trace': interactive=1, letter='N'. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            CHECK(wk_interactive(&fx) == 0,
+                  "toggle: initial wkbi_interactive is 0");
+            CHECK(wk_letter(&fx) == 'N',
+                  "toggle: initial wkbi_trace is 'N'");
+
+            int rc = run_src(&fx, "trace\n");
+            CHECK(rc == IRXPARS_OK, "toggle: bare 'trace' executes");
+            CHECK(wk_interactive(&fx) == 1,
+                  "toggle: wkbi_interactive becomes 1");
+            CHECK(wk_letter(&fx) == 'N',
+                  "toggle: wkbi_trace unchanged after toggle");
+
+            /* Second toggle -> back to 0. */
+            rc = run_src(&fx, "trace\n");
+            CHECK(rc == IRXPARS_OK, "toggle: second 'trace' executes");
+            CHECK(wk_interactive(&fx) == 0,
+                  "toggle: wkbi_interactive back to 0");
+            CHECK(wk_letter(&fx) == 'N',
+                  "toggle: wkbi_trace still 'N' after two toggles");
+
+            fixture_close(&fx);
+        }
+    }
+
+    /* Toggle does not touch letter even when letter was changed. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace A\n");
+            CHECK(rc == IRXPARS_OK, "toggle: set letter to 'A'");
+            rc = run_src(&fx, "trace\n");
+            CHECK(rc == IRXPARS_OK, "toggle: bare trace after 'A'");
+            CHECK(wk_interactive(&fx) == 1,
+                  "toggle: interactive toggled to 1");
+            CHECK(wk_letter(&fx) == 'A',
+                  "toggle: letter 'A' unchanged");
+            fixture_close(&fx);
+        }
+    }
+}
+
+/* AC-7: Invalid option -> SYNTAX 40.23 from instruction form. */
+static void test_instr_errors(void)
+{
+    printf("\n--- TRACE instr: error paths ---\n");
+
+    run_expect_fail("trace X\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID, "instr: 'trace X' bad option");
+    run_expect_fail("trace value 'Z'\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "instr: 'trace value \"Z\"' bad option");
+    run_expect_fail("trace value '?'\n", SYNTAX_BAD_CALL,
+                    ERR40_OPTION_INVALID,
+                    "instr: 'trace value \"?\"' bare ? invalid");
+}
+
+/* AC-11: Skip-form is a no-op; no SYNTAX raised. */
+static void test_instr_skip_form(void)
+{
+    printf("\n--- TRACE instr: skip-form ---\n");
+
+    /* trace 0 -> no-op; letter unchanged. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace 0\n");
+            CHECK(rc == IRXPARS_OK, "skip: trace 0 no SYNTAX");
+            CHECK(wk_letter(&fx) == 'N', "skip: trace 0 letter unchanged");
+            fixture_close(&fx);
+        }
+    }
+
+    /* trace 5 -> no-op. */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace 5\n");
+            CHECK(rc == IRXPARS_OK, "skip: trace 5 no SYNTAX");
+            fixture_close(&fx);
+        }
+    }
+
+    /* trace -5 -> no-op (signed skip). */
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "trace -5\n");
+            CHECK(rc == IRXPARS_OK, "skip: trace -5 no SYNTAX");
+            CHECK(wk_letter(&fx) == 'N', "skip: trace -5 letter unchanged");
+            fixture_close(&fx);
+        }
+    }
+}
+
+/* AC-10: REXXCPS round-trip pattern. */
+static void test_instr_rexxcps_pattern(void)
+{
+    printf("\n--- TRACE instr: REXXCPS pattern ---\n");
+
+    {
+        struct fixture fx;
+        if (fixture_open(&fx) == 0)
+        {
+            int rc = run_src(&fx, "tracevar = 'Off'\n"
+                                  "trace value tracevar\n");
+            CHECK(rc == IRXPARS_OK, "rexxcps: set Off via variable");
+            CHECK(wk_letter(&fx) == 'O', "rexxcps: letter is 'O'");
+
+            rc = run_src(&fx, "trace value trace()\n");
+            CHECK(rc == IRXPARS_OK, "rexxcps: round-trip executes");
+            CHECK(wk_letter(&fx) == 'O', "rexxcps: round-trip preserves 'O'");
+
+            fixture_close(&fx);
+        }
+    }
+}
+
+/* ================================================================== */
 /*  main                                                               */
 /* ================================================================== */
 
@@ -514,6 +769,15 @@ int main(void)
     test_trace_errors();
     test_trace_isolation();
     test_trace_empty_arg();
+
+    printf("\n=== WP-CPS-04: TRACE instruction ===\n");
+
+    test_instr_string_form();
+    test_instr_value_form();
+    test_instr_toggle_form();
+    test_instr_errors();
+    test_instr_skip_form();
+    test_instr_rexxcps_pattern();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
