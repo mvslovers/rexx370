@@ -3425,6 +3425,121 @@ static int bif_date(struct irx_parser *p, int argc, PLstr *argv, PLstr result)
 }
 
 /* ================================================================== */
+/*  TRACE BIF (WP-CPS-02)                                             */
+/* ================================================================== */
+
+/* Parse a TRACE option string from the BIF argument.
+ * Sets *letter_out (one of NAILRCFEO, upper-cased) and *toggle_out (0/1).
+ * "?L" form: toggle=1, letter=L. Plain "L..." form: toggle=0, letter=L.
+ * toggle is always written — plain "L" clears any prior toggle (no
+ * sticky toggle; full replace semantics for Read-Modify-Write).
+ * Returns 0 on success; -1 on error (SYNTAX 40.23 already raised). */
+static int parse_trace_option(struct irx_parser *p, PLstr opt,
+                              char *letter_out, int *toggle_out)
+{
+    const char *s = (const char *)opt->pstr;
+    int n = (int)opt->len;
+    int idx = 0;
+    int toggle = 0;
+
+    if (idx < n && s[idx] == '?')
+    {
+        toggle = 1;
+        idx++;
+    }
+
+    if (idx >= n)
+    {
+        irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_OPTION_INVALID,
+                       "TRACE: missing letter after '?'");
+        return -1;
+    }
+
+    char c = (char)toupper((unsigned char)s[idx]);
+    /* Valid letters per SC28-1883-0 §4 function-form: NAILRCFEO. */
+    const char *allowed = "NAILRCFEO";
+    const char *a = allowed;
+    while (*a)
+    {
+        if (*a == c)
+        {
+            *letter_out = c;
+            *toggle_out = toggle;
+            return 0;
+        }
+        a++;
+    }
+
+    char desc[64];
+    sprintf(desc, "TRACE: invalid option '%c'", c);
+    irx_cond_raise(p->envblock, SYNTAX_BAD_CALL, ERR40_OPTION_INVALID, desc);
+    return -1;
+}
+
+/* TRACE([option]) — SC28-1883-0 §4.
+ *
+ * 0 args (or empty/NULL arg): returns current setting; no write.
+ * 1 arg: Read-Modify-Write — sets new setting, returns previous value.
+ *
+ * Return format: "?L" when the interactive toggle flag is active, "L"
+ * otherwise. Setting is stored per-Exec in wkbi_trace (letter) and
+ * wkbi_interactive (toggle flag).
+ *
+ * The statement tracer is intentionally not activated in this WP.
+ * Setting is read/written only — stub state for REXXCPS (WP-CPS-02). */
+static int bif_trace(struct irx_parser *p, int argc, PLstr *argv,
+                     PLstr result)
+{
+    struct irx_wkblk_int *wk = wkbi_from_parser(p);
+
+    /* wkbi_trace is guaranteed to hold a valid letter from
+     * "NAILRCFEO" by two invariants: init_wkblk_int seeds it to
+     * TRACE_NORMAL ('N') at workblock creation, and parse_trace_option
+     * validates against the same allowed-set before any write here.
+     * The cast to char in the result-build below is therefore safe.
+     * (Letters are EBCDIC under MVS, ASCII under host — the allowed-
+     * set string is platform-native in both cases.) */
+    int old_letter = (wk != NULL) ? wk->wkbi_trace : (int)TRACE_NORMAL;
+    int old_toggle = (wk != NULL) ? wk->wkbi_interactive : 0;
+
+    /* Parse and apply new setting when a non-empty argument is given. */
+    if (argc >= 1 && argv[0] != NULL && argv[0]->len > 0)
+    {
+        char new_letter = '\0';
+        int new_toggle = 0;
+
+        if (parse_trace_option(p, argv[0], &new_letter, &new_toggle) != 0)
+        {
+            return IRXPARS_SYNTAX;
+        }
+        if (wk != NULL)
+        {
+            wk->wkbi_trace = (int)new_letter;
+            wk->wkbi_interactive = new_toggle;
+        }
+    }
+
+    /* Build return string from the old state: "?L" or "L". */
+    char buf[3];
+    int len = 0;
+    if (old_toggle)
+    {
+        buf[len++] = '?';
+    }
+    buf[len++] = (char)old_letter;
+
+    int lrc = Lfx(p->alloc, result, (size_t)len);
+    if (lrc != LSTR_OK)
+    {
+        return translate_lstr_rc(lrc);
+    }
+    memcpy(result->pstr, buf, (size_t)len);
+    result->len = (size_t)len;
+    result->type = LSTRING_TY;
+    return IRXPARS_OK;
+}
+
+/* ================================================================== */
 /*  Registration                                                      */
 /* ================================================================== */
 
@@ -3501,6 +3616,8 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     /* Time / Date (WP-CPS-01) */
     {"TIME", 0, 1, bif_time},
     {"DATE", 0, 1, bif_date},
+    /* Trace (WP-CPS-02) */
+    {"TRACE", 0, 1, bif_trace},
     /* Sentinel */
     {"", 0, 0, NULL}};
 
