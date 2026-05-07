@@ -4,7 +4,7 @@
 /* irxload.h - IRXLOAD Programming Service interface
 **
 ** Ref: SC28-1883-0 §14 (IRXLOAD Programming Service)
-** Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#116
+** Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#118
 */
 
 #include "irx.h"
@@ -14,10 +14,21 @@
 #define IRXLOAD_FC_FREE "FREE    "
 
 /* Return codes. */
-#define IRXLOAD_OK       0  /* success */
-#define IRXLOAD_NOMEM    4  /* storage not available */
+#define IRXLOAD_OK    0     /* success */
+#define IRXLOAD_NOMEM 4     /* storage not available; also returned when an \
+                             * exec exceeds available environment storage */
 #define IRXLOAD_NOTFOUND 8  /* member or DD not found */
 #define IRXLOAD_ERROR    20 /* invalid argument / bad eye-catcher */
+
+/* IRXLOAD VLIST follows the z/OS-stage of the spec, not V1.
+ * SC28-1883-0 §14 (V1, Dec 1988) defined three parameters
+ * (funccode, EXECBLK, INSTBLK). P4 (ENVBLOCK) and P5 (return
+ * code) are z/OS additions that became standard in later TSO/E
+ * versions. rexx370 implements the 5-parameter z/OS form.
+ *
+ * Refs: z/OS REXX Reference (current edition) — canonical VLIST
+ *       SC28-1883-0 §14 — V1 baseline (3-parameter form)
+ */
 
 /* C-core dispatcher — called from asm/irxload.asm BUILDC section.
  * The asm() alias makes the linker emit the symbol "IRXLDISP",
