@@ -7,7 +7,7 @@
 ** This header adds static size/layout checks that catch any drift.
 **
 ** Ref: CON-1 §3.4 (INSTBLK byte-exact layout)
-** Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#116
+** Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#118
 */
 
 #include "irx.h"

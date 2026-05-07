@@ -27,7 +27,7 @@
 **
 ** Ref: SC28-1883-0 §14 (IRXLOAD Programming Service)
 ** Ref: CON-1 §3.4 (INSTBLK byte-exact layout)
-** Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#116
+** Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#118
 **
 ** (c) 2026 mvslovers - REXX/370 Project
 */
@@ -288,6 +288,12 @@ static int scan_member(const char *ddname,
     lrecl = (int)dcb->dcblrecl;
     recfm = (int)(dcb->dcbrecfm & (DCBRECF | DCBRECV));
 
+    if (blksize <= 0)
+    {
+        osbclose(dcb, NULL, 1, 0);
+        return IRXLOAD_NOTFOUND;
+    }
+
     if (irxstor(RXSMGET, blksize, &rbuf_v, envblk) != 0)
     {
         osbclose(dcb, NULL, 1, 0);
@@ -361,6 +367,10 @@ static int scan_member(const char *ddname,
             int blk_len = ((unsigned char)rbuf[0] << BYTE_SHIFT) |
                           (unsigned char)rbuf[1];
             int pos = VB_HDR_SIZE; /* skip BDW */
+            if (blk_len < VB_HDR_SIZE || blk_len > blksize)
+            {
+                continue; /* corrupt BDW — skip block */
+            }
             while (pos + VB_HDR_SIZE <= blk_len)
             {
                 int rdw = ((unsigned char)rbuf[pos] << BYTE_SHIFT) |
@@ -474,7 +484,7 @@ static int irx_load_load(struct execblk *execblk,
         else
         {
             /* Standard search order: SYSEXEC first, then SYSPROC. */
-            static const char *dds[] = {"SYSEXEC", "SYSPROC"};
+            const char *dds[] = {"SYSEXEC", "SYSPROC"};
             int di;
             for (di = 0; di < 2 && !found; di++)
             {

@@ -179,7 +179,11 @@ static void test_load_valid(void)
         CHECK(ent->instblk_stmtlen >= 0, "first entry length >= 0");
     }
 
-    /* Leave ib for T2. */
+    /* Free to avoid leak — T2 does its own independent LOAD. */
+    {
+        int rc_free;
+        irx_load_dispatch(IRXLOAD_FC_FREE, NULL, &ib, NULL, &rc_free);
+    }
 }
 
 static void test_load_free_cycle(void)

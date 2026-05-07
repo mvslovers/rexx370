@@ -33,7 +33,7 @@
 *
 *  Ref: SC28-1883-0 §14 (IRXLOAD Programming Service)
 *  Ref: CON-4 (asm() aliases)
-*  Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#116
+*  Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#118
 *
 *  (c) 2026 mvslovers - REXX/370 Project
 *
