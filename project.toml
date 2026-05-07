@@ -184,6 +184,28 @@ include = [
 "mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
+# IRXLOAD - HLASM Entry-Point Wrapper for the IRXLOAD Programming
+#           Service (SC28-1883-0 §14). Parses the 5-slot VLIST,
+#           validates the function code, and delegates to the
+#           C-core dispatcher irx_load_dispatch (asm() alias
+#           IRXLDISP) which routes LOAD/FREE sub-functions.
+#
+# LOAD builds an INSTBLK from REXX source in a PDS member.
+# FREE releases the INSTBLK and its source pool.
+#
+# WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#116.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "IRXLOAD"
+entry = "IRXLOAD"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = [
+  "IRXLOAD",
+  "IRX#LOAD",
+  "IRX#STOR",
+]
+
+# ---------------------------------------------------------------
 # TSTANCH - ENVBLOCK anchor smoketest pseudomodule
 # Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
 # Pulls in the full phase-1/phase-2 object set so IRXINIT and
@@ -894,6 +916,31 @@ include = [
 
 [link.module.dep_includes]
 "mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
+# TSTLOAD - WP-CPS-07 IRXLOAD C-core unit tests.
+# Tests irx_load_dispatch() directly (bypasses the asm IRXLOAD
+# wrapper). Host build uses the filesystem backend; MVS build
+# tests the BSAM path with real DD allocations.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTLOAD)'
+#   Batch  :  EXEC PGM=TSTLOAD
+#
+# Expected: CC=0
+#
+# WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#116.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTLOAD"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTLOAD",
+  "IRX#LOAD",
+  "IRX#STOR",
+]
 
 # ---------------------------------------------------------------
 # TINITVL - Live MVS test caller for IRXINIT INITENVB.
