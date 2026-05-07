@@ -12,11 +12,12 @@
 **   3. SYSPROC
 **   SYSUEXEC is out of scope (TSO-specific; future separate ticket).
 **
-** Source accumulation uses a single-pass approach:
-**   - Temp buffers (line_info table + source pool) are allocated via
-**     irxstor, filled in one pass, then compacted into final blocks.
-**   - Limits: IRXLOAD_MAX_LINES lines, IRXLOAD_MAX_SRCBYTES source bytes.
-**     Execs exceeding either limit return RC=8.
+** Source accumulation uses a single-pass approach with growable buffers:
+**   - Temp buffers (line_info table + source pool) start at
+**     IRXLOAD_INIT_LINES entries / IRXLOAD_INIT_SRCBYTES bytes and
+**     double on exhaust via grow_pool().
+**   - Execs that cannot be accommodated due to allocation failure
+**     return RC=4 (IRXLOAD_NOMEM).
 **
 ** LOAD/FREE bookkeeping:
 **   The source-pool pointer is stashed in instblk._filler4[0..] using
@@ -68,10 +69,10 @@ struct line_info
     int length; /* line byte count (trailing spaces stripped) */
 };
 
-/* Upper bounds for single-pass accumulation.
- * Execs exceeding either limit return IRXLOAD_NOTFOUND. */
-#define IRXLOAD_MAX_LINES    2048
-#define IRXLOAD_MAX_SRCBYTES 65536
+/* Initial capacities for growable accumulation buffers.
+ * Both tables double on exhaust; allocation failure returns IRXLOAD_NOMEM. */
+#define IRXLOAD_INIT_LINES    256
+#define IRXLOAD_INIT_SRCBYTES 8192
 
 /* EBCDIC space character (used to strip trailing blanks on MVS). */
 #define EBCDIC_SPACE ((unsigned char)0x40)
@@ -104,6 +105,25 @@ struct line_info
             goto cleanup;                                   \
         (ptr) = _t;                                         \
     } while (0)
+
+/* Grow a pool that was allocated via irxstor.
+ * Allocates a new block of new_cap bytes, copies *cur_cap bytes from *buf,
+ * frees the old block, and updates *buf and *cur_cap.
+ * Returns 0 on success, -1 if the new allocation fails. */
+static int grow_pool(void **buf, int *cur_cap, int new_cap,
+                     struct envblock *envblk)
+{
+    void *nb = NULL;
+    if (irxstor(RXSMGET, new_cap, &nb, envblk) != 0)
+    {
+        return -1;
+    }
+    memcpy(nb, *buf, (size_t)*cur_cap);
+    irxstor(RXSMFRE, 0, buf, envblk);
+    *buf = nb;
+    *cur_cap = new_cap;
+    return 0;
+}
 
 /* ------------------------------------------------------------------ */
 /*  trim8 — strip trailing spaces from an 8-char padded field         */
@@ -147,7 +167,13 @@ static int build_instblk(struct envblock *envblk,
     void *sp_copy;
     int i;
 
-    block_size = INSTBLK_HDRLEN + n * (int)sizeof(struct instblk_entry);
+    /* Allocate at least sizeof(struct instblk) bytes for the header.
+     * On 64-bit hosts the struct is wider than INSTBLK_HDRLEN (8-byte
+     * pointers push _filler4 past offset 128); the entry array follows. */
+    block_size = (int)(sizeof(struct instblk) > INSTBLK_HDRLEN
+                           ? sizeof(struct instblk)
+                           : INSTBLK_HDRLEN) +
+                 n * (int)sizeof(struct instblk_entry);
     ALLOC(hdr, block_size, envblk);
     ALLOC(fsrc, (total > 0 ? total : 1), envblk);
 
@@ -205,16 +231,16 @@ cleanup:
 
 /* scan_member — read all source lines of a PDS member via BSAM.
  *
- * Appends line offsets and text to the caller-supplied lt/tsrc arrays.
+ * On entry *lt_p/*lt_cap and *tsrc_p/*tsrc_cap describe caller-supplied
+ * growable buffers.  On success the buffers (and caps) may have grown.
  * Returns 0 on success, IRXLOAD_NOTFOUND if the DD or member is absent,
- * IRXLOAD_NOMEM if the read buffer cannot be allocated, or IRXLOAD_NOTFOUND
- * if the accumulated data would exceed max_lines / max_srcbytes.
+ * or IRXLOAD_NOMEM if a reallocation or read-buffer allocation fails.
  */
 static int scan_member(const char *ddname,
                        const unsigned char *member8,
                        struct envblock *envblk,
-                       struct line_info *lt, int max_lines,
-                       char *tsrc, int max_srcbytes,
+                       struct line_info **lt_p, int *lt_cap,
+                       char **tsrc_p, int *tsrc_cap,
                        int *n_out, int *total_out)
 {
     BLDL bldl_buf;
@@ -225,6 +251,8 @@ static int scan_member(const char *ddname,
     int blksize;
     int lrecl;
     int recfm;
+    struct line_info *lt;
+    char *tsrc;
     int n = 0;
     int total = 0;
     int rc = IRXLOAD_NOTFOUND;
@@ -266,6 +294,8 @@ static int scan_member(const char *ddname,
         return IRXLOAD_NOMEM;
     }
     rbuf = (char *)rbuf_v;
+    lt = *lt_p;
+    tsrc = *tsrc_p;
     rc = 0;
 
     for (;;)
@@ -292,10 +322,28 @@ static int scan_member(const char *ddname,
                 {
                     --len;
                 }
-                if (n >= max_lines || total + len > max_srcbytes)
+                if (n >= *lt_cap / (int)sizeof(struct line_info))
                 {
-                    rc = IRXLOAD_NOTFOUND;
-                    goto done;
+                    if (grow_pool((void **)lt_p, lt_cap, *lt_cap * 2, envblk) != 0)
+                    {
+                        rc = IRXLOAD_NOMEM;
+                        goto done;
+                    }
+                    lt = *lt_p;
+                }
+                if (len > 0 && total + len > *tsrc_cap)
+                {
+                    int nc = *tsrc_cap * 2;
+                    if (nc < total + len)
+                    {
+                        nc = (total + len) * 2;
+                    }
+                    if (grow_pool((void **)tsrc_p, tsrc_cap, nc, envblk) != 0)
+                    {
+                        rc = IRXLOAD_NOMEM;
+                        goto done;
+                    }
+                    tsrc = *tsrc_p;
                 }
                 lt[n].offset = total;
                 lt[n].length = len;
@@ -324,10 +372,28 @@ static int scan_member(const char *ddname,
                 }
                 if (dlen > 0)
                 {
-                    if (n >= max_lines || total + dlen > max_srcbytes)
+                    if (n >= *lt_cap / (int)sizeof(struct line_info))
                     {
-                        rc = IRXLOAD_NOTFOUND;
-                        goto done;
+                        if (grow_pool((void **)lt_p, lt_cap, *lt_cap * 2, envblk) != 0)
+                        {
+                            rc = IRXLOAD_NOMEM;
+                            goto done;
+                        }
+                        lt = *lt_p;
+                    }
+                    if (total + dlen > *tsrc_cap)
+                    {
+                        int nc = *tsrc_cap * 2;
+                        if (nc < total + dlen)
+                        {
+                            nc = (total + dlen) * 2;
+                        }
+                        if (grow_pool((void **)tsrc_p, tsrc_cap, nc, envblk) != 0)
+                        {
+                            rc = IRXLOAD_NOMEM;
+                            goto done;
+                        }
+                        tsrc = *tsrc_p;
                     }
                     lt[n].offset = total;
                     lt[n].length = dlen;
@@ -363,6 +429,8 @@ static int irx_load_load(struct execblk *execblk,
 {
     struct line_info *lt = NULL;
     char *tsrc = NULL;
+    int lt_cap = 0;
+    int tsrc_cap = 0;
     int n = 0;
     int total = 0;
     int found = 0;
@@ -376,9 +444,11 @@ static int irx_load_load(struct execblk *execblk,
         return IRXLOAD_ERROR;
     }
 
-    /* Allocate temp accumulation buffers. */
-    ALLOC(lt, (int)(IRXLOAD_MAX_LINES * sizeof(struct line_info)), envblk);
-    ALLOC(tsrc, IRXLOAD_MAX_SRCBYTES, envblk);
+    /* Allocate temp accumulation buffers at initial capacity. */
+    lt_cap = IRXLOAD_INIT_LINES * (int)sizeof(struct line_info);
+    tsrc_cap = IRXLOAD_INIT_SRCBYTES;
+    ALLOC(lt, lt_cap, envblk);
+    ALLOC(tsrc, tsrc_cap, envblk);
 
 #ifdef __MVS__
     {
@@ -388,11 +458,17 @@ static int irx_load_load(struct execblk *execblk,
         if (dd_hint[0] != '\0')
         {
             /* Caller supplied a specific DD — use only that. */
-            if (scan_member(dd_hint, execblk->exec_member, envblk,
-                            lt, IRXLOAD_MAX_LINES, tsrc, IRXLOAD_MAX_SRCBYTES,
-                            &n, &total) == 0)
+            int sr = scan_member(dd_hint, execblk->exec_member, envblk,
+                                 &lt, &lt_cap, &tsrc, &tsrc_cap,
+                                 &n, &total);
+            if (sr == 0)
             {
                 found = 1;
+            }
+            else if (sr == IRXLOAD_NOMEM)
+            {
+                rc = IRXLOAD_NOMEM;
+                goto cleanup;
             }
         }
         else
@@ -402,11 +478,17 @@ static int irx_load_load(struct execblk *execblk,
             int di;
             for (di = 0; di < 2 && !found; di++)
             {
-                if (scan_member(dds[di], execblk->exec_member, envblk,
-                                lt, IRXLOAD_MAX_LINES, tsrc, IRXLOAD_MAX_SRCBYTES,
-                                &n, &total) == 0)
+                int sr = scan_member(dds[di], execblk->exec_member, envblk,
+                                     &lt, &lt_cap, &tsrc, &tsrc_cap,
+                                     &n, &total);
+                if (sr == 0)
                 {
                     found = 1;
+                }
+                else if (sr == IRXLOAD_NOMEM)
+                {
+                    rc = IRXLOAD_NOMEM;
+                    goto cleanup;
                 }
             }
         }
@@ -463,9 +545,10 @@ static int irx_load_load(struct execblk *execblk,
                         continue;
                     }
 
-                    /* Single-pass: fgets each line into temp buffers. */
+                    /* Single-pass: fgets each line into growable buffers. */
                     {
                         char linebuf[256];
+                        int read_ok = 1;
                         while (fgets(linebuf, (int)sizeof(linebuf), f))
                         {
                             int len = (int)strlen(linebuf);
@@ -477,10 +560,30 @@ static int irx_load_load(struct execblk *execblk,
                             {
                                 --len;
                             }
-                            if (n >= IRXLOAD_MAX_LINES ||
-                                total + len > IRXLOAD_MAX_SRCBYTES)
+                            if (n >= lt_cap / (int)sizeof(struct line_info))
                             {
-                                break; /* exec too large */
+                                if (grow_pool((void **)&lt, &lt_cap,
+                                              lt_cap * 2, envblk) != 0)
+                                {
+                                    rc = IRXLOAD_NOMEM;
+                                    read_ok = 0;
+                                    break;
+                                }
+                            }
+                            if (len > 0 && total + len > tsrc_cap)
+                            {
+                                int new_cap = tsrc_cap * 2;
+                                if (new_cap < total + len)
+                                {
+                                    new_cap = (total + len) * 2;
+                                }
+                                if (grow_pool((void **)&tsrc, &tsrc_cap,
+                                              new_cap, envblk) != 0)
+                                {
+                                    rc = IRXLOAD_NOMEM;
+                                    read_ok = 0;
+                                    break;
+                                }
                             }
                             lt[n].offset = total;
                             lt[n].length = len;
@@ -491,9 +594,13 @@ static int irx_load_load(struct execblk *execblk,
                             total += len;
                             n++;
                         }
+                        fclose(f);
+                        if (!read_ok)
+                        {
+                            goto cleanup;
+                        }
+                        found = 1;
                     }
-                    fclose(f);
-                    found = 1;
                 }
             }
         }
