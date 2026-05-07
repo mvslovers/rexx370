@@ -145,8 +145,17 @@ struct execblk
 
 /* ================================================================== */
 /*  In-Storage Control Block (INSTBLK)                                */
-/*  Passes a REXX exec as in-storage block to IRXEXEC                 */
-/*  Ref: SC28-1883-0, Chapter 12, Page 222                           */
+/*  Passes a REXX exec as in-storage block to IRXEXEC.               */
+/*                                                                    */
+/*  Layout reflects the z/OS-stage of the spec, not the V1 baseline. */
+/*  Differences from SC28-1883-0 §12 (V1, Dec 1988):                 */
+/*    - Filler slots between fields (alignment / future use)          */
+/*    - instblk_extname_ptr / instblk_extname_len are z/OS additions  */
+/*      (zero in V1, populated in V2+ for extended exec names)        */
+/*  Eyecatcher 'IRXINSTB' and header length 128 are unchanged.        */
+/*                                                                    */
+/*  Refs: z/OS REXX Reference (current edition) — canonical layout    */
+/*        SC28-1883-0, Chapter 12, Page 222 — V1 baseline             */
 /* ================================================================== */
 
 struct instblk_entry
