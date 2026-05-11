@@ -88,17 +88,16 @@
 //* HELLO, EMPTY, ALTM must exist in IBMUSER.EXEC before any
 //* TSTLOAD step runs (both Batch and TSO invocations below).
 //*---------------------------------------------------------------
-//SETUP    EXEC PGM=IEBUPDTE,PARM=NEW,COND=EVEN
+//SETUP    EXEC PGM=IEBUPDTE,PARM=MOD,COND=EVEN
 //SYSPRINT DD SYSOUT=*
+//SYSUT1   DD DSN=IBMUSER.EXEC,DISP=SHR
 //SYSUT2   DD DSN=IBMUSER.EXEC,DISP=SHR
 //SYSIN    DD *
 ./ ADD NAME=HELLO
-/* test REXX exec */
 say 'hello'
 exit 0
 ./ ADD NAME=EMPTY
 ./ ADD NAME=ALTM
-/* alt-DD test REXX exec */
 say 'alt'
 exit 0
 ./ ENDUP
