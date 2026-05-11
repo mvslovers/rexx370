@@ -46,6 +46,7 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irx_init.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxwkblk.h"
@@ -405,6 +406,21 @@ static void test_noenv(void)
     int rc;
 
     printf("T6: No env registered -> NOENV (RC=28)\n");
+
+    /* Foreground TSO has a pre-initialised REXX env from the READY
+     * prompt's IRXINIT. We cannot tear that down without disturbing
+     * IKJEFT01's own state, so this case only runs meaningfully in
+     * Batch / Batch-TSO contexts where no pre-existing env exists. */
+    {
+        struct envblock *probe = NULL;
+        int probe_rsn = 0;
+        if (irx_init_findenvb(&probe, &probe_rsn) == 0 && probe != NULL)
+        {
+            printf("  SKIP: pre-existing env on TCB (Foreground TSO);"
+                   " no-env scenario not reproducible here\n");
+            return;
+        }
+    }
 
 #ifndef __MVS__
     /* Ensure IRXANCHR slot table has no registered env by resetting
