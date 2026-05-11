@@ -43,6 +43,11 @@
 *        (size deterministic from sum(instblk_stmtlen) upfront).
 *    (c) Separator byte: C literal '\n'; c2asm370 translates to
 *        EBCDIC 0x15 at compile time; tokenizer accepts it.
+*    (d) Null slot-address guard: after VLIST parse, BUILDC checks
+*        each P1-P9 slot address (WPARMS+0..+32).  A zero slot
+*        address returns BADPLIST rather than faulting on page zero.
+*        Null parameter VALUES (e.g. P5=0 for non-TSO callers) are
+*        legal and are NOT rejected by this guard.
 *
 *  V1 vs z/OS-stage:
 *    SC28-1883-0 V1 had a shorter, different slot layout.
@@ -165,6 +170,23 @@ P10PRES  EQU   *
 *        fall through to BUILDC
 *
 BUILDC   EQU   *
+*  --- null slot-address guard (arch decision (d)) ------------------
+*  Walk WPARMS[0..8] (P1-P9 slot addresses). A zero address means
+*  the caller's VLIST entry itself is zero -- malformed; BADPLIST.
+*  Null VALUES pointed to by a valid slot address are legal.
+*
+         LA    R2,9                R2 = 9 slots (P1-P9)
+         LA    R3,WPARMS           R3 = &WPARMS[0]
+CHKSLP   L     R6,0(,R3)          R6 = bare slot address
+         LTR   R6,R6               zero slot address?
+         BZ    NULLSLOT            yes -> BADPLIST
+         LA    R3,4(,R3)           advance to next slot
+         BCT   R2,CHKSLP
+         B     DOSLOTS             all slot addresses valid
+NULLSLOT LA    R15,32              BADPLIST = 32
+         B     ERREARLY
+DOSLOTS  EQU   *
+*
 *  --- build C-call plist for IRXEDISP ----------------------------
 *
 *  irx_exec_dispatch(execblk, argtable, flags_val,
