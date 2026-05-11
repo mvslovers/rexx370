@@ -83,6 +83,35 @@
 //BADDR   EXEC PGM=TSTADDR,COND=EVEN
 //STEPLIB  DD DSN=IBMUSER.REXX370.V0R1M0D.LOAD,DISP=SHR
 //SYSPRINT DD SYSOUT=*
+//*---------------------------------------------------------------
+//* Pre-populate SYSEXEC fixtures for TSTLOAD (T1/T2/T8/T9).
+//* HELLO, EMPTY, ALTM must exist in IBMUSER.EXEC before BLOAD
+//* and TLOAD run. Three IEBGENER steps (one per member) are
+//* used instead of IEBUPDTE; IEBUPDTE SYSUT1=SYSUT2 in-place
+//* PDS modification corrupts the directory on MVS 3.8j.
+//*---------------------------------------------------------------
+//SETHELO  EXEC PGM=IEBGENER,COND=EVEN
+//SYSPRINT DD SYSOUT=*
+//SYSIN    DD DUMMY
+//SYSUT2   DD DSN=IBMUSER.EXEC(HELLO),DISP=SHR
+//SYSUT1   DD *
+say 'hello'
+exit 0
+/*
+//SETEMPT  EXEC PGM=IEBGENER,COND=EVEN
+//SYSPRINT DD SYSOUT=*
+//SYSIN    DD DUMMY
+//SYSUT2   DD DSN=IBMUSER.EXEC(EMPTY),DISP=SHR
+//SYSUT1   DD *
+/*
+//SETALTM  EXEC PGM=IEBGENER,COND=EVEN
+//SYSPRINT DD SYSOUT=*
+//SYSIN    DD DUMMY
+//SYSUT2   DD DSN=IBMUSER.EXEC(ALTM),DISP=SHR
+//SYSUT1   DD *
+say 'alt'
+exit 0
+/*
 //BLOAD   EXEC PGM=TSTLOAD,COND=EVEN
 //STEPLIB  DD DSN=IBMUSER.REXX370.V0R1M0D.LOAD,DISP=SHR
 //SYSPRINT DD SYSOUT=*
