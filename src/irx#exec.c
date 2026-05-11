@@ -143,8 +143,9 @@ int irx_exec_dispatch(struct execblk *execblk,
         }
         /* NULL INSTBLK + valid EXECBLK = DD-based load path.
          * DD loading is IRXLOAD's job; IRXEXEC requires a caller-supplied
-         * INSTBLK. Deferred path documented; return BADPLIST for now. */
-        return IRXEXEC_BADPLIST;
+         * INSTBLK. The parameter list is well-formed, so this is
+         * IRXEXEC_ERROR (RC=20), not BADPLIST (RC=32). */
+        return IRXEXEC_ERROR;
     }
     else
     {
