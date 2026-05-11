@@ -120,7 +120,7 @@ int irxmsgid(int function, char *prefix, struct envblock *envblock);
  * Returns: 0=OK, 20=error
  */
 #ifdef __MVS__
-int irxinout_mvs(int function, PLstr data, struct envblock *envblock);
+int irxinout(int function, PLstr data, struct envblock *envblock);
 #else
 int irxinout_host(int function, PLstr data, struct envblock *envblock);
 #endif

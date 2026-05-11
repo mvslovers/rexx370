@@ -558,8 +558,8 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     exte->irxmsgid = (void *)irxmsgid;
     exte->msgid_routine = (void *)irxmsgid;
 #ifdef __MVS__
-    exte->irxinout = (void *)irxinout_mvs;
-    exte->io_routine = (void *)irxinout_mvs;
+    exte->irxinout = (void *)irxinout;
+    exte->io_routine = (void *)irxinout;
 #else
     exte->irxinout = (void *)irxinout_host;
     exte->io_routine = (void *)irxinout_host;

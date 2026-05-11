@@ -1,12 +1,13 @@
 /* ------------------------------------------------------------------ */
 /*  irx#io.c — IRXINOUT Default I/O Replaceable Routine               */
 /*                                                                    */
-/*  MVS (primary): irxinout_mvs — writes SAY/TRACE/error output to   */
-/*  the SYSTSPRT DD via fopen("DD:SYSTSPRT","w"). The FILE* is opened  */
-/*  lazily on first write; crent370 CRT teardown closes it at exit.   */
+/*  MVS (primary): irxinout — writes SAY/TRACE/error output to        */
+/*  stdout + fflush. irx_jcl_dispatch_main redirects stdout to        */
+/*  DD:SYSTSPRT before executing any exec, so SAY output lands in     */
+/*  the JES2 spool SYSTSPRT dataset.                                  */
 /*                                                                    */
-/*  Host (cross-compile tests): irxinout_host — writes to stdout so  */
-/*  the test harness can capture SAY/TRACE output.                    */
+/*  Host (cross-compile tests): irxinout_host — same logic, stdout    */
+/*  is the terminal / test harness capture stream.                    */
 /*                                                                    */
 /*  IRXINIT step 6 wires the appropriate variant into                 */
 /*  exte->io_routine and exte->irxinout via #ifdef __MVS__.           */
@@ -27,11 +28,7 @@
 
 #ifdef __MVS__
 
-/* Lazily opened handle for the SYSTSPRT DD.
- * One handle per load-module residence; crent370 CRT teardown closes it. */
-static FILE *g_systsprt_fp = NULL;
-
-int irxinout_mvs(int function, PLstr data, struct envblock *envblock)
+int irxinout(int function, PLstr data, struct envblock *envblock)
 {
     (void)envblock;
 
@@ -40,20 +37,12 @@ int irxinout_mvs(int function, PLstr data, struct envblock *envblock)
         case RXFWRITE:
         case RXFWRITERR:
         case RXFTWRITE:
-            if (g_systsprt_fp == NULL)
-            {
-                g_systsprt_fp = fopen("DD:SYSTSPRT", "w");
-                if (g_systsprt_fp == NULL)
-                {
-                    return 20;
-                }
-            }
             if (data != NULL && data->pstr != NULL && data->len > 0)
             {
-                fwrite(data->pstr, 1, (size_t)data->len, g_systsprt_fp);
+                fwrite(data->pstr, 1, (size_t)data->len, stdout);
             }
-            fputc('\n', g_systsprt_fp);
-            fflush(g_systsprt_fp);
+            fputc('\n', stdout);
+            fflush(stdout);
             return 0;
 
         case RXFREAD:

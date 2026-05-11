@@ -35,6 +35,7 @@
 /* ------------------------------------------------------------------ */
 
 #include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "irx.h"
@@ -60,9 +61,24 @@
 #define ARGTAB_END_BYTE ((unsigned char)'\xFF')
 
 int irx_jcl_dispatch_main(const char *member,
-                           const char *arg_string,
-                           int         arg_len)
+                          const char *arg_string,
+                          int arg_len)
 {
+#ifdef __MVS__
+    /* ---- Step 0: redirect stdout to SYSTSPRT ------------------------ */
+    /* crent370 @@start opens stdout on *SYSPRINT (dynamic SYSOUT).
+     * Redirect it to the JCL-allocated SYSTSPRT DD so SAY/TRACE output
+     * lands in a named spool dataset.  Falls back silently if the DD is
+     * absent — output still goes to the dynamic SYSOUT stream. */
+    {
+        FILE *systsprt = fopen("DD:SYSTSPRT", "w");
+        if (systsprt != NULL)
+        {
+            stdout = systsprt;
+        }
+    }
+#endif
+
     /* ---- Step 1: validate member ------------------------------------ */
     if (member == NULL)
     {

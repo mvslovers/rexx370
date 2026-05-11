@@ -27,11 +27,11 @@
 
 #ifdef __MVS__
 
-/* irxinout_mvs - MVS default I/O routine
+/* irxinout - MVS default I/O routine (primary)
  *
- * Writes to the SYSTSPRT DD via fopen("DD:SYSTSPRT","w").
- * The FILE* is opened lazily on first write and held open for
- * the process lifetime (crent370 CRT teardown closes it at exit).
+ * Writes to stdout + fflush. irx_jcl_dispatch_main redirects stdout
+ * to DD:SYSTSPRT before exec invocation so SAY output appears in the
+ * JES2 spool SYSTSPRT dataset.
  *
  * Parameters:
  *   function - I/O function code (RXFWRITE, RXFREAD, etc.)
@@ -41,11 +41,11 @@
  *
  * Returns: 0=OK, 20=error
  */
-int irxinout_mvs(int function, PLstr data, struct envblock *envblock);
+int irxinout(int function, PLstr data, struct envblock *envblock);
 
 #else /* !__MVS__ */
 
-/* irxinout_host - host (Linux/gcc) default I/O routine
+/* irxinout_host - host (Linux/gcc) I/O routine
  *
  * Writes to stdout. Used by cross-compile unit tests where
  * SAY/TRACE/error output is captured by the test harness.
