@@ -119,7 +119,14 @@ struct evalblock
 /* ================================================================== */
 /*  Exec Block (EXECBLK)                                              */
 /*  Identifies the exec to be run by IRXEXEC                          */
-/*  Ref: SC28-1883-0, Chapter 12, Page 220                           */
+/*                                                                    */
+/*  Layout note: V1 (SC28-1883-0, Dec 1988) defined 0x30 bytes       */
+/*  (exec_blk_acryn through exec_dsnlen, exec_blk_length=0x30).      */
+/*  V2 (z/OS-stage) extends to 0x40 bytes with exec_extname_ptr/len. */
+/*  irx_exec_dispatch accepts both via exec_blk_length check.         */
+/*                                                                    */
+/*  Refs: z/OS REXX Reference (current edition) — V2 layout          */
+/*        SC28-1883-0, Chapter 12, Page 220 — V1 baseline (0x30)     */
 /* ================================================================== */
 
 struct execblk
@@ -663,34 +670,55 @@ struct irx_hostenv_parms
 };
 
 /* ================================================================== */
-/*  IRXEXEC Parameter List (R1 -> plist)                              */
-/*  Ref: SC28-1883-0, Chapter 12                                     */
+/*  IRXEXEC Parameter List (R1 -> plist, 10 slots, z/OS-stage)        */
+/*                                                                    */
+/*  VLIST follows the z/OS stage of the spec, not the SC28-1883-0 V1  */
+/*  baseline. Differences:                                            */
+/*    - V1 had a different and shorter slot layout                    */
+/*    - WORKAREA (P7), USERFIELD (P8), and the return-code pointer   */
+/*      (P10) are z/OS additions                                      */
+/*    - Slot 3 is a pointer to a fullword of flag bits; bits 0..2     */
+/*      select call-type (COMMAND / FUNCTION / SUBROUTINE), bit 3     */
+/*      enables extended syntax-error return codes 20001..20099       */
+/*    - VL marker may be on P9 (P10 omitted) or P10                   */
+/*    - R0 on entry optionally carries an envblock pointer (additional*/
+/*      to P9). R0 on return must carry the envblock pointer too.     */
+/*    - RC returned via R15 (always) and optionally via *P10          */
+/*                                                                    */
+/*  Refs:                                                             */
+/*    z/OS REXX Reference (current edition) — canonical 10-slot VLIST */
+/*    https://www.ibm.com/docs/en/zos/2.5.0?topic=ir-parameters       */
+/*    SC28-1883-0, Chapter 14 — V1 baseline (shorter VLIST)          */
 /* ================================================================== */
 
 struct irxexec_plist
 {
-    void *execblk_ptr;   /* -> EXECBLK (or NULL)           */
-    void *arglist_ptr;   /* -> argument table              */
-    int flags;           /* Execution flags                */
-    void *instblk_ptr;   /* -> INSTBLK (or NULL)           */
-    void *cppl_ptr;      /* -> CPPL (TSO, or NULL)         */
-    void *evalblk_ptr;   /* -> EVALBLOCK (or NULL)         */
-    void *wkarea_ptr;    /* -> work area (or NULL)         */
-    void *userfield_ptr; /* -> user field (or NULL)        */
-    void *envblock_ptr;  /* -> ENVBLOCK (or NULL)          */
+    void *execblk_ptr;         /* P1  -> EXECBLK (or NULL)           */
+    void *argtable_ptr;        /* P2  -> argument table (ARGTABLE)   */
+    int *flags_ptr;            /* P3  -> fullword of execution flags  */
+    void *instblk_ptr;         /* P4  -> INSTBLK (or NULL)           */
+    void *reserved_parm5;      /* P5  reserved (was cppl_ptr in V1)  */
+    void *evalblk_ptr;         /* P6  -> EVALBLOCK (or NULL)         */
+    void *wkarea_ptr;          /* P7  -> work area (or NULL)         */
+    void *userfield_ptr;       /* P8  -> user field (or NULL)        */
+    void *envblock_ptr;        /* P9  -> ENVBLOCK (or NULL)          */
+    int *rexx_return_code_ptr; /* P10 -> caller's return code slot   */
 };
 
-/* IRXEXEC flags */
+/* IRXEXEC flags (bits in *flags_ptr) */
 #define IRXEXEC_COMMAND    0x00000000
 #define IRXEXEC_FUNCTION   0x20000000
 #define IRXEXEC_SUBROUTINE 0x40000000
 
 /* IRXEXEC return codes */
-#define IRXEXEC_OK        0
-#define IRXEXEC_RCNZ      4
-#define IRXEXEC_NOTFOUND  20
-#define IRXEXEC_NOENV     28
-#define IRXEXEC_BADPLIST  32
-#define IRXEXEC_NOHOSTCMD (-3)
+#define IRXEXEC_OK           0
+#define IRXEXEC_RCNZ         4   /* rexx370-internal: exec returned non-zero */
+#define IRXEXEC_ERROR        20  /* general error; exec not processed */
+#define IRXEXEC_NOENV        28  /* no env found; auto-init deferred to WP-CPS-06b */
+#define IRXEXEC_BADPLIST     32  /* parameter list invalid */
+#define IRXEXEC_ENV_MISMATCH 36  /* CPPL/Env ECT mismatch; detection in WP-CPS-06b */
+#define IRXEXEC_SYSABEND     100 /* system abend; R0 has abend+reason; in WP-CPS-06b */
+#define IRXEXEC_USRABEND     104 /* user abend; R0 has abend+reason; in WP-CPS-06b */
+#define IRXEXEC_NOHOSTCMD    (-3)
 
 #endif /* IRX_H */

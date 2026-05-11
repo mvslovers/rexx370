@@ -1,11 +1,9 @@
 /* ------------------------------------------------------------------ */
-/*  irx#exec.c - REXX/370 End-to-End Execution (WP-18)                */
+/*  irx#exec.c - REXX/370 End-to-End Execution + IRXEXEC Service     */
 /*                                                                    */
-/*  irx_exec_run() wires all Phase 2 components together:             */
-/*  environment -> tokenizer -> variable pool -> parser -> cleanup.   */
-/*                                                                    */
-/*  This is pure glue — no new logic. Each step uses the public API   */
-/*  of the component it calls.                                         */
+/*  irx_exec_run()      — Phase 2 pipeline (WP-18)                    */
+/*  irx_exec_dispatch() — IRXEXEC Programming Service C-core          */
+/*                        (z/OS 10-slot VLIST, WP-CPS-06 / TSK-218)  */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
@@ -13,6 +11,7 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irx_init.h"
 #include "irxctrl.h"
 #include "irxexec.h"
 #include "irxfunc.h"
@@ -21,6 +20,259 @@
 #include "irxtokn.h"
 #include "irxvpool.h"
 #include "irxwkblk.h"
+
+/* ================================================================== */
+/*  irx_exec_dispatch — IRXEXEC Programming Service C-core            */
+/*  (asm() alias: IRXEDISP, called from asm/irxexec.asm)              */
+/*                                                                    */
+/*  Implements the z/OS 10-slot IRXEXEC VLIST form. SC28-1883-0 V1    */
+/*  had a shorter parameter list; this dispatcher targets the z/OS    */
+/*  stage of the spec. See WP-CPS-06 / TSK-218 for full rationale.   */
+/* ================================================================== */
+
+/* Validate ENVBLOCK eye-catcher. Returns non-zero if invalid. */
+static int exec_envblk_bad(const struct envblock *env)
+{
+    return (env == NULL ||
+            memcmp(env->envblock_id, ENVBLOCK_ID,
+                   sizeof(env->envblock_id)) != 0);
+}
+
+/* Return non-zero if all n bytes of s are spaces (or NUL). */
+static int exec_blank_n(const unsigned char *s, int n)
+{
+    int i;
+    for (i = 0; i < n; i++)
+    {
+        if (s[i] != (unsigned char)' ' && s[i] != '\0')
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int irx_exec_dispatch(struct execblk *execblk,
+                      void *argtable,
+                      int flags,
+                      struct instblk *instblk,
+                      void *reserved_parm5,
+                      struct evalblock *evalblock,
+                      void *workarea,
+                      void *userfield,
+                      struct envblock *envblock,
+                      struct envblock *envblock_r0)
+{
+    struct envblock *env = NULL;
+    int rsn = 0;
+    const struct argtable_entry *ae;
+    const char *first_arg = NULL;
+    int first_arg_len = 0;
+    int n_args = 0;
+    struct instblk_entry *ents;
+    int n_ents;
+    char *src_buf = NULL;
+    int src_len = 0;
+    int total_src;
+    int exit_rc = 0;
+    int rc;
+    int i;
+    /* ARGTABLE_END is "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF" (8 bytes). */
+    unsigned char all_ff[sizeof(ARGTABLE_END) - 1];
+
+    /* P3 bit fields (COMMAND/FUNCTION/SUBROUTINE, extended-RC) are
+     * parsed by the asm wrapper and forwarded as a plain int.
+     * Call-type routing and bit 3 (extended syntax errors) are
+     * deferred to WP-CPS-06b; all paths route to the same engine. */
+    (void)flags;
+    /* P5 reserved; P7 workarea and P8 userfield are for future use. */
+    (void)reserved_parm5;
+    (void)workarea;
+    (void)userfield;
+
+    memcpy(all_ff, ARGTABLE_END, sizeof(all_ff));
+
+    /* ---- 1. Env resolution (three-path) ---- */
+    if (envblock != NULL)
+    {
+        if (exec_envblk_bad(envblock))
+        {
+            return IRXEXEC_BADPLIST;
+        }
+        env = envblock;
+    }
+    else if (envblock_r0 != NULL)
+    {
+        if (exec_envblk_bad(envblock_r0))
+        {
+            return IRXEXEC_BADPLIST;
+        }
+        env = envblock_r0;
+    }
+    else
+    {
+        /* FINDENVB: locate env registered on current TCB. */
+        if (irx_init_findenvb(&env, &rsn) != 0)
+        {
+            /* TODO(WP-CPS-06b): auto-init env when none found */
+            return IRXEXEC_NOENV;
+        }
+    }
+
+    /* ---- 2. Source acquisition ---- */
+    if (instblk != NULL)
+    {
+        if (memcmp(instblk->instblk_acronym, INSTBLK_ID,
+                   sizeof(instblk->instblk_acronym)) != 0)
+        {
+            return IRXEXEC_BADPLIST;
+        }
+        /* INSTBLK provided — use it; execblk metadata still processed below */
+    }
+    else if (execblk != NULL)
+    {
+        if (memcmp(execblk->exec_blk_acryn, EXECBLK_ID,
+                   sizeof(execblk->exec_blk_acryn)) != 0)
+        {
+            return IRXEXEC_BADPLIST;
+        }
+        if (execblk->exec_blk_length != EXECBLK_V1_LEN &&
+            execblk->exec_blk_length != EXECBLK_V2_LEN)
+        {
+            return IRXEXEC_BADPLIST;
+        }
+        /* NULL INSTBLK + valid EXECBLK = DD-based load path.
+         * DD loading is IRXLOAD's job; IRXEXEC requires a caller-supplied
+         * INSTBLK. Deferred path documented; return BADPLIST for now. */
+        return IRXEXEC_BADPLIST;
+    }
+    else
+    {
+        /* Neither INSTBLK nor EXECBLK — cannot determine source. */
+        return IRXEXEC_BADPLIST;
+    }
+
+    /* ---- 3. EXECBLK SUBCOM override ---- */
+    if (execblk != NULL &&
+        !exec_blank_n(execblk->exec_subcom,
+                      (int)sizeof(execblk->exec_subcom)))
+    {
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)env->envblock_userfield;
+        if (wk != NULL)
+        {
+            memcpy(wk->wkbi_address, execblk->exec_subcom,
+                   sizeof(execblk->exec_subcom));
+        }
+    }
+
+    /* ---- 4. EVALBLOCK validation ---- */
+    if (evalblock != NULL)
+    {
+        if (evalblock->evalblock_evpad1 != 0 ||
+            evalblock->evalblock_evpad2 != 0 ||
+            evalblock->evalblock_evlen != 0)
+        {
+            return IRXEXEC_BADPLIST;
+        }
+    }
+
+    /* ---- 5. ARGTABLE parse ---- */
+    /* Walk 8-byte entries (MVS-native: 4-byte ptr + 4-byte len) until
+     * the X'FFFFFFFFFFFFFFFF' terminator.  ae++ steps by
+     * sizeof(struct argtable_entry) which is consistent with
+     * build_mock_argtable on both MVS and host. */
+    if (argtable != NULL)
+    {
+        ae = (const struct argtable_entry *)argtable;
+        while (memcmp(ae, all_ff, sizeof(all_ff)) != 0)
+        {
+            if (n_args == 0)
+            {
+                first_arg = (const char *)ae->argstring_ptr;
+                first_arg_len = ae->argstring_length;
+            }
+            n_args++;
+            ae++;
+        }
+    }
+    /* Note: n_args counted but only first arg forwarded to engine.
+     * Full multi-arg forwarding is WP-CPS-06b (TSK-223). */
+    (void)n_args;
+
+    /* ---- 6. Source reconstruction from INSTBLK ---- */
+    ents = (struct instblk_entry *)instblk->instblk_address;
+    n_ents = (instblk->instblk_usedlen > 0)
+                 ? instblk->instblk_usedlen / (int)sizeof(struct instblk_entry)
+                 : 0;
+
+    /* Single-allocation source pool: sum(stmtlen) + (n-1) separators. */
+    total_src = 0;
+    for (i = 0; i < n_ents; i++)
+    {
+        total_src += ents[i].instblk_stmtlen;
+    }
+    if (n_ents > 1)
+    {
+        total_src += n_ents - 1;
+    }
+
+    {
+        void *sb = NULL;
+        if (irxstor(RXSMGET, total_src > 0 ? total_src : 1, &sb, env) != 0)
+        {
+            return IRXEXEC_ERROR;
+        }
+        src_buf = (char *)sb;
+    }
+
+    /* Concatenate lines with '\n' between them. c2asm370 translates
+     * the '\n' literal to EBCDIC 0x15 at compile time; the tokenizer
+     * (irx#tokn.c) treats that byte as a line separator on MVS. */
+    src_len = 0;
+    for (i = 0; i < n_ents; i++)
+    {
+        if (i > 0)
+        {
+            src_buf[src_len++] = '\n';
+        }
+        if (ents[i].instblk_stmtlen > 0)
+        {
+            memcpy(src_buf + src_len, ents[i].instblk_stmt_,
+                   (size_t)ents[i].instblk_stmtlen);
+            src_len += ents[i].instblk_stmtlen;
+        }
+    }
+
+    /* ---- 7. Engine call ---- */
+    /* EXECBLK DSNPTR/DSNLEN (PARSE SOURCE token4/5): the current
+     * irx_exec_run does not accept DSN parameters — known gap,
+     * does not block this WP. */
+    rc = irx_exec_run(src_buf, src_len, first_arg, first_arg_len,
+                      &exit_rc, env);
+
+    /* ---- 8. EVALBLOCK write (NORESULT marker) ---- */
+    /* Signals to the caller that no result string is available in
+     * EVDATA. WP-CPS-06b fills EVDATA with the actual result when
+     * the engine tracks return values. */
+    if (evalblock != NULL)
+    {
+        evalblock->evalblock_evlen = EVALBLOCK_NORESULT;
+    }
+
+    /* ---- 9. Free source buffer ---- */
+    {
+        void *p = src_buf;
+        irxstor(RXSMFRE, 0, &p, env);
+    }
+
+    /* ---- 10. Return engine exit code (→ R15 via asm wrapper) ---- */
+    if (rc != 0)
+    {
+        return rc;
+    }
+    return exit_rc;
+}
 
 int irx_exec_run(const char *source, int source_len,
                  const char *args, int args_len,
