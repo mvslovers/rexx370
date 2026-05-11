@@ -1,13 +1,14 @@
 /* ------------------------------------------------------------------ */
 /*  tstjcl.c - WP-CPS-08 IRXJCL Batch Entry Point unit tests         */
 /*                                                                    */
-/*  Tests irx_jcl_dispatch() directly (bypasses the asm IRXJCL        */
-/*  wrapper).  Host build uses the filesystem backend; MVS build       */
-/*  exercises the real IRXLOAD + IRXEXEC path.                        */
+/*  Tests irx_jcl_dispatch_main() directly (bypasses the @@CRT0      */
+/*  entry path and the argv reconstruction in irx#jclm.c).           */
+/*  Host build uses the filesystem backend; MVS build exercises the  */
+/*  real IRXLOAD + IRXEXEC path.                                      */
 /*                                                                    */
 /*  Test cases:                                                        */
-/*  T1:  NULL parm_buffer         -> IRXJCL_BADPARM (24)             */
-/*  T2:  zero-length PARM         -> IRXJCL_BADPARM (24)             */
+/*  T1:  NULL member              -> IRXJCL_BADPARM (24)             */
+/*  T2:  empty member string      -> IRXJCL_BADPARM (24)             */
 /*  T3:  sequential-mode marker   -> IRXJCL_BADPARM (24)             */
 /*  T4:  member name > 8 chars    -> IRXJCL_BADPARM (24)             */
 /*  T5:  leading space (no name)  -> IRXJCL_BADPARM (24)             */
@@ -15,7 +16,7 @@
 /*  T7:  valid member, arg string -> IRXJCL_OK (0)                   */
 /*  T8:  member not found         -> IRXJCL_ERROR (20)               */
 /*  T9:  lowercase member name    -> uppercased, found, IRXJCL_OK    */
-/*  T10: explicit envblock_r0     -> used directly, IRXJCL_OK        */
+/*  T10: pre-existing env via FINDENVB -> IRXJCL_OK                  */
 /*                                                                    */
 /*  Host cross-compile (from repo root):                              */
 /*    LSTR=contrib/lstring370-0.1.0-dev                               */
@@ -75,34 +76,6 @@ static int tests_failed = 0;
         }                                                      \
     } while (0)
 
-/* Maximum PARM buffer size used in this test file. */
-#define PARM_BUF_MAX 128
-
-/* Bit-shift for the high byte of a big-endian halfword. */
-#define PARM_LEN_SHIFT 8
-/* Mask to extract the low byte. */
-#define PARM_LOW_BYTE ((size_t)0xFFU)
-
-/* Build a PARM buffer from raw bytes.  Same format as make_parm but
- * accepts pre-built byte data (e.g. data containing embedded 0x00). */
-static void make_parm_bytes(unsigned char *buf,
-                            const unsigned char *data, size_t len)
-{
-    size_t i;
-    buf[0] = (unsigned char)((len >> PARM_LEN_SHIFT) & PARM_LOW_BYTE);
-    buf[1] = (unsigned char)(len & PARM_LOW_BYTE);
-    for (i = 0; i < len; i++)
-    {
-        buf[2 + i] = data[i];
-    }
-}
-
-/* Build a PARM buffer from a C string (convenience wrapper). */
-static void make_parm(unsigned char *buf, const char *data)
-{
-    make_parm_bytes(buf, (const unsigned char *)data, strlen(data));
-}
-
 /* ------------------------------------------------------------------
  * Host-only test helpers
  * ------------------------------------------------------------------ */
@@ -141,7 +114,7 @@ static int setup_test_dirs(void)
                     "/* witharg */\n"
                     "exit 0\n");
 
-    /* T10: member ENVTEST — used with explicit envblock_r0 */
+    /* T10: member ENVTEST — used with FINDENVB pre-seeded env */
     write_test_file(s_sysexec_dir, "ENVTEST",
                     "/* envtest */\n"
                     "exit 0\n");
@@ -158,115 +131,90 @@ static int setup_test_dirs(void)
 /*  Tests                                                             */
 /* ================================================================== */
 
-static void test_null_parm(void)
+static void test_null_member(void)
 {
-    printf("T1: NULL parm_buffer -> BADPARM\n");
-    int rc = irx_jcl_dispatch(NULL, NULL);
-    CHECK(rc == IRXJCL_BADPARM, "NULL parm_buffer returns IRXJCL_BADPARM");
+    printf("T1: NULL member -> BADPARM\n");
+    int rc = irx_jcl_dispatch_main(NULL, NULL, 0);
+    CHECK(rc == IRXJCL_BADPARM, "NULL member returns IRXJCL_BADPARM");
 }
 
-static void test_zero_length_parm(void)
+static void test_empty_member(void)
 {
-    unsigned char buf[PARM_BUF_MAX];
-    int rc;
-
-    printf("T2: zero-length PARM -> BADPARM\n");
-    make_parm(buf, "");
-    rc = irx_jcl_dispatch(buf, NULL);
-    CHECK(rc == IRXJCL_BADPARM, "zero-length PARM returns IRXJCL_BADPARM");
+    printf("T2: empty member string -> BADPARM\n");
+    int rc = irx_jcl_dispatch_main("", NULL, 0);
+    CHECK(rc == IRXJCL_BADPARM, "empty member returns IRXJCL_BADPARM");
 }
 
 static void test_sequential_mode(void)
 {
-    /* Sequential mode: first data byte == 0x00.
-     * Build the PARM buffer via make_parm_bytes because make_parm takes
-     * a C string (which cannot embed 0x00 as non-terminal data). */
-    static const unsigned char seq_data[] = {0x00, 'A', 'B'};
-    unsigned char buf[PARM_BUF_MAX];
+    /* A member whose first byte is 0x00 is the sequential-mode marker
+     * from the binary PARM convention.  At the C level this is caught
+     * by the empty/sequential-mode guard (member[0] == '\0').
+     * The TODO(WP-CPS-08b) comment in the dispatcher preserves intent. */
+    static const char seq_member[] = {'\0', 'A', 'B', '\0'};
     int rc;
 
     printf("T3: sequential-mode marker -> BADPARM\n");
-    make_parm_bytes(buf, seq_data, sizeof(seq_data));
-    rc = irx_jcl_dispatch(buf, NULL);
-    CHECK(rc == IRXJCL_BADPARM, "sequential-mode PARM returns IRXJCL_BADPARM");
+    rc = irx_jcl_dispatch_main(seq_member, NULL, 0);
+    CHECK(rc == IRXJCL_BADPARM, "sequential-mode marker returns IRXJCL_BADPARM");
 }
 
 static void test_member_too_long(void)
 {
-    unsigned char buf[PARM_BUF_MAX];
-    int rc;
-
     printf("T4: member name > 8 chars -> BADPARM\n");
-    /* 9 non-space chars before any space */
-    make_parm(buf, "TOOLONGMN");
-    rc = irx_jcl_dispatch(buf, NULL);
+    int rc = irx_jcl_dispatch_main("TOOLONGMN", NULL, 0);
     CHECK(rc == IRXJCL_BADPARM, "9-char member returns IRXJCL_BADPARM");
 }
 
 static void test_leading_space(void)
 {
-    unsigned char buf[PARM_BUF_MAX];
-    int rc;
-
     printf("T5: leading space (no member name) -> BADPARM\n");
-    make_parm(buf, " HELLO");
-    rc = irx_jcl_dispatch(buf, NULL);
-    CHECK(rc == IRXJCL_BADPARM, "leading-space PARM returns IRXJCL_BADPARM");
+    int rc = irx_jcl_dispatch_main(" HELLO", NULL, 0);
+    CHECK(rc == IRXJCL_BADPARM, "leading-space member returns IRXJCL_BADPARM");
 }
 
 static void test_valid_no_args(void)
 {
-    unsigned char buf[PARM_BUF_MAX];
-    int rc;
-
     printf("T6: valid member, no args -> IRXJCL_OK\n");
-    make_parm(buf, "HELLO");
-    rc = irx_jcl_dispatch(buf, NULL);
+    int rc = irx_jcl_dispatch_main("HELLO", NULL, 0);
     CHECK(rc == IRXJCL_OK, "valid member returns IRXJCL_OK");
 }
 
 static void test_valid_with_args(void)
 {
-    unsigned char buf[PARM_BUF_MAX];
-    int rc;
+    static const char arg[] = "some test args";
 
     printf("T7: valid member, arg string -> IRXJCL_OK\n");
-    make_parm(buf, "WITHARG some test args");
-    rc = irx_jcl_dispatch(buf, NULL);
+    int rc = irx_jcl_dispatch_main("WITHARG", arg, (int)strlen(arg));
     CHECK(rc == IRXJCL_OK, "member with args returns IRXJCL_OK");
 }
 
 static void test_member_not_found(void)
 {
-    unsigned char buf[PARM_BUF_MAX];
-    int rc;
-
     printf("T8: member not found -> IRXJCL_ERROR\n");
-    make_parm(buf, "NOSUCHM");
-    rc = irx_jcl_dispatch(buf, NULL);
+    int rc = irx_jcl_dispatch_main("NOSUCHM", NULL, 0);
     CHECK(rc == IRXJCL_ERROR, "missing member returns IRXJCL_ERROR");
 }
 
 static void test_lowercase_member(void)
 {
-    unsigned char buf[PARM_BUF_MAX];
-    int rc;
-
     printf("T9: lowercase member name -> uppercased, found\n");
     /* "hello" should be uppercased to "HELLO" which exists */
-    make_parm(buf, "hello");
-    rc = irx_jcl_dispatch(buf, NULL);
+    int rc = irx_jcl_dispatch_main("hello", NULL, 0);
     CHECK(rc == IRXJCL_OK, "lowercase member uppercased and found");
 }
 
-static void test_explicit_envblock(void)
+static void test_findenvb_env(void)
 {
+    /* irxinit registers the new env in the anchor table.
+     * irx_jcl_dispatch_main's FINDENVB path finds it (own_env=0),
+     * runs ENVTEST, and returns without calling irxterm.
+     * We clean up via irxterm after the dispatch returns. */
     struct envblock *env = NULL;
-    unsigned char buf[PARM_BUF_MAX];
     int rc;
     int init_rc;
 
-    printf("T10: explicit envblock_r0 -> used directly\n");
+    printf("T10: pre-existing env via FINDENVB -> IRXJCL_OK\n");
     init_rc = irxinit(NULL, &env);
     if (init_rc != 0 || env == NULL)
     {
@@ -275,9 +223,8 @@ static void test_explicit_envblock(void)
     }
     CHECK(1, "irxinit succeeded (prerequisite)");
 
-    make_parm(buf, "ENVTEST");
-    rc = irx_jcl_dispatch(buf, env);
-    CHECK(rc == IRXJCL_OK, "explicit envblock_r0 accepted and exec runs");
+    rc = irx_jcl_dispatch_main("ENVTEST", NULL, 0);
+    CHECK(rc == IRXJCL_OK, "FINDENVB path used, exec runs");
 
     irxterm(env);
 }
@@ -298,8 +245,8 @@ int main(void)
 
     printf("=== TSTJCL: IRXJCL Batch Entry Point tests ===\n");
 
-    test_null_parm();
-    test_zero_length_parm();
+    test_null_member();
+    test_empty_member();
     test_sequential_mode();
     test_member_too_long();
     test_leading_space();
@@ -307,7 +254,7 @@ int main(void)
     test_valid_with_args();
     test_member_not_found();
     test_lowercase_member();
-    test_explicit_envblock();
+    test_findenvb_env();
 
     printf("\n=== Results: %d/%d passed", tests_passed, tests_run);
     if (tests_failed > 0)

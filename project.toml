@@ -1172,21 +1172,26 @@ include = ["TISTSO", "ISTSO"]
 # ---------------------------------------------------------------
 # IRXJCL - Batch Entry Point (PGM=IRXJCL, WP-CPS-08 / TSK-220)
 # MVS loads this when a JCL step specifies EXEC PGM=IRXJCL.
-# Single-slot VLIST receives the PARM= buffer; decodes member name
-# + arg string; calls IRXLOAD + IRXEXEC + IRXTERM lifecycle.
+# Entry is @@CRT0 (crent370 bootstrap); main() in IRX#JCLM
+# reconstructs the single-arg-string from @@START-split argv
+# and delegates to irx_jcl_dispatch_main in IRX#JCL.
+#
+# REUS dropped: @@CRT0/main() setup is incompatible with REUS
+# (same as all other @@CRT0 test/service modules).
+# Programmatic CALL IRXJCL support: deferred to WP-CPS-08c.
 #
 # Invocation:
 #   Batch  :  EXEC PGM=IRXJCL,PARM='MYMEMBER args...'
-#   Service:  CALL IRXJCL,(PARMPTR),VL
 #
 # Reference: WP-CPS-08 / TSK-220 / GitHub mvslovers/rexx370#126
 # ---------------------------------------------------------------
 [[link.module]]
 name = "IRXJCL"
-entry = "IRXJCL"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
 include = [
-  "IRXJCL",
+  "@@CRT1",
+  "IRX#JCLM",
   "IRX#JCL",
   "IRX#LOAD",
   "IRX#EXEC",
