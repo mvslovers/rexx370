@@ -258,7 +258,7 @@ cleanup:
 /*      subpool from eff_subpool via stack-local bootstrap parmblock) */
 /*   5. PARMBLOCK copy allocation and link                            */
 /*   6. IRXEXTE allocation + default routine pointers                 */
-/*      (irxuid / irxmsgid / irxinout — WP-I1c.4)                     */
+/*      (irxuid / irxmsgid / irxinout_host|mvs — WP-I1c.4)            */
 /*   7. IRXANCHR slot allocation                                      */
 /*   8. ECTENVBK unconditional overwrite when TSOFL=1 (MVS only;     */
 /*      IRXPROBE-verified Phase α, CON-14 cases A1/A3)               */
@@ -518,8 +518,8 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * IRXINIT/IRXTERM self-references are installed by the compat
      * wrapper (Phase 6) which knows the wrapper symbol addresses.
      *
-     * Lifetime contract: the irxuid / irxmsgid / irxinout symbols
-     * resolve to CSECTs linked into the IRXINIT load module. The
+     * Lifetime contract: the irxuid / irxmsgid / irxinout_host|mvs
+     * symbols resolve to CSECTs linked into the IRXINIT load module. The
      * pointers installed here remain dereferencable for as long as
      * that load module is resident in the calling task. Production
      * callers (IRXTMPW under TSO logon — WP-I1c.6) hold IRXINIT
@@ -557,8 +557,13 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     exte->userid_routine = (void *)irxuid;
     exte->irxmsgid = (void *)irxmsgid;
     exte->msgid_routine = (void *)irxmsgid;
+#ifdef __MVS__
     exte->irxinout = (void *)irxinout;
     exte->io_routine = (void *)irxinout;
+#else
+    exte->irxinout = (void *)irxinout_host;
+    exte->io_routine = (void *)irxinout_host;
+#endif
     envblk->envblock_irxexte = exte;
 
     /* ----------------------------------------------------------------
@@ -1041,8 +1046,8 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
     }
     envblk->envblock_workblok_ext = wkext;
 
-    /* IRXEXTE default routine pointers (irxuid, irxmsgid, irxinout) are
-     * installed by irx_init_initenvb() step 6. Compat-wrapper-specific
+    /* IRXEXTE default routine pointers (irxuid, irxmsgid, irxinout_host|mvs)
+     * are installed by irx_init_initenvb() step 6. Compat-wrapper-specific
      * IRXEXTE overrides — e.g. self-references to the irxinit / irxterm
      * symbols for Phase 6 — would go here. None today. */
 

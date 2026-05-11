@@ -283,9 +283,15 @@ static void test_sa6_irxinout_direct(void)
     s.len = 4;
 
     /* Just verify it returns 0 and does not crash */
+#ifdef __MVS__
     CHECK(irxinout(RXFWRITE, &s, NULL) == 0, "RXFWRITE returns 0");
     CHECK(irxinout(RXFREAD, &s, NULL) == 20, "RXFREAD returns 20 (stub)");
     CHECK(irxinout(RXFREADP, &s, NULL) == 20, "RXFREADP returns 20 (stub)");
+#else
+    CHECK(irxinout_host(RXFWRITE, &s, NULL) == 0, "RXFWRITE returns 0");
+    CHECK(irxinout_host(RXFREAD, &s, NULL) == 20, "RXFREAD returns 20 (stub)");
+    CHECK(irxinout_host(RXFREADP, &s, NULL) == 20, "RXFREADP returns 20 (stub)");
+#endif
 }
 
 static void test_sa7_say_no_envblock(void)

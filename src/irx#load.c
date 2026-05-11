@@ -2,7 +2,7 @@
 **
 ** Implements the IRXLOAD Programming Service per SC28-1883-0 §14.
 **
-** LOAD: locates a REXX exec in a PDS (MVS: BSAM) or flat file (host),
+** LOAD: locates a REXX exec in a PDS (MVS: QSAM via fopen) or flat file (host),
 **       reads all source lines into an INSTBLK, and returns a pointer.
 ** FREE: releases the INSTBLK and its source pool allocated by LOAD.
 **
@@ -41,9 +41,7 @@
 #include "irxload.h"
 
 #ifdef __MVS__
-#include <clibos.h>
-#include <osdcb.h>
-#include <osio.h>
+#include <stdio.h>
 #else
 #include <ctype.h>
 #include <stdio.h>
@@ -77,20 +75,11 @@ struct line_info
 /* EBCDIC space character (used to strip trailing blanks on MVS). */
 #define EBCDIC_SPACE ((unsigned char)0x40)
 
-/* Byte count of a BDW or RDW field in a VB block. */
-#define VB_HDR_SIZE 4
-
 /* Length of any CL8 (8-character blank-padded) IBM field. */
 #define CL8_LEN 8
 
 /* Byte length of a CL8 function code (same as CL8_LEN, named for clarity). */
 #define IRXLOAD_FC_LEN CL8_LEN
-
-/* Length of the TTR (Track-Track-Record) field in a BLDL entry (3 bytes). */
-#define TTR_LEN 3
-
-/* Bit shift to extract the high byte of a 16-bit big-endian integer. */
-#define BYTE_SHIFT 8
 
 /* Size of a NUL-terminated copy of a CL8 field (8 data bytes + NUL). */
 #define CL8_BUFLEN (CL8_LEN + 1)
@@ -182,11 +171,18 @@ static int build_instblk(struct envblock *envblk,
         memcpy(fsrc, tsrc, (size_t)total);
     }
 
-    /* Initialise header to zero, then fill known fields. */
+    /* Initialise header to zero, then fill known fields.
+     * On 64-bit hosts sizeof(struct instblk) > INSTBLK_HDRLEN (8-byte
+     * pointers shift _filler4 past offset 128).  Entries must start
+     * after the C struct's actual tail, not at the fixed MVS offset,
+     * to avoid clobbering them with the _filler4 stash below. */
     memset(hdr, 0, (size_t)INSTBLK_HDRLEN);
     memcpy(hdr->instblk_acronym, INSTBLK_ID, sizeof(hdr->instblk_acronym));
     hdr->instblk_hdrlen = INSTBLK_HDRLEN;
-    ents = (struct instblk_entry *)((char *)hdr + INSTBLK_HDRLEN);
+    ents = (struct instblk_entry *)((char *)hdr +
+                                    (sizeof(struct instblk) > INSTBLK_HDRLEN
+                                         ? sizeof(struct instblk)
+                                         : (size_t)INSTBLK_HDRLEN));
     hdr->instblk_address = ents;
     hdr->instblk_usedlen = n * (int)sizeof(struct instblk_entry);
     memcpy(hdr->instblk_member, member8, sizeof(hdr->instblk_member));
@@ -225,16 +221,20 @@ cleanup:
 }
 
 /* ================================================================== */
-/*  MVS BSAM path                                                     */
+/*  MVS QSAM path (fopen/fgets via crent370)                          */
 /* ================================================================== */
 #ifdef __MVS__
 
-/* scan_member — read all source lines of a PDS member via BSAM.
+/* scan_member — read all source lines of a PDS member via QSAM fopen.
+ *
+ * Builds "DD:ddname(MEMBER)" and delegates to crent370 fopen, which
+ * handles BLDL member positioning internally.  Each fgets call returns
+ * one logical record; trailing spaces and newline are stripped.
  *
  * On entry *lt_p/*lt_cap and *tsrc_p/*tsrc_cap describe caller-supplied
  * growable buffers.  On success the buffers (and caps) may have grown.
  * Returns 0 on success, IRXLOAD_NOTFOUND if the DD or member is absent,
- * or IRXLOAD_NOMEM if a reallocation or read-buffer allocation fails.
+ * or IRXLOAD_NOMEM if a reallocation fails.
  */
 static int scan_member(const char *ddname,
                        const unsigned char *member8,
@@ -243,183 +243,97 @@ static int scan_member(const char *ddname,
                        char **tsrc_p, int *tsrc_cap,
                        int *n_out, int *total_out)
 {
-    BLDL bldl_buf;
-    DECB decb;
-    DCB *dcb;
-    void *rbuf_v = NULL;
-    char *rbuf;
-    int blksize;
-    int lrecl;
-    int recfm;
+    /* "DD:" + 8-char ddname + "(" + 8-char member + ")" + NUL = 22 bytes */
+    char dd_spec[22];
+    int mlen;
+    int i;
+    char *p;
     struct line_info *lt;
     char *tsrc;
+    /* FB LRECL=80 + '\n' + '\0' = 82; 256 is ample */
+    char linebuf[256];
+    FILE *f;
     int n = 0;
     int total = 0;
-    int rc = IRXLOAD_NOTFOUND;
+    int rc = 0;
 
-    memset(&bldl_buf, 0, sizeof(bldl_buf));
-    bldl_buf.ff = 1;
-    bldl_buf.ll = (short)sizeof(DE14);
-    memcpy(bldl_buf.de14[0].name, member8, sizeof(bldl_buf.de14[0].name));
+    /* Strip trailing blanks from the CL8 member name. */
+    mlen = CL8_LEN;
+    while (mlen > 0 && member8[mlen - 1] == ' ')
+    {
+        --mlen;
+    }
 
-    dcb = osbdcb(ddname, NULL);
-    if (!dcb)
+    p = dd_spec;
+    memcpy(p, "DD:", 3);
+    p += 3;
+    for (i = 0; ddname[i] && i < CL8_LEN; i++)
+    {
+        *p++ = ddname[i];
+    }
+    *p++ = '(';
+    for (i = 0; i < mlen; i++)
+    {
+        *p++ = (char)member8[i];
+    }
+    *p++ = ')';
+    *p = '\0';
+
+    f = fopen(dd_spec, "r");
+    if (!f)
     {
         return IRXLOAD_NOTFOUND;
     }
 
-    if (osbopen(dcb, 0, "r") != 0)
-    {
-        osbclose(dcb, NULL, 1, 0);
-        return IRXLOAD_NOTFOUND;
-    }
-
-    if (__bldl(&bldl_buf, dcb) != 0)
-    {
-        osbclose(dcb, NULL, 1, 0);
-        return IRXLOAD_NOTFOUND;
-    }
-
-    /* Position DCB at member start: TTR from BLDL, R=0. */
-    memcpy(dcb->ttrn, bldl_buf.de14[0].ttr, TTR_LEN);
-    dcb->ttrn[TTR_LEN] = 0; /* R byte = 0 → start from beginning */
-
-    blksize = (int)dcb->dcbblksi;
-    lrecl = (int)dcb->dcblrecl;
-    recfm = (int)(dcb->dcbrecfm & (DCBRECF | DCBRECV));
-
-    if (blksize <= 0)
-    {
-        osbclose(dcb, NULL, 1, 0);
-        return IRXLOAD_NOTFOUND;
-    }
-
-    if (irxstor(RXSMGET, blksize, &rbuf_v, envblk) != 0)
-    {
-        osbclose(dcb, NULL, 1, 0);
-        return IRXLOAD_NOMEM;
-    }
-    rbuf = (char *)rbuf_v;
     lt = *lt_p;
     tsrc = *tsrc_p;
-    rc = 0;
 
-    for (;;)
+    while (fgets(linebuf, (int)sizeof(linebuf), f))
     {
-        int chk;
-        osbread(&decb, dcb, rbuf, blksize);
-        chk = oscheck(&decb);
-        if (chk != 0)
+        int len = (int)strlen(linebuf);
+        /* Strip newline, carriage return, and trailing spaces. */
+        while (len > 0 &&
+               (linebuf[len - 1] == '\n' ||
+                linebuf[len - 1] == '\r' ||
+                linebuf[len - 1] == ' '))
         {
-            break; /* end of member */
+            --len;
         }
-
-        if (recfm == DCBRECF)
+        if (n >= *lt_cap / (int)sizeof(struct line_info))
         {
-            /* FB: fixed-length records of LRECL bytes each. */
-            int nr = (lrecl > 0) ? blksize / lrecl : 0;
-            int i;
-            for (i = 0; i < nr; i++)
+            if (grow_pool((void **)lt_p, lt_cap, *lt_cap * 2, envblk) != 0)
             {
-                char *rec = rbuf + (ptrdiff_t)i * lrecl;
-                int len = lrecl;
-                /* Trim trailing EBCDIC spaces. */
-                while (len > 0 && (unsigned char)rec[len - 1] == EBCDIC_SPACE)
-                {
-                    --len;
-                }
-                if (n >= *lt_cap / (int)sizeof(struct line_info))
-                {
-                    if (grow_pool((void **)lt_p, lt_cap, *lt_cap * 2, envblk) != 0)
-                    {
-                        rc = IRXLOAD_NOMEM;
-                        goto done;
-                    }
-                    lt = *lt_p;
-                }
-                if (len > 0 && total + len > *tsrc_cap)
-                {
-                    int nc = *tsrc_cap * 2;
-                    if (nc < total + len)
-                    {
-                        nc = (total + len) * 2;
-                    }
-                    if (grow_pool((void **)tsrc_p, tsrc_cap, nc, envblk) != 0)
-                    {
-                        rc = IRXLOAD_NOMEM;
-                        goto done;
-                    }
-                    tsrc = *tsrc_p;
-                }
-                lt[n].offset = total;
-                lt[n].length = len;
-                if (len > 0)
-                {
-                    memcpy(tsrc + total, rec, (size_t)len);
-                }
-                total += len;
-                n++;
+                rc = IRXLOAD_NOMEM;
+                goto done;
             }
+            lt = *lt_p;
         }
-        else if (recfm == DCBRECV)
+        if (len > 0 && total + len > *tsrc_cap)
         {
-            /* VB: BDW (4-byte block descriptor) + records with RDW prefix. */
-            int blk_len = ((unsigned char)rbuf[0] << BYTE_SHIFT) |
-                          (unsigned char)rbuf[1];
-            int pos = VB_HDR_SIZE; /* skip BDW */
-            if (blk_len < VB_HDR_SIZE || blk_len > blksize)
+            int new_cap = *tsrc_cap * 2;
+            if (new_cap < total + len)
             {
-                continue; /* corrupt BDW — skip block */
+                new_cap = (total + len) * 2;
             }
-            while (pos + VB_HDR_SIZE <= blk_len)
+            if (grow_pool((void **)tsrc_p, tsrc_cap, new_cap, envblk) != 0)
             {
-                int rdw = ((unsigned char)rbuf[pos] << BYTE_SHIFT) |
-                          (unsigned char)rbuf[pos + 1];
-                int dlen = rdw - VB_HDR_SIZE;
-                if (dlen < 0)
-                {
-                    break; /* corrupt RDW */
-                }
-                if (dlen > 0)
-                {
-                    if (n >= *lt_cap / (int)sizeof(struct line_info))
-                    {
-                        if (grow_pool((void **)lt_p, lt_cap, *lt_cap * 2, envblk) != 0)
-                        {
-                            rc = IRXLOAD_NOMEM;
-                            goto done;
-                        }
-                        lt = *lt_p;
-                    }
-                    if (total + dlen > *tsrc_cap)
-                    {
-                        int nc = *tsrc_cap * 2;
-                        if (nc < total + dlen)
-                        {
-                            nc = (total + dlen) * 2;
-                        }
-                        if (grow_pool((void **)tsrc_p, tsrc_cap, nc, envblk) != 0)
-                        {
-                            rc = IRXLOAD_NOMEM;
-                            goto done;
-                        }
-                        tsrc = *tsrc_p;
-                    }
-                    lt[n].offset = total;
-                    lt[n].length = dlen;
-                    memcpy(tsrc + total, rbuf + pos + VB_HDR_SIZE, (size_t)dlen);
-                    total += dlen;
-                    n++;
-                }
-                pos += rdw;
+                rc = IRXLOAD_NOMEM;
+                goto done;
             }
+            tsrc = *tsrc_p;
         }
-        /* DCBRECU (undefined RECFM) is not supported for PDS source. */
+        lt[n].offset = total;
+        lt[n].length = len;
+        if (len > 0)
+        {
+            memcpy(tsrc + total, linebuf, (size_t)len);
+        }
+        total += len;
+        n++;
     }
 
 done:
-    irxstor(RXSMFRE, 0, &rbuf_v, envblk);
-    osbclose(dcb, NULL, 1, 0);
+    fclose(f);
     if (rc == 0)
     {
         *n_out = n;
