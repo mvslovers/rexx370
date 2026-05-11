@@ -105,7 +105,12 @@ int irxmsgid(int function, char *prefix, struct envblock *envblock);
 
 /* IRXINOUT - Default I/O Replaceable Routine
  * Handles RXFWRITE (SAY), RXFWRITERR, RXFTWRITE output.
- * RXFREAD / RXFREADP are stubbed pending WP-33 (PULL / LINEIN).
+ * RXFREAD / RXFREADP are stubbed pending WP-33b (PULL / LINEIN).
+ *
+ * irxinout_mvs  — MVS (primary): writes to SYSTSPRT DD
+ * irxinout_host — host/Linux: writes to stdout (cross-compile tests)
+ *
+ * IRXINIT step 6 selects the appropriate variant via #ifdef __MVS__.
  *
  * Parameters:
  *   function - I/O function code (RXFWRITE, RXFREAD, etc.)
@@ -114,7 +119,11 @@ int irxmsgid(int function, char *prefix, struct envblock *envblock);
  *
  * Returns: 0=OK, 20=error
  */
-int irxinout(int function, PLstr data, struct envblock *envblock);
+#ifdef __MVS__
+int irxinout_mvs(int function, PLstr data, struct envblock *envblock);
+#else
+int irxinout_host(int function, PLstr data, struct envblock *envblock);
+#endif
 
 /* IRXEXEC - Execute a REXX exec */
 int irxexec(struct irxexec_plist *plist);
