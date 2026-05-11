@@ -83,6 +83,26 @@
 //BADDR   EXEC PGM=TSTADDR,COND=EVEN
 //STEPLIB  DD DSN=IBMUSER.REXX370.V0R1M0D.LOAD,DISP=SHR
 //SYSPRINT DD SYSOUT=*
+//*---------------------------------------------------------------
+//* Pre-populate SYSEXEC fixtures for TSTLOAD (T1/T2/T8/T9).
+//* HELLO, EMPTY, ALTM must exist in IBMUSER.EXEC before any
+//* TSTLOAD step runs (both Batch and TSO invocations below).
+//*---------------------------------------------------------------
+//SETUP    EXEC PGM=IEBUPDTE,PARM=NEW,COND=EVEN
+//SYSPRINT DD SYSOUT=*
+//SYSUT2   DD DSN=IBMUSER.EXEC,DISP=SHR
+//SYSIN    DD *
+./ ADD NAME=HELLO
+/* test REXX exec */
+say 'hello'
+exit 0
+./ ADD NAME=EMPTY
+./ ADD NAME=ALTM
+/* alt-DD test REXX exec */
+say 'alt'
+exit 0
+./ ENDUP
+/*
 //BLOAD   EXEC PGM=TSTLOAD,COND=EVEN
 //STEPLIB  DD DSN=IBMUSER.REXX370.V0R1M0D.LOAD,DISP=SHR
 //SYSPRINT DD SYSOUT=*
