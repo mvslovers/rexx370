@@ -206,6 +206,46 @@ include = [
 ]
 
 # ---------------------------------------------------------------
+# IRXEXEC - HLASM Entry-Point Wrapper for the IRXEXEC Programming
+#           Service (z/OS 10-slot VLIST form). Parses the VLIST,
+#           validates VL-marker on P9 or P10, and delegates to the
+#           C-core dispatcher irx_exec_dispatch (asm() alias
+#           IRXEDISP) which performs three-path env resolution,
+#           INSTBLK source reconstruction, ARGTABLE parse, engine
+#           call via irx_exec_run, and EVALBLOCK NORESULT write.
+#
+# Reference: WP-CPS-06 / TSK-218 / PR #121
+# Reference: https://www.ibm.com/docs/en/zos/2.5.0?topic=irxexec-routine
+# ---------------------------------------------------------------
+[[link.module]]
+name = "IRXEXEC"
+entry = "IRXEXEC"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = [
+  "IRXEXEC",
+  "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
 # TSTANCH - ENVBLOCK anchor smoketest pseudomodule
 # Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
 # Pulls in the full phase-1/phase-2 object set so IRXINIT and
