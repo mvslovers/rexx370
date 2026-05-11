@@ -23,7 +23,7 @@
 *    P3   A      Flags fullword (bits 0-2 call type, bit 3 ext-RC)
 *    P4   A      INSTBLK pointer (in-storage source; NULL = use DD)
 *    P5   A      reserved (was CPPL in V1)
-*    P6   A      EVALBLOCK pointer (for function result; NULL = ignored)
+*    P6   A      EVALBLOCK pointer (function result; NULL = ignored)
 *    P7   A      work area pointer (reserved; NULL in most callers)
 *    P8   A      user field pointer (reserved; NULL in most callers)
 *    P9   A      ENVBLOCK pointer (NULL = inherit from R0 or ECT)
@@ -52,7 +52,7 @@
 *  Mirrors asm/irxload.asm structure and PDP-DSA/WPOOL shape.
 *  See irxload.asm for rationale behind the bootstrap design.
 *
-*  Refs: z/OS REXX Reference (current edition) — canonical 10-slot VLIST
+*  Refs: z/OS REXX Reference (current edition) - 10-slot VLIST
 *        https://www.ibm.com/docs/en/zos/2.5.0?topic=ir-parameters
 *        SC28-1883-0, Chapter 14 — V1 baseline (shorter VLIST)
 *        WP-CPS-06 / TSK-218 / GitHub mvslovers/rexx370#120
@@ -263,9 +263,9 @@ HAVENV   EQU   *
          FREEMAIN RU,LV=(0),A=(8)
 *
          LR    R15,R3              R15 = return code
+         LR    R0,R5               R0 = envblock before LM clobbers R5
          L     R14,12(,R13)        caller R14
-         LM    R0,R12,20(R13)      restore R0-R12 from caller SA
-         LR    R0,R5               override R0 = envblock for caller
+         LM    R1,R12,24(R13)      restore R1-R12 from caller SA
          BR    R14
 *
 NULLPLST DS    0H
@@ -304,7 +304,7 @@ WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
 WPARMS   DS    10F                 bare addresses from 10-slot VLIST
 WFLAGS   DS    F                   parse flags (X'80' = P10 present)
 WDP10    DS    F                   saved P10 bare address
-WCPLIST  DS    11F                 C plist: 10 dispatcher args + sentinel
+WCPLIST  DS    11F                 C plist: 10 dispatch args + sentinel
 *  Stack pool for nested c2asm370 PDPPRLG frames.
 WPOOL    DS    2048F               8 KB scratchpad
 WALEN    EQU   *-WAREA
