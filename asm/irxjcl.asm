@@ -156,10 +156,12 @@ BUILDC   EQU   *
 *
 *  irx_jcl_dispatch(parm_buffer, envblock_r0)
 *
-*  P1 parm_buffer: deref WPARMS+0 to get the PARM buffer pointer.
-         L     R2,WPARMS+0         R2 = addr of PARM buffer ptr slot
-         L     R3,0(,R2)           R3 = PARM buffer ptr (may be 0)
-         ST    R3,WCPLIST+0
+*  P1 parm_buffer: WPARMS+0 already holds the PARM buffer address
+*  (the bare slot value with VL bit stripped IS the buffer pointer
+*  per the MVS LINK PARAM= convention; see asm/irxload.asm P1
+*  funccode for the same single-fetch pattern).
+         L     R2,WPARMS+0         R2 = PARM buffer addr (may be 0)
+         ST    R2,WCPLIST+0
 *
 *  envblock_r0 (2nd arg): caller's original R0 (saved in WDR0).
          L     R2,WDR0             R2 = caller R0 (ENVBLOCK or 0)
