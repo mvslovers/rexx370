@@ -27,11 +27,9 @@
 #include "lstring.h"
 
 #ifdef __MVS__
-
 int irxinout(int function, PLstr data, struct envblock *envblock)
 {
     (void)envblock;
-
     switch (function)
     {
         case RXFWRITE:

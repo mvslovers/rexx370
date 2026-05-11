@@ -70,12 +70,10 @@ int irx_jcl_dispatch_main(const char *member,
      * Redirect it to the JCL-allocated SYSTSPRT DD so SAY/TRACE output
      * lands in a named spool dataset.  Falls back silently if the DD is
      * absent — output still goes to the dynamic SYSOUT stream. */
+    FILE *systsprt_fp = fopen("DD:SYSTSPRT", "w");
+    if (systsprt_fp != NULL)
     {
-        FILE *systsprt = fopen("DD:SYSTSPRT", "w");
-        if (systsprt != NULL)
-        {
-            stdout = systsprt;
-        }
+        stdout = systsprt_fp;
     }
 #endif
 
@@ -146,8 +144,9 @@ int irx_jcl_dispatch_main(const char *member,
     int load_retv = 0;
     int rc_final;
 
-    if (irx_load_dispatch(IRXLOAD_FC_LOAD, &eb, &instblk, env, &load_retv) !=
-        IRXLOAD_OK)
+    int load_rc =
+        irx_load_dispatch(IRXLOAD_FC_LOAD, &eb, &instblk, env, &load_retv);
+    if (load_rc != IRXLOAD_OK)
     {
         rc_final = IRXJCL_ERROR;
         goto cleanup_env;
@@ -200,5 +199,11 @@ cleanup_env:
     {
         irxterm(env);
     }
+#ifdef __MVS__
+    if (systsprt_fp != NULL)
+    {
+        fclose(systsprt_fp);
+    }
+#endif
     return rc_final;
 }
