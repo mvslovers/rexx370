@@ -182,11 +182,18 @@ static int build_instblk(struct envblock *envblk,
         memcpy(fsrc, tsrc, (size_t)total);
     }
 
-    /* Initialise header to zero, then fill known fields. */
+    /* Initialise header to zero, then fill known fields.
+     * On 64-bit hosts sizeof(struct instblk) > INSTBLK_HDRLEN (8-byte
+     * pointers shift _filler4 past offset 128).  Entries must start
+     * after the C struct's actual tail, not at the fixed MVS offset,
+     * to avoid clobbering them with the _filler4 stash below. */
     memset(hdr, 0, (size_t)INSTBLK_HDRLEN);
     memcpy(hdr->instblk_acronym, INSTBLK_ID, sizeof(hdr->instblk_acronym));
     hdr->instblk_hdrlen = INSTBLK_HDRLEN;
-    ents = (struct instblk_entry *)((char *)hdr + INSTBLK_HDRLEN);
+    ents = (struct instblk_entry *)((char *)hdr +
+                                    (sizeof(struct instblk) > INSTBLK_HDRLEN
+                                         ? sizeof(struct instblk)
+                                         : (size_t)INSTBLK_HDRLEN));
     hdr->instblk_address = ents;
     hdr->instblk_usedlen = n * (int)sizeof(struct instblk_entry);
     memcpy(hdr->instblk_member, member8, sizeof(hdr->instblk_member));

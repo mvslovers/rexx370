@@ -1017,6 +1017,51 @@ include = [
   "IRX#STOR",
 ]
 
+# ---------------------------------------------------------------
+# TSTJCL - WP-CPS-08 IRXJCL C-core unit tests.
+# Tests irx_jcl_dispatch() directly (bypasses the asm IRXJCL
+# wrapper). Host build uses the filesystem backend; MVS build
+# exercises the real IRXLOAD + IRXEXEC path.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTJCL)'
+#   Batch  :  EXEC PGM=TSTJCL
+#
+# Expected: CC=0
+#
+# WP-CPS-08 / TSK-220 / GitHub mvslovers/rexx370#126.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTJCL"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTJCL",
+  "IRX#JCL",
+  "IRX#LOAD",
+  "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
 [[link.module]]
 name = "TSTTRACE"
 entry = "@@CRT0"
@@ -1125,36 +1170,46 @@ options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
 include = ["TISTSO", "ISTSO"]
 
 # ---------------------------------------------------------------
-# IRXJCL - Batch entry point (PGM=IRXJCL)
-# The main REXX interpreter for batch execution.
-# Contains IRXINIT/IRXTERM and all Phase 1+ modules.
-# Commented out: IRXJCL CSECT not yet implemented.
+# IRXJCL - Batch Entry Point (PGM=IRXJCL, WP-CPS-08 / TSK-220)
+# MVS loads this when a JCL step specifies EXEC PGM=IRXJCL.
+# Single-slot VLIST receives the PARM= buffer; decodes member name
+# + arg string; calls IRXLOAD + IRXEXEC + IRXTERM lifecycle.
+#
+# Invocation:
+#   Batch  :  EXEC PGM=IRXJCL,PARM='MYMEMBER args...'
+#   Service:  CALL IRXJCL,(PARMPTR),VL
+#
+# Reference: WP-CPS-08 / TSK-220 / GitHub mvslovers/rexx370#126
 # ---------------------------------------------------------------
-# [[link.module]]
-# name = "IRXJCL"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = [
-#   "@@CRT1",
-#   "IRXJCL",
-#   "IRX#INIT",
-#   "IRX#TERM",
-#   "IRX#STOR",
-#   "IRX#ANCH",
-#   "IRX#UID",
-#   "IRX#MSID",
-#   "IRX#COND",
-#   "IRX#BIF",
-#   "IRX#BIFS",
-#   "IRX#IO",
-#   "IRX#LSTR",
-#   "IRX#TOKN",
-#   "IRX#VPOL",
-#   "IRX#PARS",
-#   "IRX#CTRL",
-#   "IRX#EXEC",
-#   "IRX#ARIT",
-# ]
+[[link.module]]
+name = "IRXJCL"
+entry = "IRXJCL"
+options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
+include = [
+  "IRXJCL",
+  "IRX#JCL",
+  "IRX#LOAD",
+  "IRX#EXEC",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # IRXEXCOM - Variable access (separate load module per IBM spec)
