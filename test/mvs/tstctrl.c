@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "irxctrl.h"
+#include "irxfunc.h"
 #include "irxpars.h"
 #include "irxtokn.h"
 #include "irxvpool.h"
@@ -66,8 +67,8 @@ static void set_lstr(struct lstr_alloc *a, PLstr s, const char *c)
     Lscpy(a, s, c);
 }
 
-static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
-                      const char *src)
+static int run_source_env(struct lstr_alloc *a, struct irx_vpool *pool,
+                          const char *src, struct envblock *env)
 {
     struct irx_token *tokens = NULL;
     int count = 0;
@@ -85,7 +86,7 @@ static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
         return -1;
     }
 
-    rc = irx_pars_init(&parser, tokens, count, pool, a, NULL);
+    rc = irx_pars_init(&parser, tokens, count, pool, a, env);
     if (rc != IRXPARS_OK)
     {
         irx_tokn_free(NULL, tokens, count);
@@ -103,6 +104,12 @@ static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
     irx_pars_cleanup(&parser);
     irx_tokn_free(NULL, tokens, count);
     return rc;
+}
+
+static int run_source(struct lstr_alloc *a, struct irx_vpool *pool,
+                      const char *src)
+{
+    return run_source_env(a, pool, src, NULL);
 }
 
 static int get_var_eq(struct lstr_alloc *a, struct irx_vpool *pool,
@@ -794,6 +801,59 @@ static void test_cf28_do_ctrl_step3(void)
     vpool_destroy(pool);
 }
 
+/* CF#29: CALL-form BIF dispatch — LENGTH and SUBSTR via CALL. */
+static void test_cf29_call_bif_dispatch(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+
+    printf("\n--- CF#29: CALL BIF dispatch (LENGTH, SUBSTR) ---\n");
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    CHECK(run_source_env(a, pool, "call length 'hello'\n", env) ==
+              IRXPARS_OK,
+          "CALL LENGTH parser OK");
+    CHECK(get_var_eq(a, pool, "RESULT", "5"), "RESULT = '5' after CALL LENGTH");
+
+    CHECK(run_source_env(a, pool, "call substr 'hello', 1, 3\n", env) ==
+              IRXPARS_OK,
+          "CALL SUBSTR parser OK");
+    CHECK(get_var_eq(a, pool, "RESULT", "hel"),
+          "RESULT = 'hel' after CALL SUBSTR");
+
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
+/* CF#30: Internal label takes priority over same-named BIF (regression). */
+static void test_cf30_label_shadows_bif(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+
+    printf("\n--- CF#30: internal label shadows BIF of same name ---\n");
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    CHECK(run_source_env(a, pool,
+                         "call length 'hello'\n"
+                         "return\n"
+                         "length:\n"
+                         "  x = 'label'\n"
+                         "  return\n",
+                         env) == IRXPARS_OK,
+          "parser OK");
+    CHECK(get_var_eq(a, pool, "X", "label"),
+          "X = 'label' (label took priority over LENGTH BIF)");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
@@ -830,6 +890,8 @@ int main(void)
     test_cf26_do_ctrl_neg_step();
     test_cf27_do_ctrl_step2();
     test_cf28_do_ctrl_step3();
+    test_cf29_call_bif_dispatch();
+    test_cf30_label_shadows_bif();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
