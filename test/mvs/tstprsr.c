@@ -521,6 +521,64 @@ static void test_ac19_call_omitted_arg(void)
     vpool_destroy(pool);
 }
 
+/* AC#20: SIGNAL ON/OFF/VALUE — parser accepts all four forms and
+ * rejects unknown/unsupported conditions (WP-CPS-09a). */
+static void test_ac20_signal_on_off_value(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    int rc;
+
+    printf("\n--- AC#20: SIGNAL ON/OFF/VALUE forms (WP-CPS-09a) ---\n");
+
+    /* SIGNAL ON for all six recognised conditions */
+    rc = run_source(a, pool, "signal on novalue\n");
+    CHECK(rc == IRXPARS_OK, "signal on novalue -> OK");
+
+    rc = run_source(a, pool, "signal on error\n");
+    CHECK(rc == IRXPARS_OK, "signal on error -> OK");
+
+    rc = run_source(a, pool, "signal on halt\n");
+    CHECK(rc == IRXPARS_OK, "signal on halt -> OK");
+
+    rc = run_source(a, pool, "signal on syntax\n");
+    CHECK(rc == IRXPARS_OK, "signal on syntax -> OK");
+
+    rc = run_source(a, pool, "signal on failure\n");
+    CHECK(rc == IRXPARS_OK, "signal on failure -> OK");
+
+    rc = run_source(a, pool, "signal on notready\n");
+    CHECK(rc == IRXPARS_OK, "signal on notready -> OK");
+
+    /* SIGNAL ON condition NAME label */
+    rc = run_source(a, pool, "signal on novalue name nov_trap\n");
+    CHECK(rc == IRXPARS_OK, "signal on novalue name nov_trap -> OK");
+
+    /* SIGNAL OFF for all six recognised conditions */
+    rc = run_source(a, pool, "signal off novalue\n");
+    CHECK(rc == IRXPARS_OK, "signal off novalue -> OK");
+
+    rc = run_source(a, pool, "signal off error\n");
+    CHECK(rc == IRXPARS_OK, "signal off error -> OK");
+
+    rc = run_source(a, pool, "signal off syntax\n");
+    CHECK(rc == IRXPARS_OK, "signal off syntax -> OK");
+
+    /* SIGNAL ON with LOSTDIGITS (z/OS extension — not V1) -> SYNTAX */
+    rc = run_source(a, pool, "signal on lostdigits\n");
+    CHECK(rc != IRXPARS_OK, "signal on lostdigits -> SYNTAX (not V1)");
+
+    /* SIGNAL ON with unknown condition -> SYNTAX */
+    rc = run_source(a, pool, "signal on foobar\n");
+    CHECK(rc != IRXPARS_OK, "signal on foobar -> SYNTAX (unknown condition)");
+
+    /* SIGNAL OFF with unknown condition -> SYNTAX */
+    rc = run_source(a, pool, "signal off foobar\n");
+    CHECK(rc != IRXPARS_OK, "signal off foobar -> SYNTAX (unknown condition)");
+
+    vpool_destroy(pool);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
@@ -548,6 +606,7 @@ int main(void)
     test_ac17_call_bif_substr();
     test_ac18_label_shadows_bif();
     test_ac19_call_omitted_arg();
+    test_ac20_signal_on_off_value();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);

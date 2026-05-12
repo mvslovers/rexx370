@@ -854,6 +854,76 @@ static void test_cf30_label_shadows_bif(void)
     vpool_destroy(pool);
 }
 
+/* CF#31: SIGNAL ON/OFF forms parse as no-ops (WP-CPS-09a). */
+static void test_cf31_signal_on_off(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+
+    printf("\n--- CF#31: SIGNAL ON/OFF forms are no-ops (WP-CPS-09a) ---\n");
+
+    /* SIGNAL ON followed by other code: ON/OFF are syntactically accepted
+     * and execution continues normally at the next clause. */
+    CHECK(run_source(a, pool,
+                     "x = 'before'\n"
+                     "signal on novalue\n"
+                     "x = 'after'\n") == IRXPARS_OK,
+          "parser OK");
+    CHECK(get_var_eq(a, pool, "X", "after"), "X = 'after' (signal on is no-op)");
+
+    CHECK(run_source(a, pool,
+                     "x = 'before'\n"
+                     "signal on novalue name nov_trap\n"
+                     "x = 'after'\n") == IRXPARS_OK,
+          "parser OK (NAME form)");
+    CHECK(get_var_eq(a, pool, "X", "after"), "X = 'after' (NAME form is no-op)");
+
+    CHECK(run_source(a, pool,
+                     "x = 'before'\n"
+                     "signal off novalue\n"
+                     "x = 'after'\n") == IRXPARS_OK,
+          "parser OK (OFF form)");
+    CHECK(get_var_eq(a, pool, "X", "after"), "X = 'after' (signal off is no-op)");
+
+    vpool_destroy(pool);
+}
+
+/* CF#32: SIGNAL VALUE expr — evaluate expression and jump to the
+ * resulting label name (WP-CPS-09a). */
+static void test_cf32_signal_value(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+
+    printf("\n--- CF#32: SIGNAL VALUE expr (WP-CPS-09a) ---\n");
+
+    /* SIGNAL VALUE with a string literal */
+    CHECK(run_source(a, pool,
+                     "signal value 'done'\n"
+                     "x = 'skipped'\n"
+                     "done:\n"
+                     "x = 'reached'\n") == IRXPARS_OK,
+          "parser OK");
+    CHECK(get_var_eq(a, pool, "X", "reached"),
+          "X = 'reached' (VALUE jumped to done:)");
+
+    /* SIGNAL VALUE with mixed-case literal — result is upper-cased */
+    CHECK(run_source(a, pool,
+                     "signal value 'DoNe'\n"
+                     "x = 'skipped'\n"
+                     "done:\n"
+                     "x = 'folded'\n") == IRXPARS_OK,
+          "parser OK (case-folded label)");
+    CHECK(get_var_eq(a, pool, "X", "folded"),
+          "X = 'folded' (VALUE case-folds to DONE)");
+
+    /* SIGNAL VALUE pointing to non-existent label -> SYNTAX */
+    CHECK(run_source(a, pool, "signal value 'nosuchlabel'\n") != IRXPARS_OK,
+          "signal value 'nosuchlabel' -> SYNTAX (label not found)");
+
+    vpool_destroy(pool);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
@@ -892,6 +962,8 @@ int main(void)
     test_cf28_do_ctrl_step3();
     test_cf29_call_bif_dispatch();
     test_cf30_label_shadows_bif();
+    test_cf31_signal_on_off();
+    test_cf32_signal_value();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
