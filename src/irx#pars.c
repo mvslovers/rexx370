@@ -2390,8 +2390,28 @@ done:
 }
 
 /* ------------------------------------------------------------------ */
-/*  SIGNAL label                                                      */
+/*  SIGNAL ON/OFF condition [NAME label] | SIGNAL VALUE expr |        */
+/*  SIGNAL label                                                       */
+/*                                                                     */
+/*  Ref: SC28-1883-0, §6.20                                           */
+/*                                                                     */
+/*  Disambiguation: ON, OFF, VALUE are reserved keywords in this      */
+/*  context per the spec. A program label literally named ON:, OFF:,  */
+/*  or VALUE: is unreachable via SIGNAL (language-defined precedence). */
 /* ------------------------------------------------------------------ */
+
+/* Return 1 if the token is a recognised SIGNAL/CALL condition name.
+ * Truth list: COND_* defines in irxwkblk.h (V1 scope only — LOSTDIGITS
+ * is a z/OS extension and is intentionally excluded). */
+static int is_signal_condition(const struct irx_token *t)
+{
+    return sym_matches(t, "ERROR") ||
+           sym_matches(t, "HALT") ||
+           sym_matches(t, "NOVALUE") ||
+           sym_matches(t, "NOTREADY") ||
+           sym_matches(t, "SYNTAX") ||
+           sym_matches(t, "FAILURE");
+}
 
 static int kw_signal(struct irx_parser *p)
 {
@@ -2399,13 +2419,96 @@ static int kw_signal(struct irx_parser *p)
     char label[CTRL_NAME_MAX];
     int label_len;
     int label_pos;
+    const struct irx_token *t;
 
-    if (cur_tok(p) == NULL || cur_tok(p)->tok_type != TOK_SYMBOL)
+    t = cur_tok(p);
+    if (t == NULL || t->tok_type != TOK_SYMBOL)
     {
         return fail(p, IRXPARS_SYNTAX);
     }
 
-    label_len = sym_to_upper(cur_tok(p), label, CTRL_NAME_MAX);
+    /* SIGNAL ON condition [NAME label] — no-op at runtime (trap
+     * activation is deferred to WP-CPS-09a-FU). */
+    if (sym_matches(t, "ON"))
+    {
+        advance_tok(p);
+        t = cur_tok(p);
+        if (t == NULL || !is_signal_condition(t))
+        {
+            return fail(p, IRXPARS_SYNTAX);
+        }
+        advance_tok(p);
+        t = cur_tok(p);
+        if (t != NULL && sym_matches(t, "NAME"))
+        {
+            advance_tok(p);
+            t = cur_tok(p);
+            if (t == NULL || t->tok_type != TOK_SYMBOL)
+            {
+                return fail(p, IRXPARS_SYNTAX);
+            }
+            advance_tok(p);
+        }
+        return IRXPARS_OK;
+    }
+
+    /* SIGNAL OFF condition — no-op at runtime. */
+    if (sym_matches(t, "OFF"))
+    {
+        advance_tok(p);
+        t = cur_tok(p);
+        if (t == NULL || !is_signal_condition(t))
+        {
+            return fail(p, IRXPARS_SYNTAX);
+        }
+        advance_tok(p);
+        return IRXPARS_OK;
+    }
+
+    /* SIGNAL VALUE expr — evaluate expression, use result as label name. */
+    if (sym_matches(t, "VALUE"))
+    {
+        Lstr result;
+        int rc;
+        size_t n;
+
+        advance_tok(p);
+        Lzeroinit(&result);
+        rc = irx_pars_eval_expr(p, &result);
+        if (rc != IRXPARS_OK)
+        {
+            Lfree(p->alloc, &result);
+            return rc;
+        }
+        upper_bytes(result.pstr, result.len);
+        n = result.len;
+        if (n >= (size_t)CTRL_NAME_MAX)
+        {
+            n = (size_t)CTRL_NAME_MAX - 1;
+        }
+        if (n > 0)
+        {
+            memcpy(label, result.pstr, n);
+        }
+        label[n] = '\0';
+        label_len = (int)n;
+        Lfree(p->alloc, &result);
+
+        label_pos = irx_ctrl_label_find(p, label, label_len);
+        if (label_pos < 0)
+        {
+            return fail(p, IRXPARS_SYNTAX);
+        }
+        if (es != NULL)
+        {
+            es->top = 0;
+        }
+        p->tok_pos = label_pos + 2;
+        return IRXPARS_OK;
+    }
+
+    /* SIGNAL label — original form. */
+    label_len = sym_to_upper(t, label, CTRL_NAME_MAX);
     advance_tok(p);
 
     label_pos = irx_ctrl_label_find(p, label, label_len);
