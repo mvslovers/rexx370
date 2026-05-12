@@ -388,6 +388,139 @@ static void test_ac14_no_global_state(void)
     vpool_destroy(pool_b);
 }
 
+/* Return 1 if a vpool variable is set (regardless of value). */
+static int var_exists(struct lstr_alloc *a, struct irx_vpool *pool,
+                      const char *name)
+{
+    Lstr key, val;
+    int rc;
+
+    Lzeroinit(&key);
+    Lzeroinit(&val);
+    set_lstr(a, &key, name);
+    rc = vpool_get(pool, &key, &val);
+    Lfree(a, &key);
+    Lfree(a, &val);
+    return rc == VPOOL_OK;
+}
+
+/* AC#15: CALL TIME 'R' — resolves to TIME BIF, sets RESULT. */
+static void test_ac15_call_bif_time(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+
+    printf("\n--- AC#15: CALL TIME 'R' sets RESULT ---\n");
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    CHECK(run_source_env(a, pool, "call time 'R'\n", env) == IRXPARS_OK,
+          "parser OK");
+    CHECK(var_exists(a, pool, "RESULT"), "RESULT is set");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
+/* AC#16: CALL LENGTH 'hello' — sets RESULT to '5'. */
+static void test_ac16_call_bif_length(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+
+    printf("\n--- AC#16: CALL LENGTH 'hello' sets RESULT = '5' ---\n");
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    CHECK(run_source_env(a, pool, "call length 'hello'\n", env) ==
+              IRXPARS_OK,
+          "parser OK");
+    CHECK(get_var_eq(a, pool, "RESULT", "5"), "RESULT = '5'");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
+/* AC#17: CALL SUBSTR 'hello', 1, 3 — sets RESULT to 'hel'.
+ * CALL arguments are comma-separated per SC28-1883-0 §6.4. */
+static void test_ac17_call_bif_substr(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+
+    printf("\n--- AC#17: CALL SUBSTR 'hello', 1, 3 sets RESULT = 'hel' ---\n");
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    CHECK(run_source_env(a, pool, "call substr 'hello', 1, 3\n", env) ==
+              IRXPARS_OK,
+          "parser OK");
+    CHECK(get_var_eq(a, pool, "RESULT", "hel"), "RESULT = 'hel'");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
+/* AC#18: Internal label shadows BIF — CALL LENGTH hits the label, not
+ * the BIF.  Verified by a side-effect only the label can set. */
+static void test_ac18_label_shadows_bif(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+
+    printf("\n--- AC#18: internal LENGTH: label shadows BIF ---\n");
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    CHECK(run_source_env(a, pool,
+                         "call length 'hello'\n"
+                         "return\n"
+                         "length:\n"
+                         "  x = 'label'\n"
+                         "  return\n",
+                         env) == IRXPARS_OK,
+          "parser OK");
+    CHECK(get_var_eq(a, pool, "X", "label"),
+          "X = 'label' (label took priority over BIF)");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
+/* AC#19: Omitted middle arg in CALL form raises SYNTAX, matching
+ * function-form.  Both "call substr 'hello', , 3" and
+ * "x = substr('hello',,3)" must return a non-OK status because
+ * SUBSTR arg 2 (start position) is required. */
+static void test_ac19_call_omitted_arg(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+    int rc;
+
+    printf("\n--- AC#19: CALL SUBSTR omitted middle arg -> SYNTAX ---\n");
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+
+    /* CALL form: omitted arg 2 (start) should raise SYNTAX 40.x */
+    rc = run_source_env(a, pool, "call substr 'hello', , 3\n", env);
+    CHECK(rc != IRXPARS_OK, "call substr 'hello', , 3 -> non-OK (SYNTAX)");
+
+    /* Function form: same omitted arg should also raise SYNTAX 40.x */
+    rc = run_source_env(a, pool, "x = substr('hello',,3)\n", env);
+    CHECK(rc != IRXPARS_OK,
+          "substr('hello',,3) in function form -> non-OK (SYNTAX)");
+
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
@@ -410,6 +543,11 @@ int main(void)
     test_ac12_strict_not_assignment();
     test_ac13_abuttal_vs_blank();
     test_ac14_no_global_state();
+    test_ac15_call_bif_time();
+    test_ac16_call_bif_length();
+    test_ac17_call_bif_substr();
+    test_ac18_label_shadows_bif();
+    test_ac19_call_omitted_arg();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
