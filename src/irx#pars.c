@@ -1651,6 +1651,34 @@ static int kw_otherwise(struct irx_parser *p)
 }
 
 /* ------------------------------------------------------------------ */
+/*  BIF dispatch helper: find + invoke a BIF by upper-case name with  */
+/*  a pre-built PLstr argument array.                                 */
+/*                                                                    */
+/*  Returns IRXPARS_OK on success (*out holds the return value;       */
+/*  caller must Lfree it), -1 if the name is not in the registry,    */
+/*  or another IRXPARS_* code on handler failure.                     */
+/* ------------------------------------------------------------------ */
+
+static int bif_dispatch(struct irx_parser *p,
+                        const unsigned char *name, size_t name_len,
+                        PLstr *argptrs, int argc, Lstr *out)
+{
+    const struct irx_bif_entry *bif;
+
+    bif = irx_bif_find(get_bif_registry(p), name, name_len);
+    if (bif == NULL)
+    {
+        return -1;
+    }
+    if (argc < bif->min_args || argc > bif->max_args)
+    {
+        return fail(p, IRXPARS_SYNTAX);
+    }
+    Lzeroinit(out);
+    return bif->handler(p, argc, argptrs, out);
+}
+
+/* ------------------------------------------------------------------ */
 /*  CALL label [args]                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -1764,8 +1792,50 @@ static int kw_call(struct irx_parser *p)
     label_pos = irx_ctrl_label_find(p, label, label_len);
     if (label_pos < 0)
     {
-        rc = fail(p, IRXPARS_BADFUNC);
-        goto err;
+        /* SC28-1883-0 §6.4 step 2: try the BIF registry. */
+        PLstr argptrs[IRX_MAX_ARGS];
+        Lstr bif_out;
+        Lstr result_key;
+        int bif_rc;
+
+        for (i = 0; i < IRX_MAX_ARGS; i++)
+        {
+            argptrs[i] = (i < argc) ? &new_args[i] : NULL;
+        }
+        Lzeroinit(&bif_out);
+        bif_rc = bif_dispatch(p, (const unsigned char *)label,
+                              (size_t)label_len, argptrs, argc, &bif_out);
+        if (bif_rc == -1)
+        {
+            rc = fail(p, IRXPARS_BADFUNC);
+            goto err;
+        }
+        if (bif_rc != IRXPARS_OK)
+        {
+            Lfree(p->alloc, &bif_out);
+            rc = bif_rc;
+            goto err;
+        }
+        /* Store BIF return value in RESULT special variable. */
+        Lzeroinit(&result_key);
+        if (lstr_set_bytes(p->alloc, &result_key, "RESULT", 6) == LSTR_OK)
+        {
+            vpool_set(p->vpool, &result_key, &bif_out);
+            Lfree(p->alloc, &result_key);
+        }
+        Lfree(p->alloc, &bif_out);
+        for (i = 0; i < argc; i++)
+        {
+            Lfree(p->alloc, &new_args[i]);
+        }
+        p->alloc->dealloc(new_args,
+                          (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                          p->alloc->ctx);
+        p->alloc->dealloc(new_exists,
+                          (size_t)IRX_MAX_ARGS * sizeof(int),
+                          p->alloc->ctx);
+        p->tok_pos = return_pos;
+        return IRXPARS_OK;
     }
 
     /* Push CALL frame, saving the current argument context. */
@@ -3861,8 +3931,6 @@ static int parse_function_call(struct irx_parser *p,
     int argc = 0;
     int i;
     int rc;
-    const struct irx_bif_entry *bif;
-    struct irx_bif_registry *registry;
     Lstr upname;
 
     for (i = 0; i < IRX_MAX_ARGS; i++)
@@ -3930,20 +3998,11 @@ static int parse_function_call(struct irx_parser *p,
         goto done;
     }
 
-    registry = get_bif_registry(p);
-    bif = irx_bif_find(registry, upname.pstr, upname.len);
-    if (bif == NULL)
+    rc = bif_dispatch(p, upname.pstr, upname.len, argptrs, argc, out);
+    if (rc == -1)
     {
         rc = fail(p, IRXPARS_BADFUNC);
-        goto done;
     }
-    if (argc < bif->min_args || argc > bif->max_args)
-    {
-        rc = fail(p, IRXPARS_SYNTAX);
-        goto done;
-    }
-
-    rc = bif->handler(p, argc, argptrs, out);
 
 done:
     Lfree(p->alloc, &upname);
