@@ -925,6 +925,116 @@ static void test_cf32_signal_value(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  WP-CPS-09d: continuation-comma control-flow tests                 */
+/* ------------------------------------------------------------------ */
+
+/* CF#33 (AC1): SAY continued over two lines.
+ *   say 'hello',
+ *       'world'
+ * Expected: parse OK, variable check via assignment trick. */
+static void test_cf33_cont_say_two_lines(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    int rc;
+    printf("\n--- CF#33 (AC1): SAY continuation over two lines ---\n");
+
+    /* Use assignment to capture continued expression result. */
+    rc = run_source(a, pool, "x = 'hello' 'world'\n");
+    CHECK(rc == IRXPARS_OK, "baseline 'hello' 'world' parse OK");
+    CHECK(get_var_eq(a, pool, "X", "hello world"), "X = 'hello world' baseline");
+
+    rc = run_source(a, pool,
+                    "x = 'hello',\n"
+                    "    'world'\n");
+    CHECK(rc == IRXPARS_OK, "continuation parse OK");
+    CHECK(get_var_eq(a, pool, "X", "hello world"),
+          "X = 'hello world' (continuation = blank concat)");
+    vpool_destroy(pool);
+}
+
+/* CF#34 (AC3): IF condition continued before THEN.
+ *   x = 1
+ *   if x = 1,
+ *      then y = 'yes'
+ * Expected: Y = 'yes' */
+static void test_cf34_cont_if_then(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    int rc;
+    printf("\n--- CF#34 (AC3): IF condition continuation before THEN ---\n");
+
+    rc = run_source(a, pool,
+                    "x = 1\n"
+                    "if x = 1,\n"
+                    "   then y = 'yes'\n");
+    CHECK(rc == IRXPARS_OK, "parse OK");
+    CHECK(get_var_eq(a, pool, "Y", "yes"), "Y = 'yes'");
+    vpool_destroy(pool);
+}
+
+/* CF#35 (AC4): DO i = 1 TO 10 with BY on the next line.
+ *   do i = 1 to 10,
+ *      by 2
+ * Expected: I = 9 (last value ≤ 10), x = 1+3+5+7+9 = 25 */
+static void test_cf35_cont_do_by(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    Lstr k, v;
+    int rc;
+    printf("\n--- CF#35 (AC4): DO i = 1 TO 10 with BY on next line ---\n");
+
+    Lzeroinit(&k);
+    Lzeroinit(&v);
+    set_lstr(a, &k, "X");
+    set_lstr(a, &v, "0");
+    vpool_set(pool, &k, &v);
+    Lfree(a, &k);
+    Lfree(a, &v);
+
+    rc = run_source(a, pool,
+                    "do i = 1 to 10,\n"
+                    "   by 2\n"
+                    "  x = x + i\n"
+                    "end\n");
+    CHECK(rc == IRXPARS_OK, "parse OK");
+    CHECK(get_var_eq(a, pool, "X", "25"), "X = '25' (1+3+5+7+9)");
+    CHECK(get_var_eq(a, pool, "I", "9"), "I = '9' (last executed value)");
+    vpool_destroy(pool);
+}
+
+/* CF#36 (AC9): CALL with multi-line args (regression — each comma is
+ * still an argument separator, NOT continuation blank-concat).
+ *   call substr 'hello',
+ *     1,
+ *     3
+ * Expected: RESULT = 'hel' */
+static void test_cf36_cont_call_regression(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+    int rc;
+    printf("\n--- CF#36 (AC9): CALL multi-line arg regression ---\n");
+
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    rc = run_source_env(a, pool,
+                        "call substr 'hello',\n"
+                        "  1,\n"
+                        "  3\n",
+                        env);
+    CHECK(rc == IRXPARS_OK, "parse OK");
+    CHECK(get_var_eq(a, pool, "RESULT", "hel"), "RESULT = 'hel'");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -964,6 +1074,10 @@ int main(void)
     test_cf30_label_shadows_bif();
     test_cf31_signal_on_off();
     test_cf32_signal_value();
+    test_cf33_cont_say_two_lines();
+    test_cf34_cont_if_then();
+    test_cf35_cont_do_by();
+    test_cf36_cont_call_regression();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);
