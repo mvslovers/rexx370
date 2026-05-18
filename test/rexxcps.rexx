@@ -84,7 +84,7 @@ say '----- REXXCPS' rexxcps '-- Measuring REXX clauses/second -----'
 say ' REXX version is:' version
 say '       System is:' system
 
-/* Calibrate for the empty do-loop *[118;1:3u/
+/* Calibrate for the empty do-loop */
 empty=0
 do i=1 to averaging
   call time 'R'
