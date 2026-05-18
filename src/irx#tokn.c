@@ -40,6 +40,17 @@ struct tok_ctx
 
     struct envblock *envblock; /* for irxstor                  */
 
+    /* upbuf: a single allocation holding the upper-cased text of every
+     * TOK_SYMBOL token, NUL-terminated, packed end-to-end.  During
+     * tokenize(), tok_upper stores the byte offset (cast to pointer) as
+     * a placeholder; irx_tokn_run fixes them up to real pointers after
+     * tokenize() returns.  The completed upbuf is anchored in the
+     * TOK_EOF sentinel: tokens[count-1].tok_upper = upbuf pointer,
+     * tokens[count-1].tok_line = upbuf_cap (for irx_tokn_free). */
+    char *upbuf;    /* growing buffer                */
+    int upbuf_used; /* bytes written so far          */
+    int upbuf_cap;  /* bytes allocated               */
+
     int err_code; /* TOKERR_*                     */
     int err_line;
     int err_col;
@@ -259,6 +270,33 @@ static int grow_tokens(struct tok_ctx *ctx)
     return 0;
 }
 
+/* Ensure upbuf has at least `needed` free bytes; grow if necessary. */
+static int grow_upbuf(struct tok_ctx *ctx, int needed)
+{
+    int new_cap = ctx->upbuf_cap ? ctx->upbuf_cap * 2 : 512;
+    void *new_ptr = NULL;
+    int rc;
+    while (new_cap < ctx->upbuf_used + needed)
+    {
+        new_cap *= 2;
+    }
+    rc = irxstor(RXSMGET, new_cap, &new_ptr, ctx->envblock);
+    if (rc != 0)
+    {
+        ctx->err_code = TOKERR_STORAGE;
+        return 20;
+    }
+    if (ctx->upbuf != NULL)
+    {
+        memcpy(new_ptr, ctx->upbuf, (size_t)ctx->upbuf_used);
+        void *p = ctx->upbuf;
+        irxstor(RXSMFRE, ctx->upbuf_cap, &p, ctx->envblock);
+    }
+    ctx->upbuf = (char *)new_ptr;
+    ctx->upbuf_cap = new_cap;
+    return 0;
+}
+
 /* Append a token record. Stores text pointer and length, classifies
  * by type/flags. Returns 0 on success, non-zero on storage error. */
 static int emit(struct tok_ctx *ctx,
@@ -283,7 +321,7 @@ static int emit(struct tok_ctx *ctx,
     t->tok_text = text;
     t->tok_length = (unsigned short)length;
     t->tok_reserved = 0;
-    t->tok_upper = NULL; /* populated later with upbuf machinery (WP-PERF-03 C) */
+    t->tok_upper = NULL;
 
     /* Stamp symbols whose upper-case name is a keyword so the parser can
      * fast-reject non-keywords in sym_matches without a fold-and-compare. */
@@ -291,6 +329,36 @@ static int emit(struct tok_ctx *ctx,
         sym_is_keyword(text, length))
     {
         t->tok_flags |= TOKF_KEYWORD;
+    }
+
+    /* Cache upper-cased text for every TOK_SYMBOL in upbuf.  During
+     * tokenize() we store the byte offset as a placeholder (cast to
+     * pointer); irx_tokn_run() fixes them up to real pointers once the
+     * upbuf address is stable. */
+    if (type == TOK_SYMBOL)
+    {
+        int need = length + 1;
+        int j;
+        char *dst;
+        if (ctx->upbuf_used + need > ctx->upbuf_cap)
+        {
+            if (grow_upbuf(ctx, need) != 0)
+            {
+                return 20;
+            }
+        }
+        dst = ctx->upbuf + ctx->upbuf_used;
+        for (j = 0; j < length; j++)
+        {
+            int c = (unsigned char)text[j];
+            dst[j] = (char)(islower(c) ? toupper(c) : c);
+        }
+        dst[length] = '\0';
+        /* Store (offset+1) as a fake pointer; the +1 bias prevents the
+         * first symbol (offset 0) from looking like NULL in the fixup
+         * loop. irx_tokn_run subtracts 1 when converting to a real ptr. */
+        t->tok_upper = (const char *)(size_t)(ctx->upbuf_used + 1);
+        ctx->upbuf_used += need;
     }
     return 0;
 }
@@ -866,6 +934,11 @@ int irx_tokn_run(struct envblock *envblock,
 
     if (rc != 0)
     {
+        if (ctx.upbuf != NULL)
+        {
+            void *p = ctx.upbuf;
+            irxstor(RXSMFRE, ctx.upbuf_cap, &p, envblock);
+        }
         if (ctx.tokens != NULL)
         {
             void *p = ctx.tokens;
@@ -882,6 +955,30 @@ int irx_tokn_run(struct envblock *envblock,
         *out_tokens = NULL;
         *out_count = 0;
         return rc;
+    }
+
+    /* Fix up tok_upper: during tokenize() we stored byte offsets into
+     * upbuf as fake pointers.  Now that upbuf won't move, convert every
+     * non-NULL tok_upper from offset to real pointer. */
+    if (ctx.upbuf != NULL)
+    {
+        int k;
+        for (k = 0; k < ctx.tok_count; k++)
+        {
+            struct irx_token *t = &ctx.tokens[k];
+            if (t->tok_upper != NULL)
+            {
+                /* Stored value is (offset+1); subtract the bias. */
+                size_t off = (size_t)t->tok_upper - 1;
+                t->tok_upper = ctx.upbuf + off;
+            }
+        }
+        /* Seal the upbuf into the TOK_EOF sentinel so irx_tokn_free can
+         * release it.  tok_upper stores the allocation pointer; tok_line
+         * stores upbuf_cap (the allocated size, needed by freemain on MVS).
+         * The TOK_EOF tok_line is not used by the parser. */
+        ctx.tokens[ctx.tok_count - 1].tok_upper = ctx.upbuf;
+        ctx.tokens[ctx.tok_count - 1].tok_line = ctx.upbuf_cap;
     }
 
     if (out_error != NULL)
@@ -907,6 +1004,15 @@ void irx_tokn_free(struct envblock *envblock,
     if (tokens == NULL)
     {
         return;
+    }
+    /* Release the upbuf if one was allocated.  The TOK_EOF sentinel at
+     * tokens[count-1] carries the upbuf pointer in tok_upper and the
+     * allocated size in tok_line (set by irx_tokn_run after fixup). */
+    if (count > 0 && tokens[count - 1].tok_type == TOK_EOF &&
+        tokens[count - 1].tok_upper != NULL)
+    {
+        void *up = (void *)tokens[count - 1].tok_upper;
+        irxstor(RXSMFRE, tokens[count - 1].tok_line, &up, envblock);
     }
     p = tokens;
     irxstor(RXSMFRE, (int)(count * sizeof(struct irx_token)),
