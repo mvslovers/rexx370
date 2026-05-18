@@ -567,9 +567,20 @@ static int sym_matches(const struct irx_token *t, const char *name)
     {
         return 0;
     }
+    /* TOKF_KEYWORD is set at tokenize time for any symbol whose upper-case
+     * text is a known keyword name.  All callers pass a keyword name, so a
+     * token without this flag can never match — skip the fold loop. */
+    if (!(t->tok_flags & TOKF_KEYWORD))
+    {
+        return 0;
+    }
     if ((size_t)t->tok_length != n)
     {
         return 0;
+    }
+    if (t->tok_upper != NULL)
+    {
+        return memcmp(t->tok_upper, name, n) == 0;
     }
     for (i = 0; i < n; i++)
     {
@@ -4566,19 +4577,33 @@ static int parse_concat(struct irx_parser *p, PLstr out)
                 int is_func = (tnxt != NULL &&
                                tnxt->tok_type == TOK_LPAREN &&
                                toks_adjacent(t0, tnxt));
-                if (!is_func)
+                if (!is_func && (t0->tok_flags & TOKF_KEYWORD))
                 {
-                    char kbuf[32];
-                    int kn = (int)t0->tok_length;
-                    if (kn < (int)sizeof(kbuf))
+                    /* TOKF_KEYWORD symbols have tok_upper set after upbuf
+                     * machinery activates (WP-PERF-03 C); fall back to
+                     * kbuf fold until then. */
+                    if (t0->tok_upper != NULL)
                     {
-                        memcpy(kbuf, t0->tok_text, (size_t)kn);
-                        kbuf[kn] = '\0';
-                        upper_bytes((unsigned char *)kbuf, (size_t)kn);
-                        if (find_keyword((unsigned char *)kbuf,
-                                         (size_t)kn) != NULL)
+                        if (find_keyword((unsigned char *)t0->tok_upper,
+                                         (size_t)t0->tok_length) != NULL)
                         {
                             break; /* keyword: stop concatenation */
+                        }
+                    }
+                    else
+                    {
+                        char kbuf[32];
+                        int kn = (int)t0->tok_length;
+                        if (kn < (int)sizeof(kbuf))
+                        {
+                            memcpy(kbuf, t0->tok_text, (size_t)kn);
+                            kbuf[kn] = '\0';
+                            upper_bytes((unsigned char *)kbuf, (size_t)kn);
+                            if (find_keyword((unsigned char *)kbuf,
+                                             (size_t)kn) != NULL)
+                            {
+                                break; /* keyword: stop concatenation */
+                            }
                         }
                     }
                 }
@@ -5101,27 +5126,41 @@ static int exec_clause(struct irx_parser *p)
             return IRXPARS_OK;
         }
 
-        /* Rule 3: keyword instruction. */
-        Lstr upname;
-        const struct irx_keyword *kw;
-        Lzeroinit(&upname);
-        if (set_upper_from_tok(p->alloc, &upname, t0) != LSTR_OK)
+        /* Rule 3: keyword instruction.  Only symbols stamped TOKF_KEYWORD
+         * at tokenize time can be instruction keywords; all others skip
+         * directly to Rule 4 without a heap allocation. */
+        if (t0->tok_flags & TOKF_KEYWORD)
         {
-            return fail(p, IRXPARS_NOMEM);
-        }
-        kw = find_keyword(upname.pstr, upname.len);
-        Lfree(p->alloc, &upname);
-        if (kw != NULL)
-        {
-            /* PROCEDURE is allowed only as first executable clause
-             * in a subroutine; it checks procedure_allowed itself.
-             * All other keywords clear the flag before executing. */
-            if (kw->kw_handler != kw_procedure)
+            const struct irx_keyword *kw;
+            if (t0->tok_upper != NULL)
             {
-                proc_allowed_clear(p);
+                /* tok_upper is pre-computed upper-case — no alloc needed. */
+                kw = find_keyword((unsigned char *)t0->tok_upper,
+                                  (size_t)t0->tok_length);
             }
-            advance_tok(p);
-            return kw->kw_handler(p);
+            else
+            {
+                Lstr upname;
+                Lzeroinit(&upname);
+                if (set_upper_from_tok(p->alloc, &upname, t0) != LSTR_OK)
+                {
+                    return fail(p, IRXPARS_NOMEM);
+                }
+                kw = find_keyword(upname.pstr, upname.len);
+                Lfree(p->alloc, &upname);
+            }
+            if (kw != NULL)
+            {
+                /* PROCEDURE is allowed only as first executable clause
+                 * in a subroutine; it checks procedure_allowed itself.
+                 * All other keywords clear the flag before executing. */
+                if (kw->kw_handler != kw_procedure)
+                {
+                    proc_allowed_clear(p);
+                }
+                advance_tok(p);
+                return kw->kw_handler(p);
+            }
         }
     }
 
@@ -5228,15 +5267,27 @@ int irx_pars_eval_expr(struct irx_parser *p, PLstr out)
          * DO, etc.  DO-internal keywords (TO, BY, WHILE, UNTIL) are not
          * in the keyword table; kw_do skips continuation-commas at those
          * boundaries explicitly. */
-        if (t_next->tok_type == TOK_SYMBOL && t_next->tok_length < 32)
+        if (t_next->tok_type == TOK_SYMBOL &&
+            (t_next->tok_flags & TOKF_KEYWORD))
         {
-            char kbuf[32];
-            int kn = (int)t_next->tok_length;
-            memcpy(kbuf, t_next->tok_text, (size_t)kn);
-            upper_bytes((unsigned char *)kbuf, (size_t)kn);
-            if (find_keyword((unsigned char *)kbuf, (size_t)kn) != NULL)
+            if (t_next->tok_upper != NULL)
             {
-                break;
+                if (find_keyword((unsigned char *)t_next->tok_upper,
+                                 (size_t)t_next->tok_length) != NULL)
+                {
+                    break;
+                }
+            }
+            else if (t_next->tok_length < 32)
+            {
+                char kbuf[32];
+                int kn = (int)t_next->tok_length;
+                memcpy(kbuf, t_next->tok_text, (size_t)kn);
+                upper_bytes((unsigned char *)kbuf, (size_t)kn);
+                if (find_keyword((unsigned char *)kbuf, (size_t)kn) != NULL)
+                {
+                    break;
+                }
             }
         }
         Lzeroinit(&rhs);

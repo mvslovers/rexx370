@@ -50,6 +50,55 @@ struct tok_ctx
 #define TOK_INITIAL_CAPACITY 64
 
 /* ------------------------------------------------------------------ */
+/*  Keyword stamp table                                               */
+/*                                                                    */
+/*  Every word ever passed to sym_matches() or tok_is_kw() must       */
+/*  appear here.  A symbol whose upper-case text is in this list is   */
+/*  stamped TOKF_KEYWORD at emit time so the parser can fast-reject   */
+/*  non-keywords without a fold-and-compare loop.                     */
+/* ------------------------------------------------------------------ */
+
+/* Sorted for readability; the lookup is a short linear scan. */
+static const char *const s_kw_names[] = {
+    "ADDRESS", "ARG", "BY", "CALL", "DO",
+    "ELSE", "END", "ERROR", "EXIT", "EXTERNAL",
+    "FAILURE", "FOREVER", "HALT", "IF", "ITERATE",
+    "LEAVE", "LINEIN", "NAME", "NOP", "NOTREADY",
+    "NOVALUE", "NUMERIC", "OFF", "ON", "OTHERWISE",
+    "PARSE", "PROCEDURE", "PULL", "RETURN", "SAY",
+    "SELECT", "SIGNAL", "SOURCE", "SYNTAX", "THEN",
+    "TO", "TRACE", "UNTIL", "UPPER", "VALUE",
+    "VAR", "VERSION", "WHEN", "WHILE", "WITH",
+    NULL};
+
+/* Returns 1 if the symbol text[0..len-1] (as-written, any case) matches
+ * one of the known keyword names; 0 otherwise. */
+static int sym_is_keyword(const char *text, int len)
+{
+    char buf[16]; /* longest keyword is 9 chars ("OTHERWISE","PROCEDURE") */
+    int i;
+    if (len <= 0 || len >= (int)sizeof(buf))
+    {
+        return 0;
+    }
+    for (i = 0; i < len; i++)
+    {
+        int c = (unsigned char)text[i];
+        buf[i] = (char)(islower(c) ? toupper(c) : c);
+    }
+    for (i = 0; s_kw_names[i] != NULL; i++)
+    {
+        const char *kn = s_kw_names[i];
+        size_t kl = strlen(kn);
+        if ((int)kl == len && memcmp(kn, buf, (size_t)len) == 0)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Character classification                                          */
 /*                                                                    */
 /*  We use <ctype.h> which crent370 provides in EBCDIC-correct form   */
@@ -234,6 +283,15 @@ static int emit(struct tok_ctx *ctx,
     t->tok_text = text;
     t->tok_length = (unsigned short)length;
     t->tok_reserved = 0;
+    t->tok_upper = NULL; /* populated later with upbuf machinery (WP-PERF-03 C) */
+
+    /* Stamp symbols whose upper-case name is a keyword so the parser can
+     * fast-reject non-keywords in sym_matches without a fold-and-compare. */
+    if (type == TOK_SYMBOL && !(flags & TOKF_COMPOUND) &&
+        sym_is_keyword(text, length))
+    {
+        t->tok_flags |= TOKF_KEYWORD;
+    }
     return 0;
 }
 
