@@ -1,3 +1,6 @@
+# Host build output
+build/
+
 # Generated ASM sources
 *.s
 
