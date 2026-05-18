@@ -74,7 +74,7 @@ static int fail(struct irx_parser *p, int code)
 /*  Token inspection                                                  */
 /* ------------------------------------------------------------------ */
 
-static const struct irx_token *peek_tok(struct irx_parser *p, int off)
+static inline const struct irx_token *peek_tok(struct irx_parser *p, int off)
 {
     int idx = p->tok_pos + off;
     if (idx < 0 || idx >= p->tok_count)
