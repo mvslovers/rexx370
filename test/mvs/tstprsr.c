@@ -580,6 +580,89 @@ static void test_ac20_signal_on_off_value(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  WP-CPS-09d: continuation-comma tests                              */
+/* ------------------------------------------------------------------ */
+
+/* AC6: assignment RHS continued over two lines.
+ *   x = 'a',
+ *       'b'
+ * Expected: X = "a b" */
+static void test_cont_ac6_assignment(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    int rc;
+    printf("\n--- WP-CPS-09d AC6: assignment continuation ---\n");
+
+    rc = run_source(a, pool, "x = 'a',\n    'b'\n");
+    CHECK(rc == IRXPARS_OK, "parse OK");
+    CHECK(get_var_eq(a, pool, "X", "a b"), "X = 'a b'");
+    vpool_destroy(pool);
+}
+
+/* AC6 (3-part): three-line continuation in assignment.
+ *   x = 'a',
+ *   'b',
+ *   'c'
+ * Expected: X = "a b c" */
+static void test_cont_ac6_three_parts(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    int rc;
+    printf("\n--- WP-CPS-09d AC6 (3-part): three-segment continuation ---\n");
+
+    rc = run_source(a, pool, "x = 'a',\n'b',\n'c'\n");
+    CHECK(rc == IRXPARS_OK, "parse OK");
+    CHECK(get_var_eq(a, pool, "X", "a b c"), "X = 'a b c'");
+    vpool_destroy(pool);
+}
+
+/* AC8: function call args continued over multiple lines (regression).
+ *   result = substr('hello',
+ *     1,
+ *     3)
+ * Each comma is an argument separator, NOT a continuation.
+ * Expected: RESULT = "hel" */
+static void test_cont_ac8_func_call_regression(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct envblock *env = NULL;
+    int rc;
+    printf("\n--- WP-CPS-09d AC8: function-call multi-line arg regression ---\n");
+
+    CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
+    rc = run_source_env(a, pool,
+                        "result = substr('hello',\n"
+                        "  1,\n"
+                        "  3)\n",
+                        env);
+    CHECK(rc == IRXPARS_OK, "parse OK");
+    CHECK(get_var_eq(a, pool, "RESULT", "hel"), "RESULT = 'hel'");
+    if (env != NULL)
+    {
+        irxterm(env);
+    }
+    vpool_destroy(pool);
+}
+
+/* AC10 (negative): single-line comma in SAY is SYNTAX.
+ *   say 'a', 'b'
+ * Expected: SYNTAX error (RC != 0) */
+static void test_cont_ac10_single_line_negative(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    int rc;
+    printf("\n--- WP-CPS-09d AC10: single-line comma -> SYNTAX ---\n");
+
+    rc = run_source(a, pool, "say 'a', 'b'\n");
+    CHECK(rc != IRXPARS_OK, "single-line comma raises SYNTAX");
+    vpool_destroy(pool);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -607,6 +690,10 @@ int main(void)
     test_ac18_label_shadows_bif();
     test_ac19_call_omitted_arg();
     test_ac20_signal_on_off_value();
+    test_cont_ac6_assignment();
+    test_cont_ac6_three_parts();
+    test_cont_ac8_func_call_regression();
+    test_cont_ac10_single_line_negative();
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);

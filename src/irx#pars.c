@@ -1071,6 +1071,14 @@ static int kw_do(struct irx_parser *p)
                 Lfree(p->alloc, &tmp);
                 Lzeroinit(&tmp);
 
+                /* Skip continuation-comma before TO (SC28-1883-0 §3.2). */
+                while (cur_tok(p) != NULL &&
+                       cur_tok(p)->tok_type == TOK_COMMA &&
+                       (cur_tok(p)->tok_flags & TOKF_CONTINUATION) != 0)
+                {
+                    advance_tok(p);
+                }
+
                 /* TO */
                 if (!sym_matches(cur_tok(p), "TO"))
                 {
@@ -1093,6 +1101,14 @@ static int kw_do(struct irx_parser *p)
                 Lfree(p->alloc, &tmp);
                 Lzeroinit(&tmp);
 
+                /* Skip continuation-comma before BY (SC28-1883-0 §3.2). */
+                while (cur_tok(p) != NULL &&
+                       cur_tok(p)->tok_type == TOK_COMMA &&
+                       (cur_tok(p)->tok_flags & TOKF_CONTINUATION) != 0)
+                {
+                    advance_tok(p);
+                }
+
                 /* Optional BY */
                 if (sym_matches(cur_tok(p), "BY"))
                 {
@@ -1109,6 +1125,14 @@ static int kw_do(struct irx_parser *p)
                     }
                     Lfree(p->alloc, &tmp);
                     Lzeroinit(&tmp);
+                }
+
+                /* Skip continuation-comma before WHILE/UNTIL (SC28-1883-0 §3.2). */
+                while (cur_tok(p) != NULL &&
+                       cur_tok(p)->tok_type == TOK_COMMA &&
+                       (cur_tok(p)->tok_flags & TOKF_CONTINUATION) != 0)
+                {
+                    advance_tok(p);
                 }
 
                 /* Optional WHILE/UNTIL: skip expression (future WP). */
@@ -1761,9 +1785,12 @@ static int kw_call(struct irx_parser *p)
                 }
                 break;
             }
-            /* Evaluate the expression for this argument position. */
+            /* Evaluate the expression for this argument position.
+             * Use parse_or directly (not irx_pars_eval_expr) so a
+             * continuation-comma between args is NOT collapsed into
+             * blank concatenation — it remains an arg separator. */
             Lzeroinit(&new_args[argc]);
-            rc = irx_pars_eval_expr(p, &new_args[argc]);
+            rc = parse_or(p, &new_args[argc]);
             if (rc != IRXPARS_OK)
             {
                 /* eval may have partially allocated into new_args[argc]. */
@@ -5171,11 +5198,63 @@ void irx_pars_cleanup(struct irx_parser *p)
 
 int irx_pars_eval_expr(struct irx_parser *p, PLstr out)
 {
+    int rc;
+    const struct irx_token *ct;
+
     if (p == NULL || out == NULL)
     {
         return IRXPARS_BADARG;
     }
-    return parse_or(p, out);
+    rc = parse_or(p, out);
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+    /* SC28-1883-0 §3.2: a continuation-comma at line-end is a blank
+     * concatenation in expression context, not an argument separator. */
+    while ((ct = cur_tok(p)) != NULL && ct->tok_type == TOK_COMMA &&
+           (ct->tok_flags & TOKF_CONTINUATION) != 0)
+    {
+        Lstr rhs;
+        const struct irx_token *t_next;
+
+        advance_tok(p);
+        t_next = cur_tok(p);
+        if (t_next == NULL || tok_ends_clause(t_next))
+        {
+            break;
+        }
+        /* Stop at keyword that starts a new syntactic clause: THEN, ELSE,
+         * DO, etc.  DO-internal keywords (TO, BY, WHILE, UNTIL) are not
+         * in the keyword table; kw_do skips continuation-commas at those
+         * boundaries explicitly. */
+        if (t_next->tok_type == TOK_SYMBOL && t_next->tok_length < 32)
+        {
+            char kbuf[32];
+            int kn = (int)t_next->tok_length;
+            memcpy(kbuf, t_next->tok_text, (size_t)kn);
+            upper_bytes((unsigned char *)kbuf, (size_t)kn);
+            if (find_keyword((unsigned char *)kbuf, (size_t)kn) != NULL)
+            {
+                break;
+            }
+        }
+        Lzeroinit(&rhs);
+        rc = parse_or(p, &rhs);
+        if (rc != IRXPARS_OK)
+        {
+            Lfree(p->alloc, &rhs);
+            return rc;
+        }
+        if (Lcat(p->alloc, out, " ") != LSTR_OK ||
+            Lstrcat(p->alloc, out, &rhs) != LSTR_OK)
+        {
+            Lfree(p->alloc, &rhs);
+            return fail(p, IRXPARS_NOMEM);
+        }
+        Lfree(p->alloc, &rhs);
+    }
+    return IRXPARS_OK;
 }
 
 int irx_pars_run(struct irx_parser *p)

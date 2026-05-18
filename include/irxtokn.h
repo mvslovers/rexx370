@@ -51,8 +51,8 @@
 #define TOKF_QUOTE_DBL 0x01 /* STRING contained doubled quotes     */
 #define TOKF_COMPOUND  0x02 /* SYMBOL is a compound (has a dot)    */
 #define TOKF_CONSTANT  0x04 /* SYMBOL is a constant (starts digit  */
-
 /* or '.')                             */
+#define TOKF_CONTINUATION 0x08 /* COMMA suppressed an EOC (SC28-1883-0 §3.2) */
 
 /* ================================================================== */
 /*  Token record (contiguous array, cache-friendly)                   */
