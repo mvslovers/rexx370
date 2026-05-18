@@ -26,8 +26,9 @@
 /* ------------------------------------------------------------------ */
 
 static const int vp_primes[] = {
-    67, 137, 277, 557, 1117, 2237, 4483, 8963};
-#define VP_PRIME_COUNT 8
+    67, 137, 277, 557, 1117, 2237, 4483, 8963,
+    17929, 35863, 71741, 143483, 287003, 574021};
+#define VP_PRIME_COUNT 14
 #define VP_INITIAL     67
 #define VP_MAX_LOAD    4 /* entries per bucket before resize */
 
@@ -221,8 +222,8 @@ static int bucket_index(const struct irx_vpool *pool, const PLstr name)
     return (int)(h % (unsigned long)pool->bucket_count);
 }
 
-static struct vpool_entry *find_in_bucket(struct vpool_entry *head,
-                                          const PLstr name)
+static inline struct vpool_entry *find_in_bucket(struct vpool_entry *head,
+                                                 const PLstr name)
 {
     struct vpool_entry *e;
     for (e = head; e != NULL; e = e->next)
