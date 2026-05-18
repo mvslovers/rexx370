@@ -64,7 +64,15 @@ static int fail(struct irx_parser *p, int code)
         p->error_code = code;
         if (p->tok_pos < p->tok_count)
         {
-            p->error_line = p->tokens[p->tok_pos].tok_line;
+            const struct irx_token *t = &p->tokens[p->tok_pos];
+            if (t->tok_type == TOK_EOF && p->tok_pos > 0)
+            {
+                p->error_line = p->tokens[p->tok_pos - 1].tok_line;
+            }
+            else if (t->tok_type != TOK_EOF)
+            {
+                p->error_line = t->tok_line;
+            }
         }
     }
     return code;
