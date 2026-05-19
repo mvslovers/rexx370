@@ -7,7 +7,7 @@
 /*    - Assignment statements:  symbol = expr                        */
 /*    - Expressions: literals, variables, arithmetic, comparison,    */
 /*      logical, string concatenation, parenthesised groups          */
-/*    - EXIT statement (no expression)                               */
+/*    - EXIT [expr] statement                                         */
 /*    - Any other construct returns IRXBC_ERR_UNSUP                  */
 /*                                                                    */
 /*  Memory: caller must free the returned irx_bc_execblk with        */
@@ -123,7 +123,7 @@ static char tok_ch(const struct bcom_ctx *ctx, int offset)
 }
 
 /* Add a constant string (text, len) to the const table; return index.
- * Returns -1 on overflow. Duplicates are not merged (acceptable for now). */
+ * Deduplicates by value. Returns -1 on overflow. */
 static int add_const(struct bcom_ctx *ctx, const char *text, int len)
 {
     int i;
@@ -553,6 +553,8 @@ static void bc_exp3(struct bcom_ctx *ctx)
 /* Level 2 — comparison operators */
 static void bc_exp2(struct bcom_ctx *ctx)
 {
+    unsigned char op = 0;
+
     if (ctx->rc != IRXBC_OK)
     {
         return;
@@ -564,143 +566,140 @@ static void bc_exp2(struct bcom_ctx *ctx)
         return;
     }
 
-    /* Comparison is non-associative: parse at most one operator. */
+    /* Comparison is non-associative: parse at most one operator.
+     * 2- and 3-character composites are checked before single chars
+     * so the longer match wins. */
+
+    /* 2-character composites checked first (longer match wins) */
+    if (tok_type_at(ctx, 0, TOK_COMPARISON) && tok_ch(ctx, 0) == '=' &&
+        tok_type_at(ctx, 1, TOK_COMPARISON) && tok_ch(ctx, 1) == '=')
     {
-        unsigned char op = 0;
+        /* ==  but not \== (handled via \) */
+        op = OP_DEQ;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '>' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '>' &&
+             tok_type_at(ctx, 2, TOK_COMPARISON) &&
+             tok_ch(ctx, 2) == '=')
+    {
+        /* >>= */
+        op = OP_DGE;
+        ctx->pos += 3;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '<' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '<' &&
+             tok_type_at(ctx, 2, TOK_COMPARISON) &&
+             tok_ch(ctx, 2) == '=')
+    {
+        /* <<= */
+        op = OP_DLE;
+        ctx->pos += 3;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '>' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '>')
+    {
+        /* >> */
+        op = OP_DGT;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '<' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '<')
+    {
+        /* << */
+        op = OP_DLT;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '>' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '=')
+    {
+        /* >= */
+        op = OP_GE;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '<' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '=')
+    {
+        /* <= */
+        op = OP_LE;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_NOT) &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '=' &&
+             tok_type_at(ctx, 2, TOK_COMPARISON) &&
+             tok_ch(ctx, 2) == '=')
+    {
+        /* \== */
+        op = OP_DNE;
+        ctx->pos += 3;
+    }
+    else if (tok_type_at(ctx, 0, TOK_NOT) &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '=')
+    {
+        /* \= */
+        op = OP_NE;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_NOT) &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '>')
+    {
+        /* \> same as <= */
+        op = OP_LE;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_NOT) &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '<')
+    {
+        /* \< same as >= */
+        op = OP_GE;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '=')
+    {
+        /* = */
+        op = OP_EQ;
+        ctx->pos++;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '>')
+    {
+        /* > */
+        op = OP_GT;
+        ctx->pos++;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '<')
+    {
+        /* < */
+        op = OP_LT;
+        ctx->pos++;
+    }
 
-        /* 3-character strict: >>= <<= \== (handled as two below via nesting) */
-
-        /* 2-character composites checked first (longer match wins) */
-        if (tok_type_at(ctx, 0, TOK_COMPARISON) && tok_ch(ctx, 0) == '=' &&
-            tok_type_at(ctx, 1, TOK_COMPARISON) && tok_ch(ctx, 1) == '=')
+    if (op != 0)
+    {
+        bc_exp3(ctx);
+        if (ctx->rc != IRXBC_OK)
         {
-            /* ==  but not \== (handled via \) */
-            op = OP_DEQ;
-            ctx->pos += 2;
+            return;
         }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '>' &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '>' &&
-                 tok_type_at(ctx, 2, TOK_COMPARISON) &&
-                 tok_ch(ctx, 2) == '=')
-        {
-            /* >>= */
-            op = OP_DGE;
-            ctx->pos += 3;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '<' &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '<' &&
-                 tok_type_at(ctx, 2, TOK_COMPARISON) &&
-                 tok_ch(ctx, 2) == '=')
-        {
-            /* <<= */
-            op = OP_DLE;
-            ctx->pos += 3;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '>' &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '>')
-        {
-            /* >> */
-            op = OP_DGT;
-            ctx->pos += 2;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '<' &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '<')
-        {
-            /* << */
-            op = OP_DLT;
-            ctx->pos += 2;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '>' &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '=')
-        {
-            /* >= */
-            op = OP_GE;
-            ctx->pos += 2;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '<' &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '=')
-        {
-            /* <= */
-            op = OP_LE;
-            ctx->pos += 2;
-        }
-        else if (tok_type_at(ctx, 0, TOK_NOT) &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '=' &&
-                 tok_type_at(ctx, 2, TOK_COMPARISON) &&
-                 tok_ch(ctx, 2) == '=')
-        {
-            /* \== */
-            op = OP_DNE;
-            ctx->pos += 3;
-        }
-        else if (tok_type_at(ctx, 0, TOK_NOT) &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '=')
-        {
-            /* \= */
-            op = OP_NE;
-            ctx->pos += 2;
-        }
-        else if (tok_type_at(ctx, 0, TOK_NOT) &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '>')
-        {
-            /* \> same as <= */
-            op = OP_LE;
-            ctx->pos += 2;
-        }
-        else if (tok_type_at(ctx, 0, TOK_NOT) &&
-                 tok_type_at(ctx, 1, TOK_COMPARISON) &&
-                 tok_ch(ctx, 1) == '<')
-        {
-            /* \< same as >= */
-            op = OP_GE;
-            ctx->pos += 2;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '=')
-        {
-            /* = */
-            op = OP_EQ;
-            ctx->pos++;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '>')
-        {
-            /* > */
-            op = OP_GT;
-            ctx->pos++;
-        }
-        else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-                 tok_ch(ctx, 0) == '<')
-        {
-            /* < */
-            op = OP_LT;
-            ctx->pos++;
-        }
-
-        if (op != 0)
-        {
-            bc_exp3(ctx);
-            if (ctx->rc != IRXBC_OK)
-            {
-                return;
-            }
-            emit_byte(ctx, op);
-        }
+        emit_byte(ctx, op);
     }
 }
 

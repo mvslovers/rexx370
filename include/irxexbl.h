@@ -94,7 +94,12 @@ struct irx_bc_execblk
     (IRXBC_CODE(bc) + (bc)->entry_offset)
 
 /* Total byte size of a container: header + tables + bytecode. */
-#define IRXBC_TOTAL(bc) \
-    ((int)sizeof(struct irx_bc_execblk) + (int)(bc)->const_count * IRXBC_ENTRY_SIZE + (int)(bc)->symbol_count * IRXBC_ENTRY_SIZE + (int)(bc)->code_length)
+/* clang-format off */
+#define IRXBC_TOTAL(bc)                                               \
+    ((int)sizeof(struct irx_bc_execblk)                               \
+     + (int)(bc)->const_count  * IRXBC_ENTRY_SIZE                     \
+     + (int)(bc)->symbol_count * IRXBC_ENTRY_SIZE                     \
+     + (int)(bc)->code_length)
+/* clang-format on */
 
 #endif /* IRXEXBL_H */

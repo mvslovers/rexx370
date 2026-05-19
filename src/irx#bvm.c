@@ -173,7 +173,8 @@ int irx_bc_execute(struct envblock *envblock,
                 IRXBC_STACK_DEPTH * (int)sizeof(struct bc_stack_slot),
                 &stack_mem, envblock) != 0)
     {
-        return IRXBC_ERR_STOR;
+        vm_rc = IRXBC_ERR_STOR;
+        goto done;
     }
     memset(stack_mem, 0, IRXBC_STACK_DEPTH * sizeof(struct bc_stack_slot));
     stack = (struct bc_stack_slot *)stack_mem;
