@@ -3849,42 +3849,60 @@ static int kw_address(struct irx_parser *p)
 /*  modifying the parser core.                                        */
 /* ------------------------------------------------------------------ */
 
+/* Sorted alphabetically — find_keyword uses binary search. */
 static const struct irx_keyword g_keyword_table[] = {
-    {"SAY", kw_say},
-    {"NOP", kw_nop},
-    {"EXIT", kw_exit},
+    {"ADDRESS", kw_address},
+    {"ARG", kw_arg},
+    {"CALL", kw_call},
     {"DO", kw_do},
+    {"ELSE", kw_else}, /* barrier only — IF consumes ELSE   */
     {"END", kw_end},
+    {"EXIT", kw_exit},
+    {"IF", kw_if},
     {"ITERATE", kw_iterate},
     {"LEAVE", kw_leave},
-    {"IF", kw_if},
-    {"THEN", kw_then}, /* barrier only — IF consumes THEN   */
-    {"ELSE", kw_else}, /* barrier only — IF consumes ELSE   */
-    {"SELECT", kw_select},
-    {"WHEN", kw_when},
-    {"OTHERWISE", kw_otherwise},
-    {"CALL", kw_call},
-    {"RETURN", kw_return},
-    {"SIGNAL", kw_signal},
-    {"PROCEDURE", kw_procedure},
-    {"ARG", kw_arg},
-    {"PARSE", kw_parse},
+    {"NOP", kw_nop},
     {"NUMERIC", kw_numeric},
+    {"OTHERWISE", kw_otherwise},
+    {"PARSE", kw_parse},
+    {"PROCEDURE", kw_procedure},
+    {"RETURN", kw_return},
+    {"SAY", kw_say},
+    {"SELECT", kw_select},
+    {"SIGNAL", kw_signal},
+    {"THEN", kw_then}, /* barrier only — IF consumes THEN   */
     {"TRACE", kw_trace},
-    {"ADDRESS", kw_address},
+    {"WHEN", kw_when},
     {NULL, NULL}};
+
+#define KW_TABLE_SIZE 22
 
 static const struct irx_keyword *find_keyword(const unsigned char *name,
                                               size_t len)
 {
-    int i;
-    for (i = 0; g_keyword_table[i].kw_name != NULL; i++)
+    int lo = 0, hi = KW_TABLE_SIZE - 1;
+    while (lo <= hi)
     {
-        const char *kn = g_keyword_table[i].kw_name;
+        int mid = lo + (hi - lo) / 2;
+        const char *kn = g_keyword_table[mid].kw_name;
         size_t kl = strlen(kn);
-        if (kl == len && memcmp(kn, name, len) == 0)
+        size_t min_len = len < kl ? len : kl;
+        int cmp = memcmp(name, kn, min_len);
+        if (cmp == 0)
         {
-            return &g_keyword_table[i];
+            cmp = (len > kl) - (len < kl);
+        }
+        if (cmp < 0)
+        {
+            hi = mid - 1;
+        }
+        else if (cmp > 0)
+        {
+            lo = mid + 1;
+        }
+        else
+        {
+            return &g_keyword_table[mid];
         }
     }
     return NULL;
