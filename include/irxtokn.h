@@ -53,6 +53,10 @@
 #define TOKF_CONSTANT  0x04 /* SYMBOL is a constant (starts digit  */
 /* or '.')                             */
 #define TOKF_CONTINUATION 0x08 /* COMMA suppressed an EOC (SC28-1883-0 §3.2) */
+#define TOKF_KEYWORD      0x10 /* SYMBOL matches a keyword or context-sensitive    \
+                                * keyword name — stamped at tokenize time so the \
+                                * parser can fast-reject non-keywords without a    \
+                                * fold-and-compare loop. */
 
 /* ================================================================== */
 /*  Token record (contiguous array, cache-friendly)                   */
@@ -63,10 +67,17 @@ struct irx_token
     unsigned char tok_type;      /* TOK_*                          */
     unsigned char tok_flags;     /* TOKF_*                         */
     short tok_col;               /* 1-based column of first byte   */
-    int tok_line;                /* 1-based line of first byte     */
+    int tok_line;                /* 1-based line of first byte; for
+                                  * the TOK_EOF sentinel: upbuf_cap */
     const char *tok_text;        /* pointer into source buffer     */
     unsigned short tok_length;   /* length of token text in bytes  */
     unsigned short tok_reserved; /* pad / future use               */
+    const char *tok_upper;       /* upper-cased symbol text (TOK_SYMBOL
+                                  * only, owned by upbuf); NULL for all
+                                  * other token types. For the TOK_EOF
+                                  * sentinel: pointer to the upbuf
+                                  * allocation itself (used by
+                                  * irx_tokn_free). */
 };
 
 /* ================================================================== */
