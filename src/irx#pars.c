@@ -92,7 +92,7 @@ static inline const struct irx_token *peek_tok(struct irx_parser *p, int off)
     return &p->tokens[idx];
 }
 
-static const struct irx_token *cur_tok(struct irx_parser *p)
+static inline const struct irx_token *cur_tok(struct irx_parser *p)
 {
     return peek_tok(p, 0);
 }
@@ -105,8 +105,8 @@ static void advance_tok(struct irx_parser *p)
     }
 }
 
-static int tok_is_op_char(const struct irx_token *t, unsigned char type,
-                          char ch)
+static inline int tok_is_op_char(const struct irx_token *t, unsigned char type,
+                                 char ch)
 {
     if (t == NULL)
     {
@@ -123,7 +123,7 @@ static int tok_is_op_char(const struct irx_token *t, unsigned char type,
     return t->tok_text[0] == ch;
 }
 
-static int tok_ends_clause(const struct irx_token *t)
+static inline int tok_ends_clause(const struct irx_token *t)
 {
     if (t == NULL)
     {
@@ -573,7 +573,7 @@ static int parse_or(struct irx_parser *p, PLstr out);
 /*  WP-15 helper: case-insensitive symbol comparison                  */
 /* ------------------------------------------------------------------ */
 
-static int sym_matches(const struct irx_token *t, const char *name)
+static inline int sym_matches(const struct irx_token *t, const char *name)
 {
     size_t n = strlen(name);
     size_t i;
@@ -640,7 +640,7 @@ static int sym_to_upper(const struct irx_token *t, char *dst, int dst_max)
 
 /* Returns 1 if the token at `pos` is the keyword `kw` (not an
  * assignment target), 0 otherwise. */
-static int tok_is_kw(struct irx_parser *p, int pos, const char *kw)
+static inline int tok_is_kw(struct irx_parser *p, int pos, const char *kw)
 {
     const struct irx_token *t;
     const struct irx_token *tnext;
