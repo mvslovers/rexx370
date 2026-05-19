@@ -26,9 +26,13 @@
 /*  so each alloc/dealloc routes through the correct environment's    */
 /*  storage management replaceable routine. No statics - everything   */
 /*  travels with the struct.                                          */
+/*                                                                    */
+/*  rexx_lstr_alloc_raw / rexx_lstr_dealloc_raw are the direct        */
+/*  irxstor wrappers. rexx_lstr_alloc / rexx_lstr_dealloc are the     */
+/*  pool-aware entry points installed in the lstr_alloc callbacks.   */
 /* ------------------------------------------------------------------ */
 
-static void *rexx_lstr_alloc(size_t size, void *ctx)
+static void *rexx_lstr_alloc_raw(size_t size, void *ctx)
 {
     struct envblock *env = (struct envblock *)ctx;
     void *ptr = NULL;
@@ -42,13 +46,22 @@ static void *rexx_lstr_alloc(size_t size, void *ctx)
     return ptr;
 }
 
-static void rexx_lstr_dealloc(void *ptr, size_t size, void *ctx)
+static void rexx_lstr_dealloc_raw(void *ptr, size_t size, void *ctx)
 {
     struct envblock *env = (struct envblock *)ctx;
     void *p = ptr;
 
-    (void)size; /* irxstor's free path doesn't use the length */
     irxstor(RXSMFRE, (int)size, &p, env);
+}
+
+static void *rexx_lstr_alloc(size_t size, void *ctx)
+{
+    return rexx_lstr_alloc_raw(size, ctx);
+}
+
+static void rexx_lstr_dealloc(void *ptr, size_t size, void *ctx)
+{
+    rexx_lstr_dealloc_raw(ptr, size, ctx);
 }
 
 struct lstr_alloc *irx_lstr_init(struct envblock *envblock)
