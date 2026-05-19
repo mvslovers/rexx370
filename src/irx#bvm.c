@@ -1,10 +1,12 @@
 /* ------------------------------------------------------------------ */
-/*  irx#bvm.c - REXX/370 Bytecode VM Loop (WP-BC-02)                 */
+/*  irx#bvm.c - REXX/370 Bytecode VM Loop (WP-BC-03)                 */
 /*                                                                    */
 /*  irx_bc_execute() — Entry point.                                  */
 /*                                                                    */
-/*  Phase 2 adds: stack slots, variable pool, arithmetic/comparison/ */
-/*  logical/string opcodes, and PUSH_LIT / LOAD / STORE / POP.      */
+/*  WP-BC-02: stack slots, variable pool, arithmetic/comparison/     */
+/*  logical/string opcodes, PUSH_LIT / LOAD / STORE / POP.          */
+/*  WP-BC-03: control flow (JMP/JF/JT), SAY, DO loop ops            */
+/*  (FORINIT/BYINIT/DECFOR stubs), ITERATE, LEAVE.                  */
 /*                                                                    */
 /*  Stack discipline: SP always points to the next FREE slot.        */
 /*    push: stack[sp++]                                              */
@@ -39,6 +41,17 @@
 static int read_u16(const unsigned char *pc)
 {
     return (int)pc[0] | ((int)pc[1] << 8);
+}
+
+/* Read a little-endian i16 (sign-extended) from the bytecode stream. */
+static int read_i16(const unsigned char *pc)
+{
+    unsigned int u = (unsigned int)pc[0] | ((unsigned int)pc[1] << 8);
+    if (u >= 0x8000u)
+    {
+        return (int)u - 0x10000;
+    }
+    return (int)u;
 }
 
 /* ================================================================== */
@@ -825,6 +838,107 @@ int irx_bc_execute(struct envblock *envblock,
                     stack[sp - 1].type_cache = 0;
                     break;
                 }
+
+                /* ---- Control flow (WP-BC-03) ----------------------- */
+                case OP_JMP:
+                case OP_ITERATE:
+                case OP_LEAVE:
+                {
+                    int off = read_i16(pc);
+                    pc += 2;
+                    pc += off;
+                    break;
+                }
+
+                case OP_JF:
+                {
+                    int off = read_i16(pc);
+                    int bval;
+                    pc += 2;
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    bval = slot_to_bool(&stack[--sp]);
+                    if (bval < 0)
+                    {
+                        vm_rc = IRXBC_ERR_ARITH;
+                        goto done;
+                    }
+                    if (!bval)
+                    {
+                        pc += off;
+                    }
+                    break;
+                }
+
+                case OP_JT:
+                {
+                    int off = read_i16(pc);
+                    int bval;
+                    pc += 2;
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    bval = slot_to_bool(&stack[--sp]);
+                    if (bval < 0)
+                    {
+                        vm_rc = IRXBC_ERR_ARITH;
+                        goto done;
+                    }
+                    if (bval)
+                    {
+                        pc += off;
+                    }
+                    break;
+                }
+
+                /* ---- I/O (WP-BC-03) -------------------------------- */
+                case OP_SAY:
+                {
+                    struct irxexte *exte;
+                    int (*io_fn)(int, PLstr, struct envblock *);
+                    int irc;
+
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    sp--;
+                    exte = (struct irxexte *)envblock->envblock_irxexte;
+                    if (exte == NULL || exte->io_routine == NULL)
+                    {
+                        vm_rc = IRXBC_ERR_IO;
+                        goto done;
+                    }
+                    io_fn = (int (*)(int, PLstr,
+                                     struct envblock *))exte->io_routine;
+                    irc = io_fn(RXFWRITE, stack[sp].str, envblock);
+                    if (irc != 0)
+                    {
+                        vm_rc = IRXBC_ERR_IO;
+                        goto done;
+                    }
+                    break;
+                }
+
+                /* ---- DO loop ops (WP-BC-03) — stubs ---------------- */
+                case OP_TOINT:
+                case OP_DOTEST:
+                    break;
+
+                case OP_FORINIT:
+                case OP_BYINIT:
+                    pc++; /* skip u8 operand */
+                    break;
+
+                case OP_DECFOR:
+                    pc += 2; /* skip i16 operand */
+                    break;
 
                 default:
                     vm_rc = IRXBC_ERR_OPCODE;
