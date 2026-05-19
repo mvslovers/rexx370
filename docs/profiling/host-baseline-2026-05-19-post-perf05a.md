@@ -96,16 +96,14 @@ after applying the branch (see MVS A/B section).
 
 ## MVS A/B — REXXCPS 2.2
 
-*(To be filled in after MVS run)*
-
 **Target:** MVS 3.8j on Hercules (TK5)  
 **Build:** c2asm370 (GCC 3.2.3) — `-O0`  
 **Driver:** REXXCPS 2.2 — 5 × 5 iterations of 1000 clauses
 
-| Branch | CPS | Elapsed | Delta |
-|--------|-----|---------|-------|
-| main (WP-PERF-04) | 7 580 | 3.3 s | — |
-| wp-perf-05a | TBD | TBD | TBD |
+| Branch | CPS | Delta |
+|--------|-----|-------|
+| main (WP-PERF-04) | 7 580 | — |
+| wp-perf-05a | 8 726 | **+15.1%** |
 
 ---
 
@@ -121,13 +119,12 @@ vs. the memory-access wins in WP-PERF-03/04).
 **Host outcome:** No measurable win at `-O0` (expected — GCC ignores
 the hint at this optimisation level).
 
-**MVS outcome:** TBD — fill in after REXXCPS run on target.
-
-If the MVS win is +10–15%: hypothesis holds.  
-If MVS win is <+5%: c2asm370 also ignores the hint or the call
-overhead is smaller than estimated.  
-If MVS win is >+25%: the S/370 calling convention overhead is larger
-than estimated — document and adjust model.
+**MVS outcome:** +15.1% CPS (7 580 → 8 726). At the top of the
+predicted +10–15% range. Hypothesis holds: c2asm370 honours the
+`inline` hint and eliminates the S/370 register save-area overhead
+for these five call sites. The gain is consistent with per-call
+overhead being the dominant cost — not a memory-access win (which
+would have shown a larger multiplier, as in WP-PERF-03/04).
 
 ---
 
