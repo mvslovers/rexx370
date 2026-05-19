@@ -140,6 +140,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -177,6 +179,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -224,6 +228,8 @@ options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
 include = [
   "IRXEXEC",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#INIT",
   "IRX#TERM",
   "IRX#STOR",
@@ -279,6 +285,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -338,6 +346,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -402,6 +412,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -431,6 +443,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -492,6 +506,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -533,6 +549,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -574,6 +592,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -603,6 +623,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -632,6 +654,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -661,6 +685,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -690,6 +716,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -719,6 +747,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -748,6 +778,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -783,6 +815,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -812,6 +846,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -841,6 +877,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -870,6 +908,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -899,6 +939,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -928,6 +970,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -957,6 +1001,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -986,6 +1032,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -1041,6 +1089,8 @@ include = [
   "IRX#JCL",
   "IRX#LOAD",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#INIT",
   "IRX#TERM",
   "IRX#STOR",
@@ -1085,6 +1135,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -1114,6 +1166,8 @@ include = [
   "IRX#PARS",
   "IRX#CTRL",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#ARIT",
 ]
 
@@ -1195,6 +1249,8 @@ include = [
   "IRX#JCL",
   "IRX#LOAD",
   "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
   "IRX#INIT",
   "IRX#TERM",
   "IRX#STOR",

@@ -678,7 +678,110 @@ This principle emerged during WP-21b Phase C review. Both reviewers argued from 
 
 ---
 
-# 15. Test strategy
+# 15. Bytecode VM (WP-BC series)
+
+The bytecode phase replaces the token-walk interpreter with a compile-then-execute
+pipeline. Expected throughput gain: 5–6× on top of the Phase 3 optimisations
+(2.86× REXXCPS speedup achieved by WP-PERF-02..05A).
+
+## 15.1 EXECBLK container format
+
+```
+Offset  Size  Field
+   0      4   magic       "RX37" — eye-catcher
+   4      2   version     format version (currently 1)
+   6      2   flags       reserved, zero
+   8      4   const_count number of constant-pool entries
+  12      4   symbol_count number of symbol-table entries
+  16      4   code_length bytecode length in bytes
+  20      4   entry_offset offset within bytecode of entry point
+  24      4   trace_map_offset offset to trace map (0 = absent)
+ [28]    ... Constants Table  (count × length-prefixed Lstring)
+         ... Symbol Table     (count × length-prefixed uppercased name)
+         ... Bytecode          (code_length bytes)
+         ... Trace Map         (optional, absent in Phase 1)
+```
+
+All operands in the bytecode are indices or relative offsets — no
+absolute pointers. The container is position-independent and will be
+serialisable to CEXEC (a later work package).
+
+The C definition is in `include/irxexbl.h` as `struct irx_bc_execblk`.
+Note: this is **distinct** from the IBM-defined `struct execblk` in
+`include/irx.h`, which is the IRXEXEC parameter block.
+
+## 15.2 Opcode encoding
+
+All opcodes are defined in `include/irxbops.h`.
+
+Phase 1 opcodes (1 byte each, no operands):
+
+| Opcode | Byte | Description |
+|--------|------|-------------|
+| `OP_NOP` | 0x00 | No operation, advance PC |
+| `OP_EXIT` | 0x01 | Terminate execution, RC=0 |
+| `OP_NEWCLAUSE` | 0x02 | Clause boundary (TRACE hook, no-op in Phase 1) |
+
+Future work packages extend the opcode table with operand-bearing
+instructions for literals, variable access, arithmetic, control flow, etc.
+
+## 15.3 Evaluation stack
+
+The evaluation stack type is `struct bc_stack_slot` (defined in
+`include/irxbvm.h`), 24 bytes per slot:
+
+```c
+struct bc_stack_slot {
+    PLstr   str;        /* canonical string form; always valid */
+    int32_t type_cache; /* 0=none, LINTEGER_TY, etc.          */
+    int64_t int_cache;  /* integer fast-path value             */
+};
+```
+
+`type_cache` enables an arithmetic fast path: when a value was recently
+computed as an integer, subsequent operations can skip the string→integer
+parse. On `OP_STORE`, `type_cache` is written to the variable pool so
+that `OP_LOAD` can repopulate the cache slot.
+
+Phase 1 does not allocate a stack — no opcode pushes or pops yet.
+WP-BC-02 introduces the first stack-consuming opcode.
+
+## 15.4 Compiler entry point
+
+```
+irx_bc_compile(envblock, source, source_len, &bc_out)
+```
+
+Located in `src/irx#bcom.c` (PDS member `IRX#BCOM`).
+
+Phase 1: tokenises the source, walks the token stream, emits opcodes
+into a local buffer, then allocates an EXECBLK container via `irxstor`
+and copies the bytecode in. The caller must free the returned container
+with `irxstor(RXSMFRE, 0, &p, envblock)`.
+
+## 15.5 VM loop
+
+```
+irx_bc_execute(envblock, bc, &rc_out)
+```
+
+Located in `src/irx#bvm.c` (PDS member `IRX#BVM`).
+
+Uses a big-switch dispatch on an unsigned char opcode byte. c2asm370
+generates an optimised branch table from this pattern. The PC starts
+at `IRXBC_ENTRY(bc)` (= start of bytecode + `entry_offset`).
+
+## 15.6 Integration
+
+`irx_exec_run()` in `src/irx#exec.c` checks `wkbi_use_bytecode` on
+the work block before invoking the token-walk pipeline. When the flag
+is set, it routes to `irx_bc_compile` + `irx_bc_execute` instead.
+The flag defaults to 0 (token-walk path). Setting it to 1 enables A/B
+benchmarking while both paths coexist.
+
+---
+
+# 16. Test strategy
 
 | Category | Description | Estimated count |
 |---|---|---|

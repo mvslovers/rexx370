@@ -12,7 +12,10 @@
 
 #include "irx.h"
 #include "irx_init.h"
+#include "irxbops.h"
+#include "irxbvm.h"
 #include "irxctrl.h"
+#include "irxexbl.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxlstr.h"
@@ -334,6 +337,33 @@ int irx_exec_run(const char *source, int source_len,
             retention_saved = 1;
             wk->wkbi_source = (void *)source;
             wk->wkbi_source_len = source_len;
+        }
+    }
+
+    /* 3. Bytecode path (opt-in via wkbi_use_bytecode) -------------- */
+    {
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)envblock->envblock_userfield;
+        if (wk != NULL && wk->wkbi_use_bytecode)
+        {
+            struct irx_bc_execblk *bc = NULL;
+            int bc_rc = 0;
+
+            rc = irx_bc_compile(envblock, source, source_len, &bc);
+            if (rc == IRXBC_OK)
+            {
+                rc = irx_bc_execute(envblock, bc, &bc_rc);
+            }
+            if (rc_out != NULL)
+            {
+                *rc_out = bc_rc;
+            }
+            if (bc != NULL)
+            {
+                void *p = bc;
+                irxstor(RXSMFRE, 0, &p, envblock);
+            }
+            goto cleanup;
         }
     }
 
