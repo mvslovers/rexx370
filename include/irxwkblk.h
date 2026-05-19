@@ -205,6 +205,12 @@ struct irx_wkblk_int
      * on wkbi allocation — no explicit init call needed.
      * Released by irx_lstr_pool_teardown() during irxterm().          */
     struct lstr_pool wkbi_lstr_pool;
+
+    /* --- Bytecode engine opt-in (WP-BC-01) ------------------------- */
+    /* When non-zero, irx_exec_run routes through the bytecode compiler
+     * and VM instead of the token-walk interpreter.  Default: 0 (off).
+     * Set explicitly in tests or callers to engage the bytecode path. */
+    int wkbi_use_bytecode;
 };
 
 #define WKBLK_INT_ID "WKBI"
