@@ -1,4 +1,4 @@
-# Host Profile — post WP-PERF-04 (2026-05-19)
+# Profile — post WP-PERF-04 (2026-05-19)
 
 **Engine commit:** (wp-perf-04-allocator-pool)  
 **Host:** Linux 6.6.114.1-microsoft-standard-WSL2 (Ubuntu 24.04)  
@@ -124,11 +124,31 @@ expensive `irxstor` call. The net storage-path time is lower than before.
 **Wall-clock −5.4% REXXCPS, −6.2% microbench** on WSL2 at `-O0`. At `-O0`
 on a host with fast libc malloc, the pool wrapper overhead is proportionally
 larger than on the MVS target where each irxstor call is a GETMAIN/FREEMAIN
-SVC (supervisor call overhead). MVS measurement is AC9 (requires hardware).
+SVC (supervisor call overhead). See the MVS A/B section for the on-target
+result (+32.7% CPS).
 
 **WSL2 scheduler variance** — the WSL2 host shows ±10–15% run-to-run
 variance. The same-machine A/B controls for hardware speed; the structural
 metrics (irxstor call count, pool hit rate) are the reliable measures.
+
+---
+
+## MVS A/B — REXXCPS 2.2
+
+**Target:** MVS 3.8j on Hercules (TK5)  
+**Build:** c2asm370 (GCC 3.2.3) — `-O0`  
+**Driver:** REXXCPS 2.2 — 5 × 5 iterations of 1000 clauses
+
+| Branch | CPS | Elapsed | Delta |
+|--------|-----|---------|-------|
+| main (WP-PERF-03) | 5 710 | 4.4 s | — |
+| wp-perf-04 | 7 580 | 3.3 s | **+32.7%** |
+
+The larger gain on MVS vs. WSL2 (32.7% vs. 5.4%) is expected: on MVS
+each `irxstor` call is a GETMAIN/FREEMAIN SVC. Supervisor call overhead
+is orders of magnitude higher than a `libc malloc`, so the 80% reduction
+in `irxstor` calls from the pool carries far greater weight on the target
+platform.
 
 ---
 
