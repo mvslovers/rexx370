@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  irxexbl.h - REXX/370 Bytecode EXECBLK Format (WP-BC-01)          */
+/*  irxexbl.h - REXX/370 Bytecode EXECBLK Format (WP-BC-02)          */
 /*                                                                    */
 /*  Defines struct irx_bc_execblk — the in-memory bytecode container */
 /*  produced by the bytecode compiler (irx#bcom.c) and consumed by   */
@@ -13,9 +13,16 @@
 /*    [ Bytecode         (code_length bytes) ]                       */
 /*    [ Trace Map        (optional)          ]                       */
 /*                                                                    */
-/*  All operands in the bytecode are indices or relative offsets —   */
-/*  no absolute pointers.  The container is position-independent     */
-/*  and will be serialisable to CEXEC in a later work package.       */
+/*  Table entry format (IRXBC_ENTRY_SIZE == 64 bytes):              */
+/*    byte[0]     = string length (0..IRXBC_STR_MAX)                */
+/*    byte[1..63] = string data (not NUL-terminated)                */
+/*                                                                    */
+/*  When const_count == 0 and symbol_count == 0 the bytecode starts  */
+/*  immediately after the header — backward-compatible with WP-BC-01. */
+/*                                                                    */
+/*  All operands in the bytecode are table indices or relative        */
+/*  offsets — no absolute pointers.  The container is position-      */
+/*  independent and will be serialisable to CEXEC in a later WP.    */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
@@ -53,24 +60,46 @@ struct irx_bc_execblk
 };
 
 /* ================================================================== */
-/*  Payload access macros                                             */
-/*                                                                    */
-/*  Phase 1: const_count == 0 and symbol_count == 0, so the          */
-/*  bytecode starts at (char*)bc + sizeof(*bc) + entry_offset.       */
-/*  Future phases will insert the constants and symbol tables         */
-/*  between the header and the bytecode.                             */
+/*  Table entry geometry                                              */
 /* ================================================================== */
 
+/* Bytes per entry in the constants and symbol tables. */
+#define IRXBC_ENTRY_SIZE 64
+
+/* Maximum string length that fits in one table entry. */
+#define IRXBC_STR_MAX 63
+
+/* ================================================================== */
+/*  Payload access macros                                             */
+/*                                                                    */
+/*  When const_count == 0 and symbol_count == 0, IRXBC_CODE returns  */
+/*  the same address as the old Phase 1 macro — backward-compatible.  */
+/* ================================================================== */
+
+/* Pointer to the start of the constants table. */
+#define IRXBC_CONST_TBL(bc) \
+    ((char *)(bc) + (int)sizeof(struct irx_bc_execblk))
+
+/* Pointer to the start of the symbol table. */
+#define IRXBC_SYM_TBL(bc) \
+    (IRXBC_CONST_TBL(bc) + (int)(bc)->const_count * IRXBC_ENTRY_SIZE)
+
 /* Pointer to start of bytecode within a container. */
-#define IRXBC_CODE(bc) \
-    ((unsigned char *)(bc) + sizeof(struct irx_bc_execblk))
+#define IRXBC_CODE(bc)                     \
+    ((unsigned char *)(IRXBC_SYM_TBL(bc) + \
+                       (int)(bc)->symbol_count * IRXBC_ENTRY_SIZE))
 
 /* Pointer to entry point within a container. */
 #define IRXBC_ENTRY(bc) \
     (IRXBC_CODE(bc) + (bc)->entry_offset)
 
-/* Total byte size of a container: header + payload. */
-#define IRXBC_TOTAL(bc) \
-    ((int)(sizeof(struct irx_bc_execblk)) + (int)(bc)->code_length)
+/* Total byte size of a container: header + tables + bytecode. */
+/* clang-format off */
+#define IRXBC_TOTAL(bc)                                               \
+    ((int)sizeof(struct irx_bc_execblk)                               \
+     + (int)(bc)->const_count  * IRXBC_ENTRY_SIZE                     \
+     + (int)(bc)->symbol_count * IRXBC_ENTRY_SIZE                     \
+     + (int)(bc)->code_length)
+/* clang-format on */
 
 #endif /* IRXEXBL_H */
