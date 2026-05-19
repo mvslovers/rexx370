@@ -68,7 +68,11 @@
  * Ownership: the allocator struct is owned by the envblock's work
  * block and is freed by irxterm().
  */
-struct lstr_alloc *irx_lstr_init(struct envblock *envblock);
+/* asm() aliases: irx_lstr_init and irx_lstr_pool_teardown share the same
+ * first 8 characters (irx_lstr → IRX@LSTR), which collides on MVS where
+ * entry point names are truncated to 8 characters.  Explicit aliases give
+ * each function a unique name in the object deck.                          */
+struct lstr_alloc *irx_lstr_init(struct envblock *envblock) asm("IRXLSINI");
 
 /* Release all pooled Lstring buffers back to the raw allocator.
  *
@@ -79,7 +83,7 @@ struct lstr_alloc *irx_lstr_init(struct envblock *envblock);
  * Safe to call when no pool items are present (count == 0 in all
  * buckets — the initial state).
  */
-void irx_lstr_pool_teardown(struct envblock *envblock);
+void irx_lstr_pool_teardown(struct envblock *envblock) asm("IRXLSPTD");
 
 /* Check if s contains a valid REXX number literal.
  *
