@@ -1,0 +1,240 @@
+/* ------------------------------------------------------------------ */
+/*  irx#bctl.c - REXX/370 Bytecode Control-Flow Utilities (WP-BC-03) */
+/*                                                                    */
+/*  irx_bc_disasm() — walk an irx_bc_execblk code stream and produce  */
+/*  a human-readable listing.  Used by tests and trace output.        */
+/*                                                                    */
+/*  (c) 2026 mvslovers - REXX/370 Project                            */
+/* ------------------------------------------------------------------ */
+
+#include <stdio.h>
+#include <string.h>
+
+#include "irxbctl.h"
+#include "irxbops.h"
+#include "irxexbl.h"
+
+/* ================================================================== */
+/*  Opcode name table                                                 */
+/* ================================================================== */
+
+/* clang-format off */
+static const struct { unsigned char op; const char *name; } op_names[] = {
+    { OP_NOP,       "NOP"       },
+    { OP_EXIT,      "EXIT"      },
+    { OP_NEWCLAUSE, "NEWCLAUSE" },
+    { OP_EXIT_RC,   "EXIT_RC"   },
+    { OP_JMP,       "JMP"       },
+    { OP_JF,        "JF"        },
+    { OP_JT,        "JT"        },
+    { OP_PUSH_LIT,  "PUSH_LIT"  },
+    { OP_PUSH_TMP,  "PUSH_TMP"  },
+    { OP_POP,       "POP"       },
+    { OP_DUP,       "DUP"       },
+    { OP_LOAD,      "LOAD"      },
+    { OP_STORE,     "STORE"     },
+    { OP_DROP,      "DROP"      },
+    { OP_ADD,       "ADD"       },
+    { OP_SUB,       "SUB"       },
+    { OP_MUL,       "MUL"       },
+    { OP_DIV,       "DIV"       },
+    { OP_IDIV,      "IDIV"      },
+    { OP_MOD,       "MOD"       },
+    { OP_POW,       "POW"       },
+    { OP_NEG,       "NEG"       },
+    { OP_EQ,        "EQ"        },
+    { OP_NE,        "NE"        },
+    { OP_LT,        "LT"        },
+    { OP_LE,        "LE"        },
+    { OP_GT,        "GT"        },
+    { OP_GE,        "GE"        },
+    { OP_DEQ,       "DEQ"       },
+    { OP_DNE,       "DNE"       },
+    { OP_DLT,       "DLT"       },
+    { OP_DLE,       "DLE"       },
+    { OP_DGT,       "DGT"       },
+    { OP_DGE,       "DGE"       },
+    { OP_AND,       "AND"       },
+    { OP_OR,        "OR"        },
+    { OP_XOR,       "XOR"       },
+    { OP_NOT,       "NOT"       },
+    { OP_CONCAT,    "CONCAT"    },
+    { OP_BCONCAT,   "BCONCAT"   },
+    { OP_SAY,       "SAY"       },
+    { OP_TOINT,     "TOINT"     },
+    { OP_FORINIT,   "FORINIT"   },
+    { OP_BYINIT,    "BYINIT"    },
+    { OP_DECFOR,    "DECFOR"    },
+    { OP_DOTEST,    "DOTEST"    },
+    { OP_ITERATE,   "ITERATE"   },
+    { OP_LEAVE,     "LEAVE"     },
+};
+
+/* clang-format on */
+
+#define OP_NAME_COUNT ((int)(sizeof(op_names) / sizeof(op_names[0])))
+
+/* Return the mnemonic for op, or "???" for unknown. */
+static const char *op_name(unsigned char op)
+{
+    int i;
+    for (i = 0; i < OP_NAME_COUNT; i++)
+    {
+        if (op_names[i].op == op)
+        {
+            return op_names[i].name;
+        }
+    }
+    return "???";
+}
+
+/* ================================================================== */
+/*  Append helpers — write to buf without exceeding capacity.         */
+/* ================================================================== */
+
+/* Write at most n chars of s into buf[*pos .. bufsz-1]. */
+static void app_str(char *buf, int bufsz, int *pos, const char *s, int n)
+{
+    int i;
+    for (i = 0; i < n && s[i] != '\0'; i++)
+    {
+        if (buf != NULL && *pos < bufsz - 1)
+        {
+            buf[*pos] = s[i];
+        }
+        (*pos)++;
+    }
+}
+
+/* Write a C string into buf. */
+static void app_cstr(char *buf, int bufsz, int *pos, const char *s)
+{
+    while (*s != '\0')
+    {
+        if (buf != NULL && *pos < bufsz - 1)
+        {
+            buf[*pos] = *s;
+        }
+        (*pos)++;
+        s++;
+    }
+}
+
+/* Format a signed decimal int into a tmp buffer then append it. */
+static void app_int(char *buf, int bufsz, int *pos, int v)
+{
+    char tmp[16];
+    int n = snprintf(tmp, sizeof(tmp), "%d", v);
+    if (n > 0)
+    {
+        app_str(buf, bufsz, pos, tmp, n);
+    }
+}
+
+/* Format a hex int into a tmp buffer then append it. */
+static void app_hex4(char *buf, int bufsz, int *pos, int v)
+{
+    char tmp[8];
+    int n = snprintf(tmp, sizeof(tmp), "%04X", (unsigned int)(v & 0xFFFF));
+    if (n > 0)
+    {
+        app_str(buf, bufsz, pos, tmp, n);
+    }
+}
+
+/* ================================================================== */
+/*  irx_bc_disasm                                                     */
+/* ================================================================== */
+
+int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
+{
+    const unsigned char *code;
+    const char *const_base;
+    const char *sym_base;
+    int n_consts, n_syms;
+    int code_len;
+    int pc;
+    int pos = 0;
+
+    if (bc == NULL)
+    {
+        return -1;
+    }
+
+    code = IRXBC_CODE(bc);
+    code_len = (int)bc->code_length;
+    const_base = IRXBC_CONST_TBL(bc);
+    sym_base = IRXBC_SYM_TBL(bc);
+    n_consts = (int)bc->const_count;
+    n_syms = (int)bc->symbol_count;
+
+    pc = 0;
+    while (pc < code_len)
+    {
+        unsigned char op = code[pc];
+        int sz = OP_SIZE(op);
+        int target;
+
+        /* Offset */
+        app_hex4(buf, bufsz, &pos, pc);
+        app_cstr(buf, bufsz, &pos, ": ");
+        app_cstr(buf, bufsz, &pos, op_name(op));
+
+        /* Operands */
+        if (sz == 3 && (op == OP_PUSH_LIT || op == OP_LOAD ||
+                        op == OP_STORE || op == OP_DROP))
+        {
+            /* u16 table index */
+            int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
+            app_cstr(buf, bufsz, &pos, " [");
+            app_int(buf, bufsz, &pos, idx);
+            app_cstr(buf, bufsz, &pos, "]");
+
+            /* Print string value for PUSH_LIT */
+            if (op == OP_PUSH_LIT && idx >= 0 && idx < n_consts)
+            {
+                const char *entry = const_base + idx * IRXBC_ENTRY_SIZE;
+                int slen = (int)(unsigned char)entry[0];
+                app_cstr(buf, bufsz, &pos, " = \"");
+                app_str(buf, bufsz, &pos, entry + 1, slen);
+                app_cstr(buf, bufsz, &pos, "\"");
+            }
+            /* Print symbol name for LOAD/STORE/DROP */
+            else if ((op == OP_LOAD || op == OP_STORE || op == OP_DROP) &&
+                     idx >= 0 && idx < n_syms)
+            {
+                const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;
+                int slen = (int)(unsigned char)entry[0];
+                app_cstr(buf, bufsz, &pos, " = ");
+                app_str(buf, bufsz, &pos, entry + 1, slen);
+            }
+        }
+        else if (sz == 3)
+        {
+            /* i16 jump offset */
+            unsigned int u = (unsigned int)code[pc + 1] |
+                             ((unsigned int)code[pc + 2] << 8);
+            int off = (u >= 0x8000u) ? (int)u - 0x10000 : (int)u;
+            target = pc + 3 + off;
+            app_cstr(buf, bufsz, &pos, " ");
+            app_int(buf, bufsz, &pos, off);
+            app_cstr(buf, bufsz, &pos, " -> ");
+            app_hex4(buf, bufsz, &pos, target);
+        }
+        else if (sz == 2)
+        {
+            /* u8 operand */
+            app_cstr(buf, bufsz, &pos, " ");
+            app_int(buf, bufsz, &pos, (int)code[pc + 1]);
+        }
+
+        app_cstr(buf, bufsz, &pos, "\n");
+        pc += (sz > 0 ? sz : 1); /* guard against sz==0 infinite loop */
+    }
+
+    if (buf != NULL && bufsz > 0)
+    {
+        buf[pos < bufsz ? pos : bufsz - 1] = '\0';
+    }
+    return pos;
+}

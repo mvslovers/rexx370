@@ -1,14 +1,20 @@
 /* ------------------------------------------------------------------ */
-/*  irx#bcom.c - REXX/370 Bytecode Compiler (WP-BC-02)               */
+/*  irx#bcom.c - REXX/370 Bytecode Compiler (WP-BC-03)               */
 /*                                                                    */
 /*  irx_bc_compile() — Entry point.                                  */
 /*                                                                    */
-/*  Phase 2 scope:                                                    */
-/*    - Assignment statements:  symbol = expr                        */
-/*    - Expressions: literals, variables, arithmetic, comparison,    */
-/*      logical, string concatenation, parenthesised groups          */
-/*    - EXIT [expr] statement                                         */
-/*    - Any other construct returns IRXBC_ERR_UNSUP                  */
+/*  Scope (WP-BC-03 extends WP-BC-02):                               */
+/*    - SAY statement                                                 */
+/*    - IF/THEN/ELSE with forward-jump patching                       */
+/*    - SELECT/WHEN/OTHERWISE                                         */
+/*    - DO FOREVER / DO WHILE cond / DO UNTIL cond                   */
+/*    - DO count                                                      */
+/*    - DO var = start TO limit [BY step] [FOR count]                */
+/*    - ITERATE [label] / LEAVE [label]                              */
+/*    - EXIT [expr] / assignment / expressions (from WP-BC-02)       */
+/*                                                                    */
+/*  Jump offsets are signed i16 little-endian, relative to the byte  */
+/*  immediately after the full instruction.                           */
 /*                                                                    */
 /*  Memory: caller must free the returned irx_bc_execblk with        */
 /*    irxstor(RXSMFRE, 0, &p, envblock)                              */
@@ -16,6 +22,7 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
+#include <ctype.h>
 #include <string.h>
 
 #include "irx.h"
@@ -30,12 +37,51 @@
 /*  Compiler limits                                                   */
 /* ================================================================== */
 
-#define BCOM_MAX_CODE   1024
-#define BCOM_MAX_CONSTS 64
-#define BCOM_MAX_SYMS   64
+#define BCOM_MAX_CODE   4096
+#define BCOM_MAX_CONSTS 128
+#define BCOM_MAX_SYMS   128
+#define BCOM_MAX_LOOP   16
+#define BCOM_MAX_LPATCH 48
+#define BCOM_MAX_LABEL  33
 
 /* ================================================================== */
-/*  Compiler context (heap-allocated to avoid large stack frames)     */
+/*  DO loop type codes                                                */
+/* ================================================================== */
+
+#define BCTL_DO_FOREVER 0
+#define BCTL_DO_COUNT   1
+#define BCTL_DO_TO      2
+#define BCTL_DO_WHILE   3
+#define BCTL_DO_UNTIL   4
+#define BCTL_SELECT     5
+#define BCTL_DO_BLOCK   6 /* bare DO (simple group, execute once) */
+
+/* ================================================================== */
+/*  Loop / SELECT context frame (compile-time)                        */
+/*                                                                    */
+/*  iterate_known: 1 = iterate_target is final at push time           */
+/*                 (FOREVER, WHILE) — ITERATE emits backward jump.    */
+/*                 0 = iterate_target set later (COUNT, TO, UNTIL)    */
+/*                     — ITERATE forwards are recorded in             */
+/*                       iterate_patches[] and resolved when target   */
+/*                       is set by loop_set_iterate.                  */
+/* ================================================================== */
+
+struct bc_loop_ctx
+{
+    int type;
+    int loop_top;
+    int iterate_target;
+    int iterate_known;
+    char label[BCOM_MAX_LABEL];
+    int leave_patches[BCOM_MAX_LPATCH];
+    int leave_count;
+    int iterate_patches[BCOM_MAX_LPATCH];
+    int iterate_count;
+};
+
+/* ================================================================== */
+/*  Compiler context                                                   */
 /* ================================================================== */
 
 struct bcom_ctx
@@ -48,12 +94,14 @@ struct bcom_ctx
     unsigned char code[BCOM_MAX_CODE];
     int code_len;
 
-    /* Each table entry: byte[0]=length, byte[1..63]=data */
     char consts[BCOM_MAX_CONSTS][IRXBC_ENTRY_SIZE];
     int const_count;
 
     char syms[BCOM_MAX_SYMS][IRXBC_ENTRY_SIZE];
     int sym_count;
+
+    struct bc_loop_ctx loops[BCOM_MAX_LOOP];
+    int loop_depth;
 
     int rc;
     int hit_exit;
@@ -64,9 +112,12 @@ struct bcom_ctx
 /* ================================================================== */
 
 static void bc_exp0(struct bcom_ctx *ctx);
+static void bc_stmt(struct bcom_ctx *ctx);
+static void bc_stmts_until(struct bcom_ctx *ctx, const char *stop1,
+                           const char *stop2, const char *stop3);
 
 /* ================================================================== */
-/*  Helpers                                                           */
+/*  Emit helpers                                                      */
 /* ================================================================== */
 
 static int emit_byte(struct bcom_ctx *ctx, unsigned char op)
@@ -92,7 +143,75 @@ static int emit_u16(struct bcom_ctx *ctx, int idx)
     return IRXBC_OK;
 }
 
-/* Return token at pos+offset, or NULL if out of range. */
+static int emit_i16(struct bcom_ctx *ctx, int offset)
+{
+    unsigned int v = (unsigned int)(short)(offset);
+    if (ctx->code_len + 2 > BCOM_MAX_CODE)
+    {
+        ctx->rc = IRXBC_ERR_STOR;
+        return IRXBC_ERR_STOR;
+    }
+    ctx->code[ctx->code_len++] = (unsigned char)(v & 0xFF);
+    ctx->code[ctx->code_len++] = (unsigned char)((v >> 8) & 0xFF);
+    return IRXBC_OK;
+}
+
+/* Emit op + i16 placeholder; return position of the op byte or -1. */
+static int emit_jmp_op(struct bcom_ctx *ctx, unsigned char op)
+{
+    int pos = ctx->code_len;
+    if (emit_byte(ctx, op) != IRXBC_OK || emit_i16(ctx, 0) != IRXBC_OK)
+    {
+        return -1;
+    }
+    return pos;
+}
+
+/* Patch i16 at code[patch_pos+1..+2] to jump to ctx->code_len. */
+static void patch_jmp_to_here(struct bcom_ctx *ctx, int patch_pos)
+{
+    unsigned int v;
+    int off;
+    if (patch_pos < 0 || ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+    off = ctx->code_len - (patch_pos + 3);
+    v = (unsigned int)(short)(off);
+    ctx->code[patch_pos + 1] = (unsigned char)(v & 0xFF);
+    ctx->code[patch_pos + 2] = (unsigned char)((v >> 8) & 0xFF);
+}
+
+/* Patch a JMP to a specific target position. */
+static void patch_jmp_to(struct bcom_ctx *ctx, int patch_pos, int target)
+{
+    unsigned int v;
+    int off;
+    if (patch_pos < 0 || ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+    off = target - (patch_pos + 3);
+    v = (unsigned int)(short)(off);
+    ctx->code[patch_pos + 1] = (unsigned char)(v & 0xFF);
+    ctx->code[patch_pos + 2] = (unsigned char)((v >> 8) & 0xFF);
+}
+
+/* Emit a backward jump to a known target. */
+static void emit_jmp_back(struct bcom_ctx *ctx, unsigned char op, int target)
+{
+    int patch_pos = emit_jmp_op(ctx, op);
+    if (patch_pos < 0)
+    {
+        return;
+    }
+    patch_jmp_to(ctx, patch_pos, target);
+}
+
+/* ================================================================== */
+/*  Token helpers                                                     */
+/* ================================================================== */
+
 static const struct irx_token *tok_at(const struct bcom_ctx *ctx, int offset)
 {
     int i = ctx->pos + offset;
@@ -103,7 +222,6 @@ static const struct irx_token *tok_at(const struct bcom_ctx *ctx, int offset)
     return &ctx->tokens[i];
 }
 
-/* Return 1 if token at pos+offset has the given type. */
 static int tok_type_at(const struct bcom_ctx *ctx, int offset,
                        unsigned char type)
 {
@@ -111,7 +229,6 @@ static int tok_type_at(const struct bcom_ctx *ctx, int offset,
     return t != NULL && t->tok_type == type;
 }
 
-/* Return first character of tok_text for the token at pos+offset, or 0. */
 static char tok_ch(const struct bcom_ctx *ctx, int offset)
 {
     const struct irx_token *t = tok_at(ctx, offset);
@@ -122,8 +239,42 @@ static char tok_ch(const struct bcom_ctx *ctx, int offset)
     return t->tok_text[0];
 }
 
-/* Add a constant string (text, len) to the const table; return index.
- * Deduplicates by value. Returns -1 on overflow. */
+static int tok_kw(const struct bcom_ctx *ctx, int offset, const char *kw)
+{
+    const struct irx_token *t = tok_at(ctx, offset);
+    if (t == NULL || t->tok_type != TOK_SYMBOL || t->tok_upper == NULL)
+    {
+        return 0;
+    }
+    return strcmp(t->tok_upper, kw) == 0;
+}
+
+static int tok_ends_clause(const struct bcom_ctx *ctx)
+{
+    const struct irx_token *t = tok_at(ctx, 0);
+    return t == NULL || t->tok_type == TOK_EOC || t->tok_type == TOK_EOF;
+}
+
+static void skip_eoc(struct bcom_ctx *ctx)
+{
+    while (tok_type_at(ctx, 0, TOK_EOC))
+    {
+        ctx->pos++;
+    }
+}
+
+static void consume_eoc(struct bcom_ctx *ctx)
+{
+    if (tok_type_at(ctx, 0, TOK_EOC))
+    {
+        ctx->pos++;
+    }
+}
+
+/* ================================================================== */
+/*  Symbol / constant table                                           */
+/* ================================================================== */
+
 static int add_const(struct bcom_ctx *ctx, const char *text, int len)
 {
     int i;
@@ -131,7 +282,6 @@ static int add_const(struct bcom_ctx *ctx, const char *text, int len)
     {
         len = IRXBC_STR_MAX;
     }
-    /* check for duplicate */
     for (i = 0; i < ctx->const_count; i++)
     {
         if ((unsigned char)ctx->consts[i][0] == (unsigned char)len &&
@@ -153,8 +303,6 @@ static int add_const(struct bcom_ctx *ctx, const char *text, int len)
     return i;
 }
 
-/* Add a symbol name (upper-case, NUL-terminated) to the sym table.
- * Returns index.  Deduplicates by name. Returns -1 on overflow. */
 static int add_sym(struct bcom_ctx *ctx, const char *name)
 {
     int i;
@@ -181,22 +329,165 @@ static int add_sym(struct bcom_ctx *ctx, const char *name)
     return i;
 }
 
+/* Emit PUSH_LIT for a small integer string (1-2 chars, "0".."99"). */
+static void emit_push_int(struct bcom_ctx *ctx, const char *s)
+{
+    int ci = add_const(ctx, s, (int)strlen(s));
+    if (ci < 0)
+    {
+        ctx->rc = IRXBC_ERR_STOR;
+        return;
+    }
+    emit_byte(ctx, OP_PUSH_LIT);
+    emit_u16(ctx, ci);
+}
+
+/* Emit STORE sym_idx */
+static void emit_store(struct bcom_ctx *ctx, int si)
+{
+    emit_byte(ctx, OP_STORE);
+    emit_u16(ctx, si);
+}
+
+/* Emit LOAD sym_idx */
+static void emit_load(struct bcom_ctx *ctx, int si)
+{
+    emit_byte(ctx, OP_LOAD);
+    emit_u16(ctx, si);
+}
+
+/* Build a compiler-generated DO loop symbol: __DO<depth>_<suffix> */
+static void make_do_sym(char *buf, int depth, const char *suffix)
+{
+    int i = 0;
+    buf[i++] = '_';
+    buf[i++] = '_';
+    buf[i++] = 'D';
+    buf[i++] = 'O';
+    buf[i++] = (char)('0' + (depth % 10));
+    buf[i++] = '_';
+    while (*suffix)
+    {
+        buf[i++] = *suffix++;
+    }
+    buf[i] = '\0';
+}
+
 /* ================================================================== */
-/*  Expression cascade — bc_exp0 is the entry point (lowest prec.)   */
-/*                                                                    */
-/*  Precedence (lowest first):                                        */
-/*   0 — | (OR), && (XOR)                                            */
-/*   1 — & (AND)                                                      */
-/*   2 — comparison operators                                         */
-/*   3 — || (concat), abuttal-blank                                   */
-/*   4 — + - (add/subtract)                                          */
-/*   5 — * / % // (multiply/divide)                                  */
-/*   6 — ** (power)                                                   */
-/*   7 — unary + - \                                                  */
-/*   8 — atoms: literals, variables, ( expr )                        */
+/*  Loop context helpers                                              */
 /* ================================================================== */
 
-/* Level 8 — atoms */
+static struct bc_loop_ctx *loop_push(struct bcom_ctx *ctx, int type)
+{
+    struct bc_loop_ctx *f;
+    if (ctx->loop_depth >= BCOM_MAX_LOOP)
+    {
+        ctx->rc = IRXBC_ERR_LOOP;
+        return NULL;
+    }
+    f = &ctx->loops[ctx->loop_depth++];
+    memset(f, 0, sizeof(struct bc_loop_ctx));
+    f->type = type;
+    return f;
+}
+
+static void loop_pop(struct bcom_ctx *ctx)
+{
+    if (ctx->loop_depth > 0)
+    {
+        ctx->loop_depth--;
+    }
+}
+
+static void loop_patch_leaves(struct bcom_ctx *ctx, struct bc_loop_ctx *f)
+{
+    int i;
+    for (i = 0; i < f->leave_count; i++)
+    {
+        patch_jmp_to_here(ctx, f->leave_patches[i]);
+    }
+}
+
+/* Set iterate_target and resolve any pending iterate patches. */
+static void loop_set_iterate(struct bcom_ctx *ctx, struct bc_loop_ctx *f,
+                             int target)
+{
+    int i;
+    f->iterate_target = target;
+    f->iterate_known = 1;
+    for (i = 0; i < f->iterate_count; i++)
+    {
+        patch_jmp_to(ctx, f->iterate_patches[i], target);
+    }
+    f->iterate_count = 0;
+}
+
+/* Find the innermost true loop frame (not SELECT), optionally matching label. */
+static struct bc_loop_ctx *loop_find(struct bcom_ctx *ctx, const char *label)
+{
+    int i;
+    if (label == NULL || label[0] == '\0')
+    {
+        for (i = ctx->loop_depth - 1; i >= 0; i--)
+        {
+            if (ctx->loops[i].type != BCTL_SELECT)
+            {
+                return &ctx->loops[i];
+            }
+        }
+        return NULL;
+    }
+    for (i = ctx->loop_depth - 1; i >= 0; i--)
+    {
+        if (ctx->loops[i].type != BCTL_SELECT &&
+            strcmp(ctx->loops[i].label, label) == 0)
+        {
+            return &ctx->loops[i];
+        }
+    }
+    return NULL;
+}
+
+/* Find the innermost SELECT frame. */
+static struct bc_loop_ctx *select_frame(struct bcom_ctx *ctx)
+{
+    int i;
+    for (i = ctx->loop_depth - 1; i >= 0; i--)
+    {
+        if (ctx->loops[i].type == BCTL_SELECT)
+        {
+            return &ctx->loops[i];
+        }
+    }
+    return NULL;
+}
+
+static void loop_add_leave_patch(struct bcom_ctx *ctx, struct bc_loop_ctx *f,
+                                 int patch_pos)
+{
+    if (f->leave_count >= BCOM_MAX_LPATCH)
+    {
+        ctx->rc = IRXBC_ERR_PATCH;
+        return;
+    }
+    f->leave_patches[f->leave_count++] = patch_pos;
+}
+
+static void loop_add_iterate_patch(struct bcom_ctx *ctx, struct bc_loop_ctx *f,
+                                   int patch_pos)
+{
+    if (f->iterate_count >= BCOM_MAX_LPATCH)
+    {
+        ctx->rc = IRXBC_ERR_PATCH;
+        return;
+    }
+    f->iterate_patches[f->iterate_count++] = patch_pos;
+}
+
+/* ================================================================== */
+/*  Expression compiler (bc_exp0 .. bc_exp8)                          */
+/* ================================================================== */
+
 static void bc_exp8(struct bcom_ctx *ctx)
 {
     const struct irx_token *t = tok_at(ctx, 0);
@@ -206,7 +497,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
         return;
     }
 
-    /* Parenthesised expression */
     if (t->tok_type == TOK_LPAREN)
     {
         ctx->pos++;
@@ -225,7 +515,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
         return;
     }
 
-    /* String literal */
     if (t->tok_type == TOK_STRING)
     {
         int ci = add_const(ctx, t->tok_text, (int)t->tok_length);
@@ -240,7 +529,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
         return;
     }
 
-    /* Number token */
     if (t->tok_type == TOK_NUMBER)
     {
         int ci = add_const(ctx, t->tok_text, (int)t->tok_length);
@@ -255,12 +543,10 @@ static void bc_exp8(struct bcom_ctx *ctx)
         return;
     }
 
-    /* Symbol — constant symbol (starts with digit or '.') or variable */
     if (t->tok_type == TOK_SYMBOL)
     {
         if (t->tok_flags & TOKF_CONSTANT)
         {
-            /* constant symbol: treat as literal */
             int ci = add_const(ctx, t->tok_text, (int)t->tok_length);
             if (ci < 0)
             {
@@ -273,9 +559,8 @@ static void bc_exp8(struct bcom_ctx *ctx)
         }
         else
         {
-            /* variable: load from vpool (NOVALUE = uppercase name) */
-            const char *name = (t->tok_upper != NULL) ? t->tok_upper
-                                                      : t->tok_text;
+            const char *name =
+                (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
             int si = add_sym(ctx, name);
             if (si < 0)
             {
@@ -292,7 +577,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
     ctx->rc = IRXBC_ERR_UNSUP;
 }
 
-/* Level 7 — unary prefix: + - \ */
 static void bc_exp7(struct bcom_ctx *ctx)
 {
     const struct irx_token *t;
@@ -311,7 +595,7 @@ static void bc_exp7(struct bcom_ctx *ctx)
     if (t->tok_type == TOK_OPERATOR && tok_ch(ctx, 0) == '-')
     {
         ctx->pos++;
-        bc_exp7(ctx); /* right-associative unary */
+        bc_exp7(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -322,7 +606,6 @@ static void bc_exp7(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_OPERATOR && tok_ch(ctx, 0) == '+')
     {
-        /* Unary + is a no-op in REXX (forces numeric context). */
         ctx->pos++;
         bc_exp7(ctx);
         return;
@@ -343,7 +626,6 @@ static void bc_exp7(struct bcom_ctx *ctx)
     bc_exp8(ctx);
 }
 
-/* Level 6 — power: ** (right-associative) */
 static void bc_exp6(struct bcom_ctx *ctx)
 {
     if (ctx->rc != IRXBC_OK)
@@ -361,7 +643,7 @@ static void bc_exp6(struct bcom_ctx *ctx)
         tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '*')
     {
         ctx->pos += 2;
-        bc_exp6(ctx); /* right-associative */
+        bc_exp6(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -370,7 +652,6 @@ static void bc_exp6(struct bcom_ctx *ctx)
     }
 }
 
-/* Level 5 — multiplicative: * / // % */
 static void bc_exp5(struct bcom_ctx *ctx)
 {
     if (ctx->rc != IRXBC_OK)
@@ -389,7 +670,6 @@ static void bc_exp5(struct bcom_ctx *ctx)
         if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '/' &&
             tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '/')
         {
-            /* // remainder */
             ctx->pos += 2;
             bc_exp6(ctx);
             if (ctx->rc != IRXBC_OK)
@@ -398,8 +678,10 @@ static void bc_exp5(struct bcom_ctx *ctx)
             }
             emit_byte(ctx, OP_MOD);
         }
-        else if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '*' &&
-                 !(tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '*'))
+        else if (tok_type_at(ctx, 0, TOK_OPERATOR) &&
+                 tok_ch(ctx, 0) == '*' &&
+                 !(tok_type_at(ctx, 1, TOK_OPERATOR) &&
+                   tok_ch(ctx, 1) == '*'))
         {
             ctx->pos++;
             bc_exp6(ctx);
@@ -409,8 +691,10 @@ static void bc_exp5(struct bcom_ctx *ctx)
             }
             emit_byte(ctx, OP_MUL);
         }
-        else if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '/' &&
-                 !(tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '/'))
+        else if (tok_type_at(ctx, 0, TOK_OPERATOR) &&
+                 tok_ch(ctx, 0) == '/' &&
+                 !(tok_type_at(ctx, 1, TOK_OPERATOR) &&
+                   tok_ch(ctx, 1) == '/'))
         {
             ctx->pos++;
             bc_exp6(ctx);
@@ -437,7 +721,6 @@ static void bc_exp5(struct bcom_ctx *ctx)
     }
 }
 
-/* Level 4 — additive: + - */
 static void bc_exp4(struct bcom_ctx *ctx)
 {
     if (ctx->rc != IRXBC_OK)
@@ -480,16 +763,33 @@ static void bc_exp4(struct bcom_ctx *ctx)
     }
 }
 
-/* Level 3 — concatenation: || and abuttal-blank.
- *
- * Abuttal: two adjacent value-producing tokens (symbol, string,
- * number, or closing paren) without an operator between them are
- * concatenated with one blank (SC28-1883-0 §2.3.6).
- *
- * Detection: after parsing the left operand, if the next token is a
- * value-starter (symbol, string, number, '(') or a prefix unary
- * operator that can start an expression, we have abuttal.
- */
+/* Instruction-level keywords that partition the grammar and must not
+ * be consumed as values in blank-concatenation context. */
+static const char *const bc_kw_barriers[] = {
+    "THEN", "ELSE", "END", "WHEN", "OTHERWISE",
+    "TO", "BY", "FOR", "WHILE", "UNTIL", "FOREVER",
+    "IF", "DO", "SAY", "SELECT", "EXIT",
+    "ITERATE", "LEAVE", "NOP",
+    NULL};
+
+static int is_kw_barrier(const struct bcom_ctx *ctx, int offset)
+{
+    const struct irx_token *t = tok_at(ctx, offset);
+    int i;
+    if (t == NULL || t->tok_type != TOK_SYMBOL || t->tok_upper == NULL)
+    {
+        return 0;
+    }
+    for (i = 0; bc_kw_barriers[i] != NULL; i++)
+    {
+        if (strcmp(t->tok_upper, bc_kw_barriers[i]) == 0)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int is_value_starter(const struct bcom_ctx *ctx, int offset)
 {
     const struct irx_token *t = tok_at(ctx, offset);
@@ -497,11 +797,10 @@ static int is_value_starter(const struct bcom_ctx *ctx, int offset)
     {
         return 0;
     }
-    /* Only pure value-producing tokens can start an abuttal: symbols,
-     * string literals, numbers, and parenthesised expressions.
-     * Operator tokens (including unary - and \) are NOT included:
-     * they would be mis-parsed as abuttal when the intent is a binary
-     * operator (e.g. '3 \= 4' would be parsed as concat, not NE). */
+    if (t->tok_type == TOK_SYMBOL && is_kw_barrier(ctx, offset))
+    {
+        return 0;
+    }
     return t->tok_type == TOK_SYMBOL || t->tok_type == TOK_STRING ||
            t->tok_type == TOK_NUMBER || t->tok_type == TOK_LPAREN;
 }
@@ -521,7 +820,6 @@ static void bc_exp3(struct bcom_ctx *ctx)
 
     for (;;)
     {
-        /* || explicit concatenation */
         if (tok_type_at(ctx, 0, TOK_LOGICAL) && tok_ch(ctx, 0) == '|' &&
             tok_type_at(ctx, 1, TOK_LOGICAL) && tok_ch(ctx, 1) == '|')
         {
@@ -533,7 +831,6 @@ static void bc_exp3(struct bcom_ctx *ctx)
             }
             emit_byte(ctx, OP_CONCAT);
         }
-        /* abuttal-blank */
         else if (is_value_starter(ctx, 0))
         {
             bc_exp4(ctx);
@@ -550,7 +847,6 @@ static void bc_exp3(struct bcom_ctx *ctx)
     }
 }
 
-/* Level 2 — comparison operators */
 static void bc_exp2(struct bcom_ctx *ctx)
 {
     unsigned char op = 0;
@@ -566,15 +862,9 @@ static void bc_exp2(struct bcom_ctx *ctx)
         return;
     }
 
-    /* Comparison is non-associative: parse at most one operator.
-     * 2- and 3-character composites are checked before single chars
-     * so the longer match wins. */
-
-    /* 2-character composites checked first (longer match wins) */
     if (tok_type_at(ctx, 0, TOK_COMPARISON) && tok_ch(ctx, 0) == '=' &&
         tok_type_at(ctx, 1, TOK_COMPARISON) && tok_ch(ctx, 1) == '=')
     {
-        /* ==  but not \== (handled via \) */
         op = OP_DEQ;
         ctx->pos += 2;
     }
@@ -585,7 +875,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 2, TOK_COMPARISON) &&
              tok_ch(ctx, 2) == '=')
     {
-        /* >>= */
         op = OP_DGE;
         ctx->pos += 3;
     }
@@ -596,7 +885,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 2, TOK_COMPARISON) &&
              tok_ch(ctx, 2) == '=')
     {
-        /* <<= */
         op = OP_DLE;
         ctx->pos += 3;
     }
@@ -605,7 +893,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '>')
     {
-        /* >> */
         op = OP_DGT;
         ctx->pos += 2;
     }
@@ -614,7 +901,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '<')
     {
-        /* << */
         op = OP_DLT;
         ctx->pos += 2;
     }
@@ -623,7 +909,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '=')
     {
-        /* >= */
         op = OP_GE;
         ctx->pos += 2;
     }
@@ -632,7 +917,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '=')
     {
-        /* <= */
         op = OP_LE;
         ctx->pos += 2;
     }
@@ -642,7 +926,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 2, TOK_COMPARISON) &&
              tok_ch(ctx, 2) == '=')
     {
-        /* \== */
         op = OP_DNE;
         ctx->pos += 3;
     }
@@ -650,7 +933,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '=')
     {
-        /* \= */
         op = OP_NE;
         ctx->pos += 2;
     }
@@ -658,7 +940,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '>')
     {
-        /* \> same as <= */
         op = OP_LE;
         ctx->pos += 2;
     }
@@ -666,28 +947,21 @@ static void bc_exp2(struct bcom_ctx *ctx)
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '<')
     {
-        /* \< same as >= */
         op = OP_GE;
         ctx->pos += 2;
     }
-    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-             tok_ch(ctx, 0) == '=')
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) && tok_ch(ctx, 0) == '=')
     {
-        /* = */
         op = OP_EQ;
         ctx->pos++;
     }
-    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-             tok_ch(ctx, 0) == '>')
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) && tok_ch(ctx, 0) == '>')
     {
-        /* > */
         op = OP_GT;
         ctx->pos++;
     }
-    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
-             tok_ch(ctx, 0) == '<')
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) && tok_ch(ctx, 0) == '<')
     {
-        /* < */
         op = OP_LT;
         ctx->pos++;
     }
@@ -703,7 +977,6 @@ static void bc_exp2(struct bcom_ctx *ctx)
     }
 }
 
-/* Level 1 — AND: & */
 static void bc_exp1(struct bcom_ctx *ctx)
 {
     if (ctx->rc != IRXBC_OK)
@@ -730,7 +1003,6 @@ static void bc_exp1(struct bcom_ctx *ctx)
     }
 }
 
-/* Level 0 — OR / XOR: | && */
 static void bc_exp0(struct bcom_ctx *ctx)
 {
     if (ctx->rc != IRXBC_OK)
@@ -759,7 +1031,8 @@ static void bc_exp0(struct bcom_ctx *ctx)
         }
         else if (tok_type_at(ctx, 0, TOK_LOGICAL) &&
                  tok_ch(ctx, 0) == '|' &&
-                 !(tok_type_at(ctx, 1, TOK_LOGICAL) && tok_ch(ctx, 1) == '|'))
+                 !(tok_type_at(ctx, 1, TOK_LOGICAL) &&
+                   tok_ch(ctx, 1) == '|'))
         {
             ctx->pos++;
             bc_exp1(ctx);
@@ -777,7 +1050,710 @@ static void bc_exp0(struct bcom_ctx *ctx)
 }
 
 /* ================================================================== */
-/*  Statement compiler                                                */
+/*  SAY                                                               */
+/* ================================================================== */
+
+static void C_say_bc(struct bcom_ctx *ctx)
+{
+    ctx->pos++; /* consume SAY */
+    if (tok_ends_clause(ctx))
+    {
+        emit_push_int(ctx, "");
+    }
+    else
+    {
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+    }
+    emit_byte(ctx, OP_SAY);
+}
+
+/* ================================================================== */
+/*  IF/THEN/ELSE                                                      */
+/* ================================================================== */
+
+static void C_if_bc(struct bcom_ctx *ctx)
+{
+    int jf_patch;
+    int jmp_patch = -1;
+
+    ctx->pos++; /* consume IF */
+
+    bc_exp0(ctx);
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+
+    if (!tok_kw(ctx, 0, "THEN"))
+    {
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+    ctx->pos++; /* consume THEN */
+    consume_eoc(ctx);
+
+    jf_patch = emit_jmp_op(ctx, OP_JF);
+    if (jf_patch < 0)
+    {
+        return;
+    }
+
+    bc_stmt(ctx);
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+    consume_eoc(ctx);
+
+    if (tok_kw(ctx, 0, "ELSE"))
+    {
+        jmp_patch = emit_jmp_op(ctx, OP_JMP);
+        if (jmp_patch < 0)
+        {
+            return;
+        }
+        patch_jmp_to_here(ctx, jf_patch);
+
+        ctx->pos++; /* consume ELSE */
+        consume_eoc(ctx);
+
+        bc_stmt(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        consume_eoc(ctx);
+
+        patch_jmp_to_here(ctx, jmp_patch);
+    }
+    else
+    {
+        patch_jmp_to_here(ctx, jf_patch);
+    }
+}
+
+/* ================================================================== */
+/*  SELECT/WHEN/OTHERWISE                                             */
+/* ================================================================== */
+
+static void C_select_bc(struct bcom_ctx *ctx)
+{
+    struct bc_loop_ctx *sf;
+    int jf_patch;
+
+    ctx->pos++; /* consume SELECT */
+    consume_eoc(ctx);
+    skip_eoc(ctx);
+
+    sf = loop_push(ctx, BCTL_SELECT);
+    if (sf == NULL)
+    {
+        return;
+    }
+
+    for (;;)
+    {
+        if (ctx->rc != IRXBC_OK)
+        {
+            break;
+        }
+        skip_eoc(ctx);
+
+        if (tok_kw(ctx, 0, "WHEN"))
+        {
+            int jmp;
+            ctx->pos++; /* consume WHEN */
+
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                break;
+            }
+
+            if (!tok_kw(ctx, 0, "THEN"))
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                break;
+            }
+            ctx->pos++; /* consume THEN */
+            consume_eoc(ctx);
+
+            jf_patch = emit_jmp_op(ctx, OP_JF);
+            if (jf_patch < 0)
+            {
+                break;
+            }
+
+            bc_stmt(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                break;
+            }
+            consume_eoc(ctx);
+
+            jmp = emit_jmp_op(ctx, OP_JMP);
+            if (jmp < 0)
+            {
+                break;
+            }
+            loop_add_leave_patch(ctx, sf, jmp);
+
+            patch_jmp_to_here(ctx, jf_patch);
+        }
+        else if (tok_kw(ctx, 0, "OTHERWISE"))
+        {
+            ctx->pos++; /* consume OTHERWISE */
+            consume_eoc(ctx);
+            bc_stmts_until(ctx, "END", NULL, NULL);
+            break;
+        }
+        else if (tok_kw(ctx, 0, "END"))
+        {
+            break;
+        }
+        else
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            break;
+        }
+    }
+
+    if (ctx->rc != IRXBC_OK)
+    {
+        loop_pop(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "END"))
+    {
+        ctx->pos++;
+        if (tok_type_at(ctx, 0, TOK_SYMBOL) && !tok_ends_clause(ctx))
+        {
+            ctx->pos++;
+        }
+    }
+
+    loop_patch_leaves(ctx, sf);
+    loop_pop(ctx);
+}
+
+/* ================================================================== */
+/*  DO loops                                                          */
+/* ================================================================== */
+
+/* Emit the DO TO condition check:
+ *   (step > 0 AND var <= limit) OR (step <= 0 AND var >= limit)
+ * Returns the JF patch position for the failing case. */
+static int emit_do_to_cond(struct bcom_ctx *ctx, int si_var, int si_lim,
+                           int si_stp)
+{
+    /* step > 0 AND var <= limit */
+    emit_load(ctx, si_stp);
+    emit_push_int(ctx, "0");
+    emit_byte(ctx, OP_GT);
+    emit_load(ctx, si_var);
+    emit_load(ctx, si_lim);
+    emit_byte(ctx, OP_LE);
+    emit_byte(ctx, OP_AND);
+
+    /* step <= 0 AND var >= limit  (covers step < 0 and step = 0) */
+    emit_load(ctx, si_stp);
+    emit_push_int(ctx, "0");
+    emit_byte(ctx, OP_GT);
+    emit_byte(ctx, OP_NOT);
+    emit_load(ctx, si_var);
+    emit_load(ctx, si_lim);
+    emit_byte(ctx, OP_GE);
+    emit_byte(ctx, OP_AND);
+
+    emit_byte(ctx, OP_OR);
+    return emit_jmp_op(ctx, OP_JF); /* jump to loop_end if false */
+}
+
+static void C_do_bc(struct bcom_ctx *ctx)
+{
+    struct bc_loop_ctx *lf;
+    int loop_top;
+    int loop_type = BCTL_DO_FOREVER;
+    int cond_jf = -1;
+
+    int si_ctr = -1;
+    int si_var = -1;
+    int si_lim = -1;
+    int si_stp = -1;
+    int si_for = -1;
+
+    char sym_ctr[24];
+    char sym_lim[24];
+    char sym_stp[24];
+    char sym_for[24];
+
+    /* Token position of the UNTIL condition for DO UNTIL */
+    int until_cond_tok = -1;
+
+    int depth = ctx->loop_depth;
+
+    make_do_sym(sym_ctr, depth, "CTR");
+    make_do_sym(sym_lim, depth, "LIM");
+    make_do_sym(sym_stp, depth, "STP");
+    make_do_sym(sym_for, depth, "FOR");
+
+    ctx->pos++; /* consume DO */
+
+    /* ---- Parse DO header ------------------------------------------ */
+
+    if (tok_kw(ctx, 0, "FOREVER"))
+    {
+        ctx->pos++; /* consume FOREVER */
+        loop_type = BCTL_DO_FOREVER;
+    }
+    else if (tok_ends_clause(ctx))
+    {
+        loop_type = BCTL_DO_BLOCK; /* bare DO — simple group, execute once */
+    }
+    else if (tok_kw(ctx, 0, "WHILE"))
+    {
+        loop_type = BCTL_DO_WHILE;
+        /* WHILE keyword consumed in the loop entry section below */
+    }
+    else if (tok_kw(ctx, 0, "UNTIL"))
+    {
+        loop_type = BCTL_DO_UNTIL;
+        ctx->pos++;                /* consume UNTIL */
+        until_cond_tok = ctx->pos; /* save condition start */
+        /* Skip past condition tokens to the EOC */
+        while (!tok_ends_clause(ctx))
+        {
+            ctx->pos++;
+        }
+        /* consume_eoc happens below */
+    }
+    else if (tok_type_at(ctx, 0, TOK_SYMBOL) &&
+             !(tok_at(ctx, 0)->tok_flags & TOKF_CONSTANT) &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '=' &&
+             !tok_type_at(ctx, 2, TOK_COMPARISON))
+    {
+        /* DO var = start TO limit [BY step] [FOR count] */
+        const struct irx_token *t = tok_at(ctx, 0);
+        const char *vname =
+            (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+
+        loop_type = BCTL_DO_TO;
+
+        si_var = add_sym(ctx, vname);
+        si_lim = add_sym(ctx, sym_lim);
+        si_stp = add_sym(ctx, sym_stp);
+        if (si_var < 0 || si_lim < 0 || si_stp < 0)
+        {
+            ctx->rc = IRXBC_ERR_STOR;
+            return;
+        }
+
+        ctx->pos += 2; /* consume var and = */
+
+        /* Compile start → store in var */
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_store(ctx, si_var);
+
+        /* Expect TO */
+        if (!tok_kw(ctx, 0, "TO"))
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        ctx->pos++; /* consume TO */
+
+        /* Compile limit → store */
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_store(ctx, si_lim);
+
+        /* Optional BY */
+        if (tok_kw(ctx, 0, "BY"))
+        {
+            ctx->pos++;
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_store(ctx, si_stp);
+        }
+        else
+        {
+            emit_push_int(ctx, "1");
+            emit_store(ctx, si_stp);
+        }
+
+        /* Optional FOR */
+        if (tok_kw(ctx, 0, "FOR"))
+        {
+            ctx->pos++;
+            si_for = add_sym(ctx, sym_for);
+            if (si_for < 0)
+            {
+                ctx->rc = IRXBC_ERR_STOR;
+                return;
+            }
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_store(ctx, si_for);
+        }
+    }
+    else
+    {
+        /* DO count_expr */
+        loop_type = BCTL_DO_COUNT;
+        si_ctr = add_sym(ctx, sym_ctr);
+        if (si_ctr < 0)
+        {
+            ctx->rc = IRXBC_ERR_STOR;
+            return;
+        }
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_store(ctx, si_ctr);
+    }
+
+    consume_eoc(ctx);
+
+    /* ---- Push loop context ---------------------------------------- */
+    lf = loop_push(ctx, loop_type);
+    if (lf == NULL)
+    {
+        return;
+    }
+
+    /* ---- loop_top ------------------------------------------------- */
+    loop_top = ctx->code_len;
+    lf->loop_top = loop_top;
+    emit_byte(ctx, OP_NEWCLAUSE);
+
+    /* For WHILE and FOREVER, iterate = loop_top (known now). */
+    if (loop_type == BCTL_DO_WHILE || loop_type == BCTL_DO_FOREVER)
+    {
+        lf->iterate_target = loop_top;
+        lf->iterate_known = 1;
+    }
+    /* DO BLOCK has no loop — iterate and leave both go to loop_end. */
+    /* iterate_known=0 until loop_set_iterate is called after body. */
+
+    /* ---- Entry condition ----------------------------------------- */
+
+    if (loop_type == BCTL_DO_WHILE)
+    {
+        ctx->pos++; /* consume WHILE */
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            loop_pop(ctx);
+            return;
+        }
+        consume_eoc(ctx);
+        cond_jf = emit_jmp_op(ctx, OP_JF);
+        if (cond_jf < 0)
+        {
+            loop_pop(ctx);
+            return;
+        }
+    }
+    else if (loop_type == BCTL_DO_COUNT)
+    {
+        /* Exit if counter <= 0 */
+        emit_load(ctx, si_ctr);
+        emit_push_int(ctx, "0");
+        emit_byte(ctx, OP_GT);
+        cond_jf = emit_jmp_op(ctx, OP_JF);
+        if (cond_jf < 0)
+        {
+            loop_pop(ctx);
+            return;
+        }
+    }
+    else if (loop_type == BCTL_DO_TO)
+    {
+        cond_jf = emit_do_to_cond(ctx, si_var, si_lim, si_stp);
+        if (cond_jf < 0)
+        {
+            loop_pop(ctx);
+            return;
+        }
+        /* FOR count: also check si_for > 0 */
+        if (si_for >= 0)
+        {
+            /* Back-patch: the existing cond_jf is now wrong because we
+             * need to AND with the FOR check.  Since this is rare and
+             * complex to AND into an already-emitted JF, we re-structure:
+             * if cond fails (already emitted), fall through to for check
+             * → skip.  Simpler: after the current JF patch, test FOR. */
+            /* Easier: just add FOR check inline before the cond. */
+            /* TODO: wrap both checks.  For now, emit FOR check after:
+             * cond_jf patches to loop_end.  We also add:
+             *   if FOR > 0 is false → also exit. */
+            int for_jf;
+            emit_load(ctx, si_for);
+            emit_push_int(ctx, "0");
+            emit_byte(ctx, OP_GT);
+            for_jf = emit_jmp_op(ctx, OP_JF);
+            if (for_jf >= 0)
+            {
+                loop_add_leave_patch(ctx, lf, for_jf);
+            }
+        }
+    }
+
+    /* ---- Compile loop body ---------------------------------------- */
+    bc_stmts_until(ctx, "END", NULL, NULL);
+    if (ctx->rc != IRXBC_OK)
+    {
+        loop_pop(ctx);
+        return;
+    }
+
+    /* ---- Iterate section ----------------------------------------- */
+
+    if (loop_type == BCTL_DO_COUNT)
+    {
+        loop_set_iterate(ctx, lf, ctx->code_len);
+        emit_load(ctx, si_ctr);
+        emit_push_int(ctx, "1");
+        emit_byte(ctx, OP_SUB);
+        emit_store(ctx, si_ctr);
+    }
+    else if (loop_type == BCTL_DO_TO)
+    {
+        loop_set_iterate(ctx, lf, ctx->code_len);
+        /* var = var + step */
+        emit_load(ctx, si_var);
+        emit_load(ctx, si_stp);
+        emit_byte(ctx, OP_ADD);
+        emit_store(ctx, si_var);
+        /* FOR count decrement */
+        if (si_for >= 0)
+        {
+            emit_load(ctx, si_for);
+            emit_push_int(ctx, "1");
+            emit_byte(ctx, OP_SUB);
+            emit_store(ctx, si_for);
+        }
+    }
+    else if (loop_type == BCTL_DO_UNTIL)
+    {
+        /* iterate_target = here (before condition re-evaluation) */
+        loop_set_iterate(ctx, lf, ctx->code_len);
+
+        /* Re-compile condition using saved token position */
+        {
+            int saved_pos = ctx->pos;
+            ctx->pos = until_cond_tok;
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                loop_pop(ctx);
+                return;
+            }
+            ctx->pos = saved_pos;
+        }
+
+        /* JT to loop_end: exit if condition is now true */
+        {
+            int jt = emit_jmp_op(ctx, OP_JT);
+            if (jt >= 0)
+            {
+                loop_add_leave_patch(ctx, lf, jt);
+            }
+        }
+    }
+
+    /* ---- JMP back to loop_top (omitted for DO BLOCK) ------------- */
+    if (loop_type == BCTL_DO_BLOCK)
+    {
+        /* Simple group: no backward jump.  ITERATE and LEAVE both
+         * resolve to loop_end (the fall-through point). */
+        loop_set_iterate(ctx, lf, ctx->code_len);
+    }
+    else
+    {
+        emit_jmp_back(ctx, OP_JMP, loop_top);
+    }
+
+    /* ---- loop_end ------------------------------------------------ */
+
+    if (cond_jf >= 0)
+    {
+        patch_jmp_to_here(ctx, cond_jf);
+    }
+    loop_patch_leaves(ctx, lf);
+    loop_pop(ctx);
+
+    /* Consume END keyword (and optional loop-var name after END) */
+    if (tok_kw(ctx, 0, "END"))
+    {
+        ctx->pos++;
+        if (tok_type_at(ctx, 0, TOK_SYMBOL) && !tok_ends_clause(ctx))
+        {
+            ctx->pos++;
+        }
+    }
+}
+
+/* ================================================================== */
+/*  ITERATE / LEAVE                                                   */
+/* ================================================================== */
+
+static void C_iterate_bc(struct bcom_ctx *ctx)
+{
+    char label[BCOM_MAX_LABEL];
+    struct bc_loop_ctx *lf;
+
+    ctx->pos++; /* consume ITERATE */
+
+    label[0] = '\0';
+    if (tok_type_at(ctx, 0, TOK_SYMBOL) && !tok_ends_clause(ctx))
+    {
+        const struct irx_token *t = tok_at(ctx, 0);
+        const char *up = (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+        int n = (int)strlen(up);
+        if (n >= BCOM_MAX_LABEL)
+        {
+            n = BCOM_MAX_LABEL - 1;
+        }
+        memcpy(label, up, (size_t)n);
+        label[n] = '\0';
+        ctx->pos++;
+    }
+
+    lf = loop_find(ctx, label[0] ? label : NULL);
+    if (lf == NULL)
+    {
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
+    if (lf->iterate_known)
+    {
+        /* Backward jump to known iterate_target */
+        emit_jmp_back(ctx, OP_ITERATE, lf->iterate_target);
+    }
+    else
+    {
+        /* Forward jump; will be patched when iterate_target is set */
+        int p = emit_jmp_op(ctx, OP_ITERATE);
+        if (p >= 0)
+        {
+            loop_add_iterate_patch(ctx, lf, p);
+        }
+    }
+}
+
+static void C_leave_bc(struct bcom_ctx *ctx)
+{
+    char label[BCOM_MAX_LABEL];
+    struct bc_loop_ctx *lf;
+    int jmp;
+
+    ctx->pos++; /* consume LEAVE */
+
+    label[0] = '\0';
+    if (tok_type_at(ctx, 0, TOK_SYMBOL) && !tok_ends_clause(ctx))
+    {
+        const struct irx_token *t = tok_at(ctx, 0);
+        const char *up = (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+        int n = (int)strlen(up);
+        if (n >= BCOM_MAX_LABEL)
+        {
+            n = BCOM_MAX_LABEL - 1;
+        }
+        memcpy(label, up, (size_t)n);
+        label[n] = '\0';
+        ctx->pos++;
+    }
+
+    lf = loop_find(ctx, label[0] ? label : NULL);
+    if (lf == NULL)
+    {
+        /* Fall back to innermost SELECT */
+        lf = select_frame(ctx);
+        if (lf == NULL)
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+    }
+
+    jmp = emit_jmp_op(ctx, OP_LEAVE);
+    if (jmp >= 0)
+    {
+        loop_add_leave_patch(ctx, lf, jmp);
+    }
+}
+
+/* ================================================================== */
+/*  bc_stmts_until                                                    */
+/* ================================================================== */
+
+static void bc_stmts_until(struct bcom_ctx *ctx, const char *stop1,
+                           const char *stop2, const char *stop3)
+{
+    for (;;)
+    {
+        const struct irx_token *t;
+
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+
+        skip_eoc(ctx);
+
+        t = tok_at(ctx, 0);
+        if (t == NULL || t->tok_type == TOK_EOF)
+        {
+            return;
+        }
+
+        if (stop1 != NULL && tok_kw(ctx, 0, stop1))
+        {
+            return;
+        }
+        if (stop2 != NULL && tok_kw(ctx, 0, stop2))
+        {
+            return;
+        }
+        if (stop3 != NULL && tok_kw(ctx, 0, stop3))
+        {
+            return;
+        }
+
+        bc_stmt(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        consume_eoc(ctx);
+    }
+}
+
+/* ================================================================== */
+/*  bc_stmt                                                           */
 /* ================================================================== */
 
 static void bc_stmt(struct bcom_ctx *ctx)
@@ -796,22 +1772,17 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
-    /* EXIT [expr] statement */
-    if (t0->tok_type == TOK_SYMBOL && t0->tok_upper != NULL &&
-        strcmp(t0->tok_upper, "EXIT") == 0)
+    if (tok_kw(ctx, 0, "EXIT"))
     {
-        const struct irx_token *t_next;
+        const struct irx_token *tn;
         ctx->pos++;
-        t_next = tok_at(ctx, 0);
-        if (t_next == NULL || t_next->tok_type == TOK_EOC ||
-            t_next->tok_type == TOK_EOF)
+        tn = tok_at(ctx, 0);
+        if (tn == NULL || tn->tok_type == TOK_EOC || tn->tok_type == TOK_EOF)
         {
-            /* EXIT without expression */
             emit_byte(ctx, OP_EXIT);
         }
         else
         {
-            /* EXIT with expression: evaluate, pop as int, exit */
             bc_exp0(ctx);
             if (ctx->rc != IRXBC_OK)
             {
@@ -823,7 +1794,49 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
-    /* Assignment: simple-symbol = expr  (= must be single, not ==) */
+    if (tok_kw(ctx, 0, "SAY"))
+    {
+        C_say_bc(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "IF"))
+    {
+        C_if_bc(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "SELECT"))
+    {
+        C_select_bc(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "DO"))
+    {
+        C_do_bc(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "ITERATE"))
+    {
+        C_iterate_bc(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "LEAVE"))
+    {
+        C_leave_bc(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "NOP"))
+    {
+        ctx->pos++;
+        return;
+    }
+
+    /* Assignment: simple-symbol = expr */
     if (t0->tok_type == TOK_SYMBOL && !(t0->tok_flags & TOKF_CONSTANT) &&
         t1 != NULL && t1->tok_type == TOK_COMPARISON &&
         t1->tok_length > 0 && t1->tok_text[0] == '=' &&
@@ -837,14 +1850,13 @@ static void bc_stmt(struct bcom_ctx *ctx)
             ctx->rc = IRXBC_ERR_STOR;
             return;
         }
-        ctx->pos += 2; /* consume symbol and = */
+        ctx->pos += 2;
         bc_exp0(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
         }
-        emit_byte(ctx, OP_STORE);
-        emit_u16(ctx, si);
+        emit_store(ctx, si);
         return;
     }
 
@@ -852,7 +1864,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
 }
 
 /* ================================================================== */
-/*  Program compiler                                                  */
+/*  bc_program                                                        */
 /* ================================================================== */
 
 static void bc_program(struct bcom_ctx *ctx)
@@ -871,6 +1883,15 @@ static void bc_program(struct bcom_ctx *ctx)
             continue;
         }
 
+        /* Detect label: SYMBOL followed by SEMICOLON (tokenizer maps ':') */
+        if (t->tok_type == TOK_SYMBOL &&
+            tok_type_at(ctx, 1, TOK_SEMICOLON) &&
+            tok_ch(ctx, 1) == ':')
+        {
+            ctx->pos += 2;
+            continue;
+        }
+
         bc_stmt(ctx);
         if (ctx->rc != IRXBC_OK)
         {
@@ -881,7 +1902,6 @@ static void bc_program(struct bcom_ctx *ctx)
             return;
         }
 
-        /* Consume trailing EOC */
         t = tok_at(ctx, 0);
         if (t != NULL && t->tok_type == TOK_EOC)
         {
@@ -889,7 +1909,6 @@ static void bc_program(struct bcom_ctx *ctx)
         }
     }
 
-    /* Implicit program exit */
     emit_byte(ctx, OP_EXIT);
 }
 
@@ -921,7 +1940,6 @@ int irx_bc_compile(struct envblock *envblock,
     }
     *bc_out = NULL;
 
-    /* 1. Tokenize */
     rc = irx_tokn_run(envblock, source, source_len,
                       &tokens, &tok_count, &tok_err);
     if (rc != 0)
@@ -929,7 +1947,6 @@ int irx_bc_compile(struct envblock *envblock,
         return IRXBC_ERR_TOKN;
     }
 
-    /* 2. Allocate compiler context */
     if (irxstor(RXSMGET, (int)sizeof(struct bcom_ctx),
                 &ctx_mem, envblock) != 0)
     {
@@ -943,7 +1960,6 @@ int irx_bc_compile(struct envblock *envblock,
     ctx->tok_count = tok_count;
     ctx->rc = IRXBC_OK;
 
-    /* 3. Compile */
     bc_program(ctx);
     rc = ctx->rc;
     if (rc != IRXBC_OK)
@@ -951,8 +1967,10 @@ int irx_bc_compile(struct envblock *envblock,
         goto cleanup;
     }
 
-    /* 4. Allocate EXECBLK */
-    total = (int)sizeof(struct irx_bc_execblk) + ctx->const_count * IRXBC_ENTRY_SIZE + ctx->sym_count * IRXBC_ENTRY_SIZE + ctx->code_len;
+    total = (int)sizeof(struct irx_bc_execblk) +
+            ctx->const_count * IRXBC_ENTRY_SIZE +
+            ctx->sym_count * IRXBC_ENTRY_SIZE +
+            ctx->code_len;
 
     if (irxstor(RXSMGET, total, &bc_mem, envblock) != 0)
     {
@@ -960,7 +1978,6 @@ int irx_bc_compile(struct envblock *envblock,
         goto cleanup;
     }
 
-    /* 5. Populate header */
     bc = (struct irx_bc_execblk *)bc_mem;
     memset(bc, 0, (size_t)total);
     memcpy(bc->magic, IRXBC_MAGIC, sizeof(bc->magic));
@@ -972,7 +1989,6 @@ int irx_bc_compile(struct envblock *envblock,
     bc->entry_offset = 0;
     bc->trace_map_offset = 0;
 
-    /* 6. Copy tables and bytecode */
     dst = IRXBC_CONST_TBL(bc);
     for (i = 0; i < ctx->const_count; i++)
     {
@@ -988,7 +2004,7 @@ int irx_bc_compile(struct envblock *envblock,
     memcpy(IRXBC_CODE(bc), ctx->code, (size_t)ctx->code_len);
 
     *bc_out = bc;
-    bc_mem = NULL; /* ownership transferred */
+    bc_mem = NULL;
 
 cleanup:
     if (tokens != NULL)
