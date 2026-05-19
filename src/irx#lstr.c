@@ -86,24 +86,31 @@ enum lstr_bucket_cap
 static const int lstr_pool_caps[LSTR_POOL_BUCKET_COUNT] = {
     LSTR_CAP_16, LSTR_CAP_32, LSTR_CAP_64, LSTR_CAP_128};
 
-/* Return the bucket index for an exact-match size, or -1 if not pooled.
- * always_inline eliminates per-call overhead on the 66 M hot call sites.  */
-static __inline__ __attribute__((always_inline)) int pool_bucket_for(int size)
-{
-    switch (size)
-    {
-        case LSTR_CAP_16:
-            return 0;
-        case LSTR_CAP_32:
-            return 1;
-        case LSTR_CAP_64:
-            return 2;
-        case LSTR_CAP_128:
-            return LSTR_POOL_BUCKET_COUNT - 1;
-        default:
-            return -1;
-    }
-}
+/* pool_bucket_for() is intentionally not a separate function: the switch
+ * is pasted directly into the two hot callers so the compiler never emits
+ * a call — important both at -O0 on the host and with c2asm370 on MVS.    */
+#define POOL_BUCKET_FOR(size_, bkt_)                 \
+    do                                               \
+    {                                                \
+        switch (size_)                               \
+        {                                            \
+            case LSTR_CAP_16:                        \
+                (bkt_) = 0;                          \
+                break;                               \
+            case LSTR_CAP_32:                        \
+                (bkt_) = 1;                          \
+                break;                               \
+            case LSTR_CAP_64:                        \
+                (bkt_) = 2;                          \
+                break;                               \
+            case LSTR_CAP_128:                       \
+                (bkt_) = LSTR_POOL_BUCKET_COUNT - 1; \
+                break;                               \
+            default:                                 \
+                (bkt_) = -1;                         \
+                break;                               \
+        }                                            \
+    } while (0)
 
 static void *rexx_lstr_alloc(size_t size, void *ctx)
 {
@@ -114,7 +121,7 @@ static void *rexx_lstr_alloc(size_t size, void *ctx)
     wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
     if (wkbi != NULL)
     {
-        bkt = pool_bucket_for((int)size);
+        POOL_BUCKET_FOR((int)size, bkt);
         if (bkt >= 0 && wkbi->wkbi_lstr_pool.buckets[bkt].count > 0)
         {
             return wkbi->wkbi_lstr_pool.buckets[bkt]
@@ -133,7 +140,7 @@ static void rexx_lstr_dealloc(void *ptr, size_t size, void *ctx)
     wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
     if (wkbi != NULL)
     {
-        bkt = pool_bucket_for((int)size);
+        POOL_BUCKET_FOR((int)size, bkt);
         if (bkt >= 0 &&
             wkbi->wkbi_lstr_pool.buckets[bkt].count < LSTR_POOL_MAX_PER_BUCKET)
         {

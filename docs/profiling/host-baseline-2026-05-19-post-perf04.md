@@ -3,11 +3,18 @@
 **Engine commit:** (wp-perf-04-allocator-pool)  
 **Host:** Linux 6.6.114.1-microsoft-standard-WSL2 (Ubuntu 24.04)  
 **Build:** gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) — `-pg -O0 -g -std=gnu99`  
-**Driver:** `test/host/tstcps_host` with embedded microbench (outer=1000, inner=500)  
-**Total wall-clock:** 19.739 s  
-**Total CPU (user+sys):** 19.632 s + 0.096 s = 19.728 s  
+**Drivers:** embedded microbench (outer=1000, inner=500) + `--source=test/rexxcps.rexx`  
 
-## Top-10 hotspots (embedded microbench)
+All measurements are same-machine A/B: `main` tip (5d2f321) vs branch tip,
+same binary build flags, same host.
+
+---
+
+## Embedded microbench — top-10 hotspots
+
+**Post-PERF-04 wall-clock:** 19.739 s  
+**Baseline (main) wall-clock:** 21.036 s  
+**Delta:** −1.297 s (−6.2%)
 
 | Rank | Self% | Cum% | Self s | Calls | Function |
 |------|-------|------|--------|-------|----------|
@@ -22,84 +29,117 @@
 | 9 | 2.70 | 46.95 | 0.15 | 33 005 095 | `rexx_lstr_dealloc` |
 | 10 | 2.52 | 49.47 | 0.14 | 6 000 000 | `num_from_str` |
 
-## A/B comparison — same machine, same driver invocation
+## REXXCPS 2.2 — top-10 hotspots
 
-The pre-PERF-04 baseline was run immediately before this profile on the same
-host (WSL2, gcc 13.3.0) from the `main` branch tip (commit 5d2f321).
+**Post-PERF-04 wall-clock:** 25.913 s  
+**Baseline (main) wall-clock:** 27.381 s  
+**Delta:** −1.468 s (−5.4%)
+
+| Rank | Self% | Cum% | Self s | Calls | Function |
+|------|-------|------|--------|-------|----------|
+| 1 | 15.46 | 15.46 | 0.98 | 423 356 394 | `peek_tok` |
+| 2 | 3.61 | 19.07 | 0.23 | 42 826 156 | `rexx_lstr_alloc` |
+| 3 | 3.30 | 22.37 | 0.21 | 236 229 954 | `cur_tok` |
+| 4 | 3.14 | 25.51 | 0.20 | 42 826 156 | `rexx_lstr_dealloc` |
+| 5 | 2.83 | 28.34 | 0.18 | 10 530 821 | `find_keyword` |
+| 6 | 2.75 | 31.09 | 0.17 | 115 040 140 | `sym_matches` |
+| 7 | 2.67 | 33.76 | 0.17 | 31 882 468 | `tok_ends_clause` |
+| 8 | 2.67 | 36.43 | 0.17 | 13 881 194 | `hash_bytes` |
+| 9 | 2.67 | 39.10 | 0.17 | 1 390 203 | `parse_function_call` |
+| 10 | 2.51 | 41.61 | 0.16 | 60 844 260 | `advance_tok` |
+
+`irxstor` dropped from rank 6 (3.91%) to rank ~20 (0.78%); not visible in the top-10.
+
+Note: REXXCPS 2.2 uses `TIME('R')` internally to report CPS. The host-side
+`TIME()` BIF does not return a valid elapsed time on this non-MVS platform
+(returns an overflow value), so the in-script CPS figure is invalid. The
+wall-clock delta above is the reliable measure.
+
+---
+
+## Storage-path A/B — REXXCPS workload
 
 | Function | main self s | post-04 self s | Δ s | Δ% |
 |----------|------------|----------------|-----|-----|
-| `irxstor` | 0.23 (4.54%) | 0.11 (1.98%) | −0.12 | −52% |
-| `Lfx` | 0.16 (3.23%) | 0.08 (1.44%) | −0.08 | −50% |
-| `Lfree` | 0.10 (2.12%) | 0.04 (0.72%) | −0.06 | −60% |
-| `rexx_lstr_alloc` | 0.06 (1.21%) | 0.17 (3.06%) | +0.11 | pool wrapper |
-| `rexx_lstr_dealloc` | 0.05 (1.01%) | 0.15 (2.70%) | +0.10 | pool wrapper |
-| `rexx_lstr_alloc_raw` | — | 0.01 (0.09%) | — | pool-miss only |
-| `rexx_lstr_dealloc_raw` | — | 0.01 (0.18%) | — | pool-miss only |
-| `pool_bucket_for` | — | — (inlined) | — | `always_inline` |
+| `irxstor` | 0.25 (3.91%) | 0.05 (0.78%) | −0.20 | −80% |
+| `Lfree` | 0.20 (3.05%) | 0.12 (1.88%) | −0.08 | −40% |
+| `Lfx` | 0.15 (2.35%) | 0.11 (1.73%) | −0.04 | −27% |
+| `rexx_lstr_alloc` | 0.07 (1.17%) | 0.23 (3.61%) | +0.16 | pool wrapper |
+| `rexx_lstr_dealloc` | 0.08 (1.25%) | 0.20 (3.14%) | +0.12 | pool wrapper |
+| `rexx_lstr_alloc_raw` | — | 0.00 (0.00%) | — | pool-miss only |
+| `rexx_lstr_dealloc_raw` | — | 0.01 (0.16%) | — | pool-miss only |
+| `POOL_BUCKET_FOR` macro | — | — (inlined) | — | macro expansion |
 
-**Baseline wall-clock:** 21.036 s  
-**Post-PERF-04 wall-clock:** 19.739 s  
-**Delta:** −1.297 s (−6.2%)
+### Pool effectiveness — REXXCPS
 
-### Pool effectiveness
+| Metric | Value |
+|--------|-------|
+| `rexx_lstr_alloc` calls | 42 826 156 |
+| `rexx_lstr_alloc_raw` calls (pool miss) | 1 400 390 |
+| Pool hit rate (alloc) | **96.7%** |
+| `irxstor` calls — main | 103 934 570 |
+| `irxstor` calls — post-04 | 21 083 038 |
+| `irxstor` call reduction | **−80%** |
+
+### Pool effectiveness — embedded microbench
 
 | Metric | Value |
 |--------|-------|
 | `rexx_lstr_alloc` calls | 33 005 095 |
 | `rexx_lstr_alloc_raw` calls (pool miss) | 2 500 074 |
 | Pool hit rate (alloc) | **92.4%** |
-| `irxstor` calls pre-PERF-04 | 104 010 338 |
-| `irxstor` calls post-PERF-04 | 43 000 296 |
+| `irxstor` calls — main | 104 010 338 |
+| `irxstor` calls — post-04 | 43 000 296 |
 | `irxstor` call reduction | **−59%** |
 
-### `pool_bucket_for` inlining
+---
 
-The initial implementation used a 4-iteration linear scan (`for` loop).
-At `-O0` this was a non-inlined function call at each of the 66 M hot
-sites, consuming ~1.2% self-time and eating the irxstor savings.
-Replacing the loop with a `switch` and adding
-`__attribute__((always_inline))` forces the compiler to expand the
-4-case dispatch inline, reducing the total storage-path overhead and
-restoring the expected wall-clock delta.
+## POOL_BUCKET_FOR macro
+
+The original implementation used a `static int pool_bucket_for(int size)`
+function with a 4-iteration linear scan.  At `-O0` this was a non-inlined
+call at every alloc and dealloc site (66 M calls per microbench run),
+consuming all savings.
+
+Replacing it with a `#define POOL_BUCKET_FOR(size_, bkt_)` macro that
+expands the 4-case switch directly into each call site eliminates the
+function-call overhead on both the host (`-O0`) and MVS (c2asm370), without
+relying on `__attribute__((always_inline))` which is not portable across all
+c2asm370 builds.
+
+---
 
 ## Observations
 
-**`irxstor` drops from 4.54% to 1.98%** — the primary goal of WP-PERF-04.
-The pool intercepts 92.4% of allocations, reducing irxstor calls from
-104 M to 43 M. The 43 M remaining calls are non-lstring storage operations
-(vpool buckets, arithmetic temporaries, BIF env allocations).
+**`irxstor` drops from 3.91% to 0.78% under REXXCPS** — removed from the
+top-10. The 80% reduction in call count (103 M → 21 M) reflects the REXXCPS
+workload's tighter string reuse patterns (higher pool hit rate 96.7% vs
+92.4% in the microbench).
 
-**`Lfx` and `Lfree` also drop substantially** (−50% and −60% in self-time)
-because both functions spend most of their time in the allocator callback;
-pool hits return without calling irxstor.
+**`rexx_lstr_alloc` and `rexx_lstr_dealloc` enter the top-10** at 3.61%
+and 3.14%. This is expected: the pool check (wkbi deref + switch + count
+check) now has non-trivial cost that was previously absorbed by the more
+expensive `irxstor` call. The net storage-path time is lower than before.
 
-**New wrapper cost is visible but bounded** — `rexx_lstr_alloc` (pool check
-+ possible pool-hit return) and `rexx_lstr_dealloc` (pool check + possible
-pool deposit) now appear in the top-10 at 3.06% and 2.70% respectively. The
-pool_bucket_for switch adds ~4 comparisons per call, inlined via
-`__attribute__((always_inline))` to avoid function-call overhead.
+**Wall-clock −5.4% REXXCPS, −6.2% microbench** on WSL2 at `-O0`. At `-O0`
+on a host with fast libc malloc, the pool wrapper overhead is proportionally
+larger than on the MVS target where each irxstor call is a GETMAIN/FREEMAIN
+SVC (supervisor call overhead). MVS measurement is AC9 (requires hardware).
 
-**Wall-clock −6.2% on WSL2 at `-O0`** — this is the lower bound of the
-expected improvement range. At `-O0` on a host with fast libc malloc, the
-pool wrapper overhead is proportionally larger than on the MVS target where
-each irxstor call translates to a GETMAIN/FREEMAIN SVC (expensive supervisor
-call) while the pool lookup is just a few memory reads. MVS measurement is
-AC9 (requires hardware access).
+**WSL2 scheduler variance** — the WSL2 host shows ±10–15% run-to-run
+variance. The same-machine A/B controls for hardware speed; the structural
+metrics (irxstor call count, pool hit rate) are the reliable measures.
 
-**Host profiling limitation** — the WSL2 scheduler introduces ±10–15% run-to-run
-variance in absolute wall-clock times. The same-machine A/B comparison
-controls for hardware speed but not for OS scheduler noise. Structural
-metrics (irxstor call count −59%, pool hit rate 92.4%) are the reliable
-measures; wall-clock delta is indicative.
+---
 
 ## Next performance candidates
 
-`find_in_bucket` (variable pool hash collision walk) rose to rank 2 at 6.29%,
-up from a lower rank before. With irxstor cleared from the top-5,
-vpool lookup is now the dominant allocation-related cost. The 13 M calls
-indicate significant hash collision depth in the 1000×500 workload.
+`find_in_bucket` (variable pool collision walk) moved to rank 2 at 6.29%
+in the microbench. With `irxstor` cleared from the top-5, vpool lookup is
+now the dominant allocation-related cost.
 
-`num_div_impl` at rank 3 (6.29%, 500 k calls) is the arithmetic engine
-division path. The high per-call cost (0.70 µs) suggests a future
-WP-PERF-06 candidate once vpool is addressed.
+`num_div_impl` at rank 3 (6.29%, 500 k calls) has high per-call cost
+(0.70 µs). Division is the slowest path in the arithmetic engine.
+
+`peek_tok` remains rank 1 at 14–15% — awaiting a token-stream cache WP
+that would collapse per-token re-scan overhead entirely.
