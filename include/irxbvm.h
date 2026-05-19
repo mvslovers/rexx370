@@ -61,7 +61,7 @@ struct bc_stack_slot
 
 int irx_bc_compile(struct envblock *envblock,
                    const char *source, int source_len,
-                   struct irx_bc_execblk **bc_out);
+                   struct irx_bc_execblk **bc_out) asm("IRXBCOMP");
 
 /* ================================================================== */
 /*  irx_bc_execute — execute a compiled bytecode container           */
@@ -76,6 +76,6 @@ int irx_bc_compile(struct envblock *envblock,
 
 int irx_bc_execute(struct envblock *envblock,
                    struct irx_bc_execblk *bc,
-                   int *rc_out);
+                   int *rc_out) asm("IRXBEXEC");
 
 #endif /* IRXBVM_H */
