@@ -27,6 +27,7 @@
 #include "irxanchr.h"
 #include "irxbif.h"
 #include "irxfunc.h"
+#include "irxlstr.h"
 #include "irxwkblk.h"
 
 /* Forward-declare the ECTENVBK slot accessor from irx#anch.c. */
@@ -155,6 +156,9 @@ int irxterm(struct envblock *envblk)
         /* TODO Phase 2+: Free variable pool, data stack,
          * exec stack, token stream, label table, cache
          * that hang off wkbi before freeing wkbi itself. */
+
+        /* Release all pooled lstring buffers before freeing wkbi. */
+        irx_lstr_pool_teardown(envblk);
 
         /* Free the lstring370 allocator bridge if it was installed. */
         if (wkbi->wkbi_lstr_alloc != NULL)
