@@ -54,14 +54,110 @@ static void rexx_lstr_dealloc_raw(void *ptr, size_t size, void *ctx)
     irxstor(RXSMFRE, (int)size, &p, env);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Allocator pool                                                    */
+/*                                                                    */
+/*  Bucket capacities match lstring370's round_capacity() sequence:  */
+/*    bucket 0 →  16 bytes                                            */
+/*    bucket 1 →  32 bytes                                            */
+/*    bucket 2 →  64 bytes                                            */
+/*    bucket 3 → 128 bytes                                            */
+/*                                                                    */
+/*  Lfx always calls the allocator with a size that is already        */
+/*  rounded to one of these values, so pool_bucket_for is exact.      */
+/*  Sizes outside these four values bypass the pool entirely.         */
+/*                                                                    */
+/*  Subpool safety: all buffers in a per-env pool were GETMAIN'd with  */
+/*  the same subpool (the env's parmblock_subpool). On MVS, freemain()*/
+/*  reads subpool from the 8-byte prefix embedded by crent370's       */
+/*  getmain(), not from parmblock — so teardown is safe even after    */
+/*  PARMBLOCK has been released.                                       */
+/* ------------------------------------------------------------------ */
+
+/* Bucket capacities — must match lstring370's round_capacity() sequence. */
+static const int lstr_pool_caps[LSTR_POOL_BUCKET_COUNT] = {16, 32, 64, 128};
+
+/* Return the bucket index for an exact-match size, or -1 if not pooled. */
+static int pool_bucket_for(int size)
+{
+    int i;
+    for (i = 0; i < LSTR_POOL_BUCKET_COUNT; i++)
+    {
+        if (size == lstr_pool_caps[i])
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
 static void *rexx_lstr_alloc(size_t size, void *ctx)
 {
+    struct envblock *env = (struct envblock *)ctx;
+    struct irx_wkblk_int *wkbi;
+    int bkt;
+
+    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    if (wkbi != NULL)
+    {
+        bkt = pool_bucket_for((int)size);
+        if (bkt >= 0 && wkbi->wkbi_lstr_pool.buckets[bkt].count > 0)
+        {
+            return wkbi->wkbi_lstr_pool.buckets[bkt]
+                .items[--wkbi->wkbi_lstr_pool.buckets[bkt].count];
+        }
+    }
     return rexx_lstr_alloc_raw(size, ctx);
 }
 
 static void rexx_lstr_dealloc(void *ptr, size_t size, void *ctx)
 {
+    struct envblock *env = (struct envblock *)ctx;
+    struct irx_wkblk_int *wkbi;
+    int bkt;
+
+    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    if (wkbi != NULL)
+    {
+        bkt = pool_bucket_for((int)size);
+        if (bkt >= 0 &&
+            wkbi->wkbi_lstr_pool.buckets[bkt].count < LSTR_POOL_MAX_PER_BUCKET)
+        {
+            wkbi->wkbi_lstr_pool.buckets[bkt]
+                .items[wkbi->wkbi_lstr_pool.buckets[bkt].count++] = ptr;
+            return;
+        }
+    }
     rexx_lstr_dealloc_raw(ptr, size, ctx);
+}
+
+void irx_lstr_pool_teardown(struct envblock *envblock)
+{
+    struct irx_wkblk_int *wkbi;
+    struct lstr_pool *pool;
+    int bkt;
+    int i;
+
+    if (envblock == NULL)
+    {
+        return;
+    }
+    wkbi = (struct irx_wkblk_int *)envblock->envblock_userfield;
+    if (wkbi == NULL)
+    {
+        return;
+    }
+
+    pool = &wkbi->wkbi_lstr_pool;
+    for (bkt = 0; bkt < LSTR_POOL_BUCKET_COUNT; bkt++)
+    {
+        for (i = 0; i < pool->buckets[bkt].count; i++)
+        {
+            rexx_lstr_dealloc_raw(pool->buckets[bkt].items[i],
+                                  (size_t)lstr_pool_caps[bkt], envblock);
+        }
+        pool->buckets[bkt].count = 0;
+    }
 }
 
 struct lstr_alloc *irx_lstr_init(struct envblock *envblock)

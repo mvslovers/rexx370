@@ -78,6 +78,32 @@
 #define COND_FAILURE  0x20
 
 /* ================================================================== */
+/*  Lstring allocator pool (WP-PERF-04)                              */
+/*                                                                    */
+/*  Per-env free-list pool for small Lstring buffers.  Embedded in    */
+/*  irx_wkblk_int; zero-init from irxstor(RXSMGET) on wkbi alloc is  */
+/*  sufficient.                                                       */
+/*                                                                    */
+/*  Bucket capacities (16, 32, 64, 128) match lstring370's            */
+/*  round_capacity() growth sequence — the only sizes the Lfx         */
+/*  callback ever passes.  A size outside this set bypasses the pool. */
+/* ================================================================== */
+
+#define LSTR_POOL_BUCKET_COUNT   4
+#define LSTR_POOL_MAX_PER_BUCKET 64
+
+struct lstr_pool_bucket
+{
+    void *items[LSTR_POOL_MAX_PER_BUCKET];
+    int count;
+};
+
+struct lstr_pool
+{
+    struct lstr_pool_bucket buckets[LSTR_POOL_BUCKET_COUNT];
+};
+
+/* ================================================================== */
 /*  Internal Work Block Extension (irx_wkblk_int)                     */
 /*  Per-environment interpreter runtime state                         */
 /* ================================================================== */
@@ -171,6 +197,14 @@ struct irx_wkblk_int
      * creation from pb->tsofl ("TSO     " or "MVS     "); write path
      * follows in WP-CPS-05 (ADDRESS keyword).                        */
     char wkbi_address[8];
+
+    /* --- Lstring allocator pool (WP-PERF-04) ----------------------- */
+    /* Per-env free-list pool for small Lstring buffers. Organized into
+     * four size buckets matching lstring370's round_capacity() sequence
+     * (16, 32, 64, 128 bytes). Zero-initialized by irxstor(RXSMGET)
+     * on wkbi allocation — no explicit init call needed.
+     * Released by irx_lstr_pool_teardown() during irxterm().          */
+    struct lstr_pool wkbi_lstr_pool;
 };
 
 #define WKBLK_INT_ID "WKBI"

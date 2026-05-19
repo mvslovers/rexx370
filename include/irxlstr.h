@@ -70,6 +70,17 @@
  */
 struct lstr_alloc *irx_lstr_init(struct envblock *envblock);
 
+/* Release all pooled Lstring buffers back to the raw allocator.
+ *
+ * Must be called during env teardown, before the wkbi is freed.
+ * Calls rexx_lstr_dealloc_raw() on every item held in the per-env
+ * free-list pool, preventing leaks under repeated env init/term cycles.
+ *
+ * Safe to call when no pool items are present (count == 0 in all
+ * buckets — the initial state).
+ */
+void irx_lstr_pool_teardown(struct envblock *envblock);
+
 /* Check if s contains a valid REXX number literal.
  *
  * Accepts:
