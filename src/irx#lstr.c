@@ -75,20 +75,34 @@ static void rexx_lstr_dealloc_raw(void *ptr, size_t size, void *ctx)
 /* ------------------------------------------------------------------ */
 
 /* Bucket capacities — must match lstring370's round_capacity() sequence. */
-static const int lstr_pool_caps[LSTR_POOL_BUCKET_COUNT] = {16, 32, 64, 128};
-
-/* Return the bucket index for an exact-match size, or -1 if not pooled. */
-static int pool_bucket_for(int size)
+enum lstr_bucket_cap
 {
-    int i;
-    for (i = 0; i < LSTR_POOL_BUCKET_COUNT; i++)
+    LSTR_CAP_16 = 16,
+    LSTR_CAP_32 = 32,
+    LSTR_CAP_64 = 64,
+    LSTR_CAP_128 = 128
+};
+
+static const int lstr_pool_caps[LSTR_POOL_BUCKET_COUNT] = {
+    LSTR_CAP_16, LSTR_CAP_32, LSTR_CAP_64, LSTR_CAP_128};
+
+/* Return the bucket index for an exact-match size, or -1 if not pooled.
+ * always_inline eliminates per-call overhead on the 66 M hot call sites.  */
+static __inline__ __attribute__((always_inline)) int pool_bucket_for(int size)
+{
+    switch (size)
     {
-        if (size == lstr_pool_caps[i])
-        {
-            return i;
-        }
+        case LSTR_CAP_16:
+            return 0;
+        case LSTR_CAP_32:
+            return 1;
+        case LSTR_CAP_64:
+            return 2;
+        case LSTR_CAP_128:
+            return LSTR_POOL_BUCKET_COUNT - 1;
+        default:
+            return -1;
     }
-    return -1;
 }
 
 static void *rexx_lstr_alloc(size_t size, void *ctx)
