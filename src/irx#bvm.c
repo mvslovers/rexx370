@@ -32,7 +32,18 @@
 /*  Stack configuration                                               */
 /* ================================================================== */
 
-#define IRXBC_STACK_DEPTH 64
+#define IRXBC_STACK_DEPTH 256
+
+/* ================================================================== */
+/*  DO-loop frame (one per nesting level; up to IRXBC_DO_DEPTH deep)  */
+/* ================================================================== */
+
+#define IRXBC_DO_DEPTH 16
+
+struct bc_do_frame
+{
+    int32_t counter;
+};
 
 /* ================================================================== */
 /*  Read a little-endian u16 from the bytecode stream.               */
@@ -150,6 +161,212 @@ static int slot_to_bool(const struct bc_stack_slot *slot)
 }
 
 /* ================================================================== */
+/*  Integer fast-path helpers                                         */
+/* ================================================================== */
+
+/* If data[0..len-1] is a plain decimal integer (optional leading sign),
+ * populate slot->type_cache and slot->int_cache.  Otherwise no-op. */
+static void try_parse_int_cache(struct bc_stack_slot *slot,
+                                const char *data, int len)
+{
+    const unsigned char *p = (const unsigned char *)data;
+    int32_t v = 0;
+    int neg = 0;
+    int i = 0;
+
+    if (len <= 0)
+    {
+        return;
+    }
+    if (p[i] == (unsigned char)'-')
+    {
+        neg = 1;
+        i++;
+    }
+    else if (p[i] == (unsigned char)'+')
+    {
+        i++;
+    }
+    if (i >= len)
+    {
+        return; /* sign only */
+    }
+    for (; i < len; i++)
+    {
+        if (p[i] < (unsigned char)'0' || p[i] > (unsigned char)'9')
+        {
+            return; /* non-digit — not a plain integer */
+        }
+        if (v > 99999999)
+        {
+            return; /* would overflow int32 fast path */
+        }
+        v = v * 10 + (int32_t)(p[i] - (unsigned char)'0');
+    }
+    slot->type_cache = IRXBC_STACK_LINTEGER;
+    slot->int_cache = neg ? -v : v;
+}
+
+/* Convert a stack slot to int32.  Uses cached value when available;
+ * otherwise parses the string.  Returns 0 for non-integer strings. */
+static int32_t slot_to_int32(const struct bc_stack_slot *slot)
+{
+    const unsigned char *p;
+    size_t len;
+    int32_t v = 0;
+    int neg = 0;
+    size_t i = 0;
+
+    if (slot->type_cache == IRXBC_STACK_LINTEGER)
+    {
+        return slot->int_cache;
+    }
+    p = (const unsigned char *)Lpstr(slot->str);
+    len = Llen(slot->str);
+    if (p == NULL || len == 0)
+    {
+        return 0;
+    }
+    if (p[i] == (unsigned char)'-')
+    {
+        neg = 1;
+        i++;
+    }
+    else if (p[i] == (unsigned char)'+')
+    {
+        i++;
+    }
+    for (; i < len; i++)
+    {
+        if (p[i] < (unsigned char)'0' || p[i] > (unsigned char)'9')
+        {
+            return 0; /* non-integer string — 0 iterations */
+        }
+        v = v * 10 + (int32_t)(p[i] - (unsigned char)'0');
+    }
+    return neg ? -v : v;
+}
+
+/* Format int32 into buf (no NUL terminator); return length. */
+static int i32toa(int32_t v, char *buf)
+{
+    char tmp[21];
+    unsigned int uv;
+    int i = 0;
+    int neg = 0;
+    int len;
+    int j;
+
+    if (v < 0)
+    {
+        neg = 1;
+        uv = (unsigned int)(-(v + 1)) + 1u;
+    }
+    else
+    {
+        uv = (unsigned int)v;
+    }
+    if (uv == 0)
+    {
+        tmp[i++] = '0';
+    }
+    else
+    {
+        while (uv > 0)
+        {
+            tmp[i++] = (char)('0' + (int)(uv % 10u));
+            uv /= 10u;
+        }
+        if (neg)
+        {
+            tmp[i++] = '-';
+        }
+    }
+    len = i;
+    for (j = 0; i > 0; j++)
+    {
+        buf[j] = tmp[--i];
+    }
+    return len;
+}
+
+/* Attempt integer fast-path for binary arithmetic ops.
+ * Returns 1 and writes result into dst on success; 0 to fall back. */
+static int try_arith_fast(struct bc_stack_slot *dst,
+                          const struct bc_stack_slot *a,
+                          const struct bc_stack_slot *b,
+                          unsigned char op,
+                          struct lstr_alloc *alloc)
+{
+    int32_t va;
+    int32_t vb;
+    int32_t result;
+    char buf[24];
+    int len;
+
+    if (a->type_cache != IRXBC_STACK_LINTEGER ||
+        b->type_cache != IRXBC_STACK_LINTEGER)
+    {
+        return 0;
+    }
+    va = a->int_cache;
+    vb = b->int_cache;
+
+    switch (op)
+    {
+        case OP_ADD:
+            result = va + vb;
+            /* Overflow: same-sign operands with different-sign result */
+            if (((va ^ vb) >= 0) && ((result ^ va) < 0))
+            {
+                return 0;
+            }
+            break;
+        case OP_SUB:
+            result = va - vb;
+            if (((va ^ vb) < 0) && ((result ^ va) < 0))
+            {
+                return 0;
+            }
+            break;
+        case OP_MUL:
+            /* Avoid overflow: bail if either operand is large */
+            if (va > 1000000000 || va < -1000000000 ||
+                vb > 1000000000 || vb < -1000000000)
+            {
+                return 0;
+            }
+            result = va * vb;
+            break;
+        case OP_IDIV:
+            if (vb == 0)
+            {
+                return 0; /* division by zero — let arith engine handle */
+            }
+            result = va / vb;
+            break;
+        case OP_MOD:
+            if (vb == 0)
+            {
+                return 0;
+            }
+            result = va % vb;
+            break;
+        default:
+            return 0;
+    }
+
+    len = i32toa(result, buf);
+    if (slot_set_buf(dst, alloc, buf, len) != LSTR_OK)
+    {
+        return 0;
+    }
+    dst->type_cache = IRXBC_STACK_LINTEGER;
+    dst->int_cache = result;
+    return 1;
+}
+
+/* ================================================================== */
 /*  irx_bc_execute                                                    */
 /* ================================================================== */
 
@@ -162,9 +379,11 @@ int irx_bc_execute(struct envblock *envblock,
     struct lstr_alloc *alloc = NULL;
     struct irx_vpool *vpool = NULL;
     struct bc_stack_slot *stack = NULL;
+    struct bc_do_frame *frames = NULL;
     Lstr *lstrs = NULL;
     void *stack_mem = NULL;
     void *lstr_mem = NULL;
+    void *frames_mem = NULL;
     int sp = 0; /* next free slot */
     int vm_rc = IRXBC_OK;
     int i;
@@ -207,6 +426,17 @@ int irx_bc_execute(struct envblock *envblock,
     {
         stack[i].str = &lstrs[i];
     }
+
+    /* --- DO-loop frame array ----------------------------------------- */
+    if (irxstor(RXSMGET,
+                IRXBC_DO_DEPTH * (int)sizeof(struct bc_do_frame),
+                &frames_mem, envblock) != 0)
+    {
+        vm_rc = IRXBC_ERR_STOR;
+        goto done;
+    }
+    memset(frames_mem, 0, IRXBC_DO_DEPTH * sizeof(struct bc_do_frame));
+    frames = (struct bc_do_frame *)frames_mem;
 
     /* --- Variable pool ----------------------------------------------- */
     vpool = vpool_create(alloc, NULL);
@@ -317,6 +547,7 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_STOR;
                         goto done;
                     }
+                    try_parse_int_cache(&stack[sp], data, len);
                     sp++;
                     break;
                 }
@@ -356,7 +587,6 @@ int irx_bc_execute(struct envblock *envblock,
                     int idx = read_u16(pc);
                     const char *name_data;
                     int name_len;
-                    Lstr name_lstr;
                     int vrc;
 
                     pc += 2;
@@ -372,41 +602,28 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_OPCODE;
                         goto done;
                     }
-
-                    Lzeroinit(&name_lstr);
-                    if (Lfx(alloc, &name_lstr,
-                            (size_t)name_len) != LSTR_OK)
-                    {
-                        vm_rc = IRXBC_ERR_STOR;
-                        goto done;
-                    }
-                    memcpy(Lpstr(&name_lstr), name_data,
-                           (size_t)name_len);
-                    name_lstr.len = (size_t)name_len;
-
-                    vrc = vpool_get(vpool, &name_lstr,
-                                    stack[sp].str);
+                    stack[sp].type_cache = 0;
+                    stack[sp].int_cache = 0;
+                    vrc = vpool_get_buf(vpool, name_data, name_len,
+                                        stack[sp].str,
+                                        &stack[sp].type_cache,
+                                        &stack[sp].int_cache);
                     if (vrc == VPOOL_NOT_FOUND)
                     {
-                        /* NOVALUE: variable value is its own name */
-                        if (Lstrcpy(alloc, stack[sp].str,
-                                    &name_lstr) != LSTR_OK)
+                        /* NOVALUE: value is the variable name itself */
+                        if (slot_set_buf(&stack[sp], alloc,
+                                         name_data, name_len) != LSTR_OK)
                         {
-                            Lfree(alloc, &name_lstr);
                             vm_rc = IRXBC_ERR_STOR;
                             goto done;
                         }
                     }
                     else if (vrc != VPOOL_OK)
                     {
-                        Lfree(alloc, &name_lstr);
                         vm_rc = IRXBC_ERR_STOR;
                         goto done;
                     }
-                    stack[sp].type_cache = 0;
-                    stack[sp].int_cache = 0;
                     sp++;
-                    Lfree(alloc, &name_lstr);
                     break;
                 }
 
@@ -415,7 +632,6 @@ int irx_bc_execute(struct envblock *envblock,
                     int idx = read_u16(pc);
                     const char *name_data;
                     int name_len;
-                    Lstr name_lstr;
                     int vrc;
 
                     pc += 2;
@@ -431,22 +647,11 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_OPCODE;
                         goto done;
                     }
-
-                    Lzeroinit(&name_lstr);
-                    if (Lfx(alloc, &name_lstr,
-                            (size_t)name_len) != LSTR_OK)
-                    {
-                        vm_rc = IRXBC_ERR_STOR;
-                        goto done;
-                    }
-                    memcpy(Lpstr(&name_lstr), name_data,
-                           (size_t)name_len);
-                    name_lstr.len = (size_t)name_len;
-
                     sp--;
-                    vrc = vpool_set(vpool, &name_lstr,
-                                    stack[sp].str);
-                    Lfree(alloc, &name_lstr);
+                    vrc = vpool_set_buf(vpool, name_data, name_len,
+                                        stack[sp].str,
+                                        stack[sp].type_cache,
+                                        stack[sp].int_cache);
                     if (vrc != VPOOL_OK)
                     {
                         vm_rc = IRXBC_ERR_STOR;
@@ -460,7 +665,6 @@ int irx_bc_execute(struct envblock *envblock,
                     int idx = read_u16(pc);
                     const char *name_data;
                     int name_len;
-                    Lstr name_lstr;
 
                     pc += 2;
                     name_len =
@@ -470,19 +674,7 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_OPCODE;
                         goto done;
                     }
-
-                    Lzeroinit(&name_lstr);
-                    if (Lfx(alloc, &name_lstr,
-                            (size_t)name_len) != LSTR_OK)
-                    {
-                        vm_rc = IRXBC_ERR_STOR;
-                        goto done;
-                    }
-                    memcpy(Lpstr(&name_lstr), name_data,
-                           (size_t)name_len);
-                    name_lstr.len = (size_t)name_len;
-                    vpool_drop(vpool, &name_lstr);
-                    Lfree(alloc, &name_lstr);
+                    vpool_drop_buf(vpool, name_data, name_len);
                     break;
                 }
 
@@ -512,6 +704,14 @@ int irx_bc_execute(struct envblock *envblock,
                     {
                         vm_rc = IRXBC_ERR_STACK;
                         goto done;
+                    }
+                    /* Integer fast-path: skip REXX arithmetic for simple ops */
+                    if (op != OP_DIV && op != OP_POW &&
+                        try_arith_fast(&stack[sp - 2], &stack[sp - 2],
+                                       &stack[sp - 1], op, alloc))
+                    {
+                        sp--;
+                        break;
                     }
                     /* stack[sp-2] = a, stack[sp-1] = b */
                     arc = irx_arith_op(envblock,
@@ -926,19 +1126,60 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
-                /* ---- DO loop ops (WP-BC-03) — stubs ---------------- */
+                /* ---- DO loop ops (WP-BC-03) ----------------------- */
                 case OP_TOINT:
                 case OP_DOTEST:
                     break;
 
-                case OP_FORINIT:
                 case OP_BYINIT:
-                    pc++; /* skip u8 operand */
+                    pc++; /* skip u8 operand (reserved) */
                     break;
 
-                case OP_DECFOR:
-                    pc += 2; /* skip i16 operand */
+                case OP_FORINIT:
+                {
+                    unsigned char n = *pc++;
+                    int32_t count;
+
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    if (n >= IRXBC_DO_DEPTH)
+                    {
+                        vm_rc = IRXBC_ERR_LOOP;
+                        goto done;
+                    }
+                    sp--;
+                    count = slot_to_int32(&stack[sp]);
+                    frames[n].counter = count;
+                    if (slot_set_bool(&stack[sp], alloc,
+                                      count > 0) != LSTR_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    sp++;
                     break;
+                }
+
+                case OP_DECFOR:
+                {
+                    unsigned char n = *pc++;
+                    int off = read_i16(pc);
+                    pc += 2;
+                    if (n >= IRXBC_DO_DEPTH)
+                    {
+                        vm_rc = IRXBC_ERR_LOOP;
+                        goto done;
+                    }
+                    frames[n].counter--;
+                    if (frames[n].counter <= 0)
+                    {
+                        pc += off;
+                    }
+                    break;
+                }
 
                 default:
                     vm_rc = IRXBC_ERR_OPCODE;
@@ -964,6 +1205,11 @@ done:
     }
 
     /* Free heap arrays */
+    if (frames_mem != NULL)
+    {
+        void *p = frames_mem;
+        irxstor(RXSMFRE, 0, &p, envblock);
+    }
     if (lstr_mem != NULL)
     {
         void *p = lstr_mem;
