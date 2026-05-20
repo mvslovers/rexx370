@@ -68,6 +68,22 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_DOTEST,    "DOTEST"    },
     { OP_ITERATE,   "ITERATE"   },
     { OP_LEAVE,     "LEAVE"     },
+    { OP_LABEL,         "LABEL"         },
+    { OP_CALL,          "CALL"          },
+    { OP_CALL_BIF,      "CALL_BIF"      },
+    { OP_RETURN,        "RETURN"        },
+    { OP_RETURNV,       "RETURNV"       },
+    { OP_PARSE_BEGIN,   "PARSE_BEGIN"   },
+    { OP_PARSE_END,     "PARSE_END"     },
+    { OP_PVAR,          "PVAR"          },
+    { OP_PDOT,          "PDOT"          },
+    { OP_TR_SPACE,      "TR_SPACE"      },
+    { OP_TR_LIT,        "TR_LIT"        },
+    { OP_TR_ABS,        "TR_ABS"        },
+    { OP_TR_REL,        "TR_REL"        },
+    { OP_TR_END,        "TR_END"        },
+    { OP_PUSH_SOURCE,   "PUSH_SOURCE"   },
+    { OP_PUSH_NUMERIC,  "PUSH_NUMERIC"  },
 };
 
 /* clang-format on */
@@ -181,8 +197,43 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
         app_cstr(buf, bufsz, &pos, op_name(op));
 
         /* Operands */
-        if (sz == 3 && (op == OP_PUSH_LIT || op == OP_LOAD ||
-                        op == OP_STORE || op == OP_DROP))
+        if (sz == 4 && (op == OP_CALL || op == OP_CALL_BIF))
+        {
+            /* sym_idx:u16 + nargs:u8 */
+            int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
+            int nargs = (int)code[pc + 3];
+            app_cstr(buf, bufsz, &pos, " [");
+            app_int(buf, bufsz, &pos, idx);
+            app_cstr(buf, bufsz, &pos, "]");
+            if (idx >= 0 && idx < n_syms)
+            {
+                const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;
+                int slen = (int)(unsigned char)entry[0];
+                app_cstr(buf, bufsz, &pos, " = ");
+                app_str(buf, bufsz, &pos, entry + 1, slen);
+            }
+            app_cstr(buf, bufsz, &pos, " nargs=");
+            app_int(buf, bufsz, &pos, nargs);
+        }
+        else if (sz == 4 && op == OP_DECFOR)
+        {
+            /* n:u8 + off:i16 */
+            int n = (int)code[pc + 1];
+            unsigned int u = (unsigned int)code[pc + 2] |
+                             ((unsigned int)code[pc + 3] << 8);
+            int off = (u >= 0x8000u) ? (int)u - 0x10000 : (int)u;
+            target = pc + 4 + off;
+            app_cstr(buf, bufsz, &pos, " n=");
+            app_int(buf, bufsz, &pos, n);
+            app_cstr(buf, bufsz, &pos, " ");
+            app_int(buf, bufsz, &pos, off);
+            app_cstr(buf, bufsz, &pos, " -> ");
+            app_hex4(buf, bufsz, &pos, target);
+        }
+        else if (sz == 3 && (op == OP_PUSH_LIT || op == OP_LOAD ||
+                             op == OP_STORE || op == OP_DROP ||
+                             op == OP_LABEL || op == OP_PVAR ||
+                             op == OP_TR_LIT || op == OP_TR_ABS))
         {
             /* u16 table index */
             int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
@@ -190,8 +241,9 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
             app_int(buf, bufsz, &pos, idx);
             app_cstr(buf, bufsz, &pos, "]");
 
-            /* Print string value for PUSH_LIT */
-            if (op == OP_PUSH_LIT && idx >= 0 && idx < n_consts)
+            /* Print string value for PUSH_LIT / TR_LIT */
+            if ((op == OP_PUSH_LIT || op == OP_TR_LIT) &&
+                idx >= 0 && idx < n_consts)
             {
                 const char *entry = const_base + idx * IRXBC_ENTRY_SIZE;
                 int slen = (int)(unsigned char)entry[0];
@@ -199,8 +251,9 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                 app_str(buf, bufsz, &pos, entry + 1, slen);
                 app_cstr(buf, bufsz, &pos, "\"");
             }
-            /* Print symbol name for LOAD/STORE/DROP */
-            else if ((op == OP_LOAD || op == OP_STORE || op == OP_DROP) &&
+            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR */
+            else if ((op == OP_LOAD || op == OP_STORE || op == OP_DROP ||
+                      op == OP_LABEL || op == OP_PVAR) &&
                      idx >= 0 && idx < n_syms)
             {
                 const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;
@@ -208,18 +261,32 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                 app_cstr(buf, bufsz, &pos, " = ");
                 app_str(buf, bufsz, &pos, entry + 1, slen);
             }
+            /* TR_ABS: print the column number */
+            else if (op == OP_TR_ABS)
+            {
+                app_cstr(buf, bufsz, &pos, " col=");
+                app_int(buf, bufsz, &pos, idx);
+            }
         }
         else if (sz == 3)
         {
-            /* i16 jump offset */
+            /* i16 jump/relative offset */
             unsigned int u = (unsigned int)code[pc + 1] |
                              ((unsigned int)code[pc + 2] << 8);
             int off = (u >= 0x8000u) ? (int)u - 0x10000 : (int)u;
-            target = pc + 3 + off;
-            app_cstr(buf, bufsz, &pos, " ");
-            app_int(buf, bufsz, &pos, off);
-            app_cstr(buf, bufsz, &pos, " -> ");
-            app_hex4(buf, bufsz, &pos, target);
+            if (op == OP_TR_REL)
+            {
+                app_cstr(buf, bufsz, &pos, " rel=");
+                app_int(buf, bufsz, &pos, off);
+            }
+            else
+            {
+                target = pc + 3 + off;
+                app_cstr(buf, bufsz, &pos, " ");
+                app_int(buf, bufsz, &pos, off);
+                app_cstr(buf, bufsz, &pos, " -> ");
+                app_hex4(buf, bufsz, &pos, target);
+            }
         }
         else if (sz == 2)
         {

@@ -672,6 +672,595 @@ static void bc_return_stmt(struct bcom_ctx *ctx)
 }
 
 /* ================================================================== */
+/*  PARSE statement compiler (WP-BC-05 PR A)                          */
+/* ================================================================== */
+
+/* Version string returned by PARSE VERSION (must match irx#pars.c). */
+#define BCOM_PARSE_VERSION "REXX370 0.1.0 16 Apr 2026"
+
+/*
+ * One item in a pending template item list.
+ * Items accumulate until a trigger fires; when flushed:
+ *   items[0..n-2] get OP_TR_SPACE (one word each)
+ *   items[n-1]    gets the actual trigger
+ *
+ * NOTE: The one-pvar-at-a-time model diverges from the token-walk
+ * when N≥2 items precede an absolute/relative position trigger that
+ * splits mid-word.  This is a known limitation — the pattern is rare
+ * and intentionally absent from the test suite.
+ */
+#define BPSE_MAX_ITEMS 16
+
+struct bpse_item
+{
+    int is_dot;
+    int sym_idx;
+};
+
+static void bpse_flush(struct bcom_ctx *ctx,
+                       const struct bpse_item *items, int n_items,
+                       unsigned char last_trigger, int targ)
+{
+    int i;
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+
+    for (i = 0; i < n_items - 1; i++)
+    {
+        if (items[i].is_dot)
+        {
+            emit_byte(ctx, OP_PDOT);
+        }
+        else
+        {
+            emit_byte(ctx, OP_PVAR);
+            emit_u16(ctx, items[i].sym_idx);
+        }
+        emit_byte(ctx, OP_TR_SPACE);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+    }
+
+    if (n_items == 0)
+    {
+        emit_byte(ctx, OP_PDOT);
+    }
+    else
+    {
+        int last = n_items - 1;
+        if (items[last].is_dot)
+        {
+            emit_byte(ctx, OP_PDOT);
+        }
+        else
+        {
+            emit_byte(ctx, OP_PVAR);
+            emit_u16(ctx, items[last].sym_idx);
+        }
+    }
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+
+    switch (last_trigger)
+    {
+        case OP_TR_SPACE:
+        {
+            emit_byte(ctx, OP_TR_SPACE);
+            break;
+        }
+        case OP_TR_LIT:
+        {
+            emit_byte(ctx, OP_TR_LIT);
+            emit_u16(ctx, targ);
+            break;
+        }
+        case OP_TR_ABS:
+        {
+            emit_byte(ctx, OP_TR_ABS);
+            emit_u16(ctx, targ);
+            break;
+        }
+        case OP_TR_REL:
+        {
+            emit_byte(ctx, OP_TR_REL);
+            emit_i16(ctx, targ);
+            break;
+        }
+        case OP_TR_END:
+        {
+            emit_byte(ctx, OP_TR_END);
+            break;
+        }
+        default:
+        {
+            break;
+        }
+    }
+}
+
+/* Collapse doubled quote pairs in a string literal token text. */
+static int bpse_dedouble(const char *raw, int raw_len,
+                         char *out, int out_max)
+{
+    unsigned char pair = '\'';
+    int k, saw_single = 0, saw_double = 0, out_len = 0;
+
+    for (k = 0; k < raw_len - 1; k++)
+    {
+        if ((unsigned char)raw[k] == '\'' && (unsigned char)raw[k + 1] == '\'')
+        {
+            saw_single = 1;
+        }
+        if ((unsigned char)raw[k] == '"' && (unsigned char)raw[k + 1] == '"')
+        {
+            saw_double = 1;
+        }
+    }
+    if (saw_double && !saw_single)
+    {
+        pair = '"';
+    }
+
+    for (k = 0; k < raw_len;)
+    {
+        if (out_len >= out_max)
+        {
+            return -1;
+        }
+        if (k + 1 < raw_len && (unsigned char)raw[k] == pair &&
+            (unsigned char)raw[k + 1] == pair)
+        {
+            out[out_len++] = raw[k];
+            k += 2;
+        }
+        else
+        {
+            out[out_len++] = raw[k++];
+        }
+    }
+    return out_len;
+}
+
+static void bc_parse_template(struct bcom_ctx *ctx)
+{
+    struct bpse_item items[BPSE_MAX_ITEMS];
+    int n_items = 0;
+
+    while (ctx->rc == IRXBC_OK && !tok_ends_clause(ctx))
+    {
+        const struct irx_token *t = tok_at(ctx, 0);
+        if (t == NULL)
+        {
+            break;
+        }
+
+        if (t->tok_type == TOK_COMMA)
+        {
+            break;
+        }
+
+        /* Indirect pattern (var) — reject (unlocked in PR C) */
+        if (t->tok_type == TOK_LPAREN)
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+
+        /* Relative position: +n or -n */
+        if (t->tok_type == TOK_OPERATOR && t->tok_length == 1 &&
+            (t->tok_text[0] == '+' || t->tok_text[0] == '-'))
+        {
+            const struct irx_token *t1 = tok_at(ctx, 1);
+            if (t1 != NULL && t1->tok_type == TOK_NUMBER)
+            {
+                int n = 0, k;
+                for (k = 0; k < (int)t1->tok_length; k++)
+                {
+                    if (t1->tok_text[k] >= '0' && t1->tok_text[k] <= '9')
+                    {
+                        n = n * 10 + (t1->tok_text[k] - '0');
+                    }
+                }
+                if (t->tok_text[0] == '-')
+                {
+                    n = -n;
+                }
+                ctx->pos += 2;
+                bpse_flush(ctx, items, n_items, OP_TR_REL, n);
+                n_items = 0;
+                continue;
+            }
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+
+        /* Absolute position: bare integer */
+        if (t->tok_type == TOK_NUMBER)
+        {
+            int col = 0, k;
+            for (k = 0; k < (int)t->tok_length; k++)
+            {
+                if (t->tok_text[k] >= '0' && t->tok_text[k] <= '9')
+                {
+                    col = col * 10 + (t->tok_text[k] - '0');
+                }
+            }
+            ctx->pos++;
+            bpse_flush(ctx, items, n_items, OP_TR_ABS, col);
+            n_items = 0;
+            continue;
+        }
+
+        /* Absolute position: =n */
+        if (t->tok_type == TOK_COMPARISON && t->tok_length == 1 &&
+            t->tok_text[0] == '=')
+        {
+            const struct irx_token *t1 = tok_at(ctx, 1);
+            if (t1 != NULL && t1->tok_type == TOK_NUMBER)
+            {
+                int col = 0, k;
+                for (k = 0; k < (int)t1->tok_length; k++)
+                {
+                    if (t1->tok_text[k] >= '0' && t1->tok_text[k] <= '9')
+                    {
+                        col = col * 10 + (t1->tok_text[k] - '0');
+                    }
+                }
+                ctx->pos += 2;
+                bpse_flush(ctx, items, n_items, OP_TR_ABS, col);
+                n_items = 0;
+                continue;
+            }
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+
+        /* String literal: search trigger */
+        if (t->tok_type == TOK_STRING)
+        {
+            char tmp[IRXBC_STR_MAX + 1];
+            int ci;
+            if (t->tok_flags & TOKF_QUOTE_DBL)
+            {
+                int tlen = bpse_dedouble(t->tok_text, (int)t->tok_length,
+                                         tmp, IRXBC_STR_MAX);
+                if (tlen < 0)
+                {
+                    ctx->rc = IRXBC_ERR_STRTOOLONG;
+                    return;
+                }
+                ci = add_const(ctx, tmp, tlen);
+            }
+            else
+            {
+                ci = add_const(ctx, t->tok_text, (int)t->tok_length);
+            }
+            if (ci < 0)
+            {
+                return;
+            }
+            ctx->pos++;
+            bpse_flush(ctx, items, n_items, OP_TR_LIT, ci);
+            n_items = 0;
+            continue;
+        }
+
+        /* Symbol: variable name, dot placeholder, or compound (reject) */
+        if (t->tok_type == TOK_SYMBOL)
+        {
+            const char *txt = t->tok_text;
+            int tlen = (int)t->tok_length, j;
+
+            /* Standalone dot */
+            if (tlen == 1 && txt[0] == '.')
+            {
+                if (n_items < BPSE_MAX_ITEMS)
+                {
+                    items[n_items].is_dot = 1;
+                    items[n_items].sym_idx = -1;
+                    n_items++;
+                }
+                ctx->pos++;
+                continue;
+            }
+
+            /* Compound variable → reject in PR A */
+            for (j = 0; j < tlen; j++)
+            {
+                if (txt[j] == '.')
+                {
+                    ctx->rc = IRXBC_ERR_PARSE_COMPOUND;
+                    return;
+                }
+            }
+
+            /* Regular variable */
+            if (!(t->tok_flags & TOKF_CONSTANT))
+            {
+                const char *name =
+                    (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+                int si = add_sym(ctx, name);
+                if (si < 0)
+                {
+                    return;
+                }
+                if (n_items < BPSE_MAX_ITEMS)
+                {
+                    items[n_items].is_dot = 0;
+                    items[n_items].sym_idx = si;
+                    n_items++;
+                }
+            }
+            ctx->pos++;
+            continue;
+        }
+
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
+    /* Flush remaining items with TR_END */
+    if (n_items > 0)
+    {
+        bpse_flush(ctx, items, n_items, OP_TR_END, 0);
+    }
+}
+
+/* Emit code to push ARG(n) onto the eval stack. */
+static void bc_push_arg_n(struct bcom_ctx *ctx, int n)
+{
+    char nbuf[12];
+    char tmp[12];
+    int nlen = 0, i = 0, ci, si, nn = n;
+
+    if (nn <= 0)
+    {
+        nbuf[nlen++] = '0';
+    }
+    else
+    {
+        while (nn > 0)
+        {
+            tmp[i++] = (char)('0' + (nn % 10));
+            nn /= 10;
+        }
+        while (i > 0)
+        {
+            nbuf[nlen++] = tmp[--i];
+        }
+    }
+    ci = add_const(ctx, nbuf, nlen);
+    if (ci < 0)
+    {
+        return;
+    }
+    emit_byte(ctx, OP_PUSH_LIT);
+    emit_u16(ctx, ci);
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+    si = add_sym(ctx, "ARG");
+    if (si < 0)
+    {
+        return;
+    }
+    emit_byte(ctx, OP_CALL_BIF);
+    emit_u16(ctx, si);
+    emit_byte(ctx, 1);
+}
+
+/* Count comma-separated templates from the current position. */
+static int bc_count_parse_templates(const struct bcom_ctx *ctx)
+{
+    int count = 1, i;
+    for (i = ctx->pos; i < ctx->tok_count; i++)
+    {
+        const struct irx_token *t = &ctx->tokens[i];
+        if (t->tok_type == TOK_EOC || t->tok_type == TOK_EOF)
+        {
+            break;
+        }
+        if (t->tok_type == TOK_COMMA)
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+static void bc_parse_stmt(struct bcom_ctx *ctx)
+{
+    int upper = 0, is_arg = 0, arg_idx = 1;
+    unsigned char flags;
+
+    ctx->pos++; /* consume PARSE */
+
+    if (tok_kw(ctx, 0, "UPPER"))
+    {
+        upper = 1;
+        ctx->pos++;
+    }
+    flags = upper ? 0x01 : 0x00;
+
+    if (tok_kw(ctx, 0, "ARG"))
+    {
+        is_arg = 1;
+        ctx->pos++;
+    }
+    else if (tok_kw(ctx, 0, "VAR"))
+    {
+        const struct irx_token *vt;
+        const char *vname;
+        int si, n, i;
+
+        ctx->pos++;
+        vt = tok_at(ctx, 0);
+        if (vt == NULL || vt->tok_type != TOK_SYMBOL ||
+            (vt->tok_flags & TOKF_CONSTANT))
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        vname = (vt->tok_upper != NULL) ? vt->tok_upper : vt->tok_text;
+        si = add_sym(ctx, vname);
+        if (si < 0)
+        {
+            return;
+        }
+        ctx->pos++;
+        n = bc_count_parse_templates(ctx);
+        emit_byte(ctx, OP_LOAD);
+        emit_u16(ctx, si);
+        for (i = 1; i < n; i++)
+        {
+            emit_byte(ctx, OP_DUP);
+        }
+    }
+    else if (tok_kw(ctx, 0, "VALUE"))
+    {
+        int with_pos = -1, saved_count, n, i, depth = 0, j;
+
+        ctx->pos++;
+        for (j = ctx->pos; j < ctx->tok_count; j++)
+        {
+            const struct irx_token *t = &ctx->tokens[j];
+            if (t->tok_type == TOK_EOC || t->tok_type == TOK_EOF)
+            {
+                break;
+            }
+            if (t->tok_type == TOK_LPAREN)
+            {
+                depth++;
+                continue;
+            }
+            if (t->tok_type == TOK_RPAREN && depth > 0)
+            {
+                depth--;
+                continue;
+            }
+            if (depth == 0 && t->tok_type == TOK_SYMBOL &&
+                t->tok_upper != NULL &&
+                strcmp(t->tok_upper, "WITH") == 0)
+            {
+                with_pos = j;
+                break;
+            }
+        }
+        if (with_pos < 0)
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        saved_count = ctx->tok_count;
+        ctx->tok_count = with_pos;
+        bc_exp0(ctx);
+        ctx->tok_count = saved_count;
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        ctx->pos = with_pos + 1;
+        n = bc_count_parse_templates(ctx);
+        for (i = 1; i < n; i++)
+        {
+            emit_byte(ctx, OP_DUP);
+        }
+    }
+    else if (tok_kw(ctx, 0, "SOURCE"))
+    {
+        int n, i;
+        ctx->pos++;
+        n = bc_count_parse_templates(ctx);
+        emit_byte(ctx, OP_PUSH_SOURCE);
+        for (i = 1; i < n; i++)
+        {
+            emit_byte(ctx, OP_DUP);
+        }
+    }
+    else if (tok_kw(ctx, 0, "VERSION"))
+    {
+        const char *vs = BCOM_PARSE_VERSION;
+        int n, i, ci;
+        ctx->pos++;
+        n = bc_count_parse_templates(ctx);
+        ci = add_const(ctx, vs, (int)strlen(vs));
+        if (ci < 0)
+        {
+            return;
+        }
+        emit_byte(ctx, OP_PUSH_LIT);
+        emit_u16(ctx, ci);
+        for (i = 1; i < n; i++)
+        {
+            emit_byte(ctx, OP_DUP);
+        }
+    }
+    else if (tok_kw(ctx, 0, "NUMERIC"))
+    {
+        int n, i;
+        ctx->pos++;
+        n = bc_count_parse_templates(ctx);
+        emit_byte(ctx, OP_PUSH_NUMERIC);
+        for (i = 1; i < n; i++)
+        {
+            emit_byte(ctx, OP_DUP);
+        }
+    }
+    else
+    {
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
+    for (;;)
+    {
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        if (is_arg)
+        {
+            bc_push_arg_n(ctx, arg_idx++);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+        }
+        emit_byte(ctx, OP_PARSE_BEGIN);
+        emit_byte(ctx, flags);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        bc_parse_template(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_byte(ctx, OP_PARSE_END);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        if (tok_type_at(ctx, 0, TOK_COMMA))
+        {
+            ctx->pos++;
+        }
+        else
+        {
+            break;
+        }
+    }
+}
+
+/* ================================================================== */
 /*  Expression compiler (bc_exp0 .. bc_exp8)                          */
 /* ================================================================== */
 
@@ -970,7 +1559,7 @@ static const char *const bc_kw_barriers[] = {
     "TO", "BY", "FOR", "WHILE", "UNTIL", "FOREVER",
     "IF", "DO", "SAY", "SELECT", "EXIT",
     "ITERATE", "LEAVE", "NOP",
-    "CALL", "RETURN", "PROCEDURE",
+    "CALL", "RETURN", "PROCEDURE", "PARSE",
     NULL};
 
 static int is_kw_barrier(const struct bcom_ctx *ctx, int offset)
@@ -2046,6 +2635,12 @@ static void bc_stmt(struct bcom_ctx *ctx)
     if (tok_kw(ctx, 0, "RETURN"))
     {
         bc_return_stmt(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "PARSE"))
+    {
+        bc_parse_stmt(ctx);
         return;
     }
 

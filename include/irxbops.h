@@ -163,6 +163,44 @@
 #define OP_RETURNV  0x7C /* 1 byte — pop TOS, store as RESULT, return */
 
 /* ================================================================== */
+/*  PARSE sub-VM opcodes (WP-BC-05 PR A)                             */
+/*                                                                    */
+/*  PARSE [UPPER] source template [, template ...]                    */
+/*                                                                    */
+/*  The source string is pushed on the eval stack BEFORE             */
+/*  OP_PARSE_BEGIN, which pops it and initialises the parse frame.   */
+/*  OP_PUSH_SOURCE / OP_PUSH_NUMERIC are dedicated pushers for the   */
+/*  SOURCE and NUMERIC sources whose value is VM-state-dependent.    */
+/*                                                                    */
+/*  Within a template, items (OP_PVAR / OP_PDOT) are each followed   */
+/*  immediately by a trigger opcode that determines how far to scan:  */
+/*    OP_TR_SPACE — one word (leading whitespace stripped)            */
+/*    OP_TR_LIT   — up to the first occurrence of a literal string   */
+/*    OP_TR_ABS   — up to an absolute column (1-based; inline u16)   */
+/*    OP_TR_REL   — by a signed relative offset (inline i16)         */
+/*    OP_TR_END   — rest of the source string (last item in segment)  */
+/*                                                                    */
+/*  When no template items precede a position trigger, the compiler   */
+/*  emits OP_PDOT + trigger to silently advance the scan position.   */
+/*                                                                    */
+/*  Compound-variable targets (a.i) are rejected at compile time     */
+/*  with IRXBC_ERR_PARSE_COMPOUND (unlocked in PR C).               */
+/*  Indirect patterns (var) are rejected with IRXBC_ERR_UNSUP.      */
+/* ================================================================== */
+
+#define OP_PARSE_BEGIN  0x80 /* 2 bytes: op + flags:u8 (bit0=UPPER)  */
+#define OP_PARSE_END    0x81 /* 1 byte — end parse frame, free source */
+#define OP_PVAR         0x82 /* 3 bytes: op + sym_idx:u16             */
+#define OP_PDOT         0x83 /* 1 byte — dot placeholder              */
+#define OP_TR_SPACE     0x84 /* 1 byte — trigger: one word            */
+#define OP_TR_LIT       0x85 /* 3 bytes: op + lit_idx:u16             */
+#define OP_TR_ABS       0x86 /* 3 bytes: op + col:u16  (1-based)      */
+#define OP_TR_REL       0x87 /* 3 bytes: op + off:i16  (signed)       */
+#define OP_TR_END       0x88 /* 1 byte — trigger: rest of string      */
+#define OP_PUSH_SOURCE  0x89 /* 1 byte — push PARSE SOURCE string     */
+#define OP_PUSH_NUMERIC 0x8A /* 1 byte — push PARSE NUMERIC string    */
+
+/* ================================================================== */
 /*  Per-opcode size in bytes (including the opcode byte itself)       */
 /* ================================================================== */
 
@@ -181,9 +219,14 @@
      ((op) == OP_DECFOR)    ? 4 :         \
      ((op) == OP_ITERATE)   ? 3 :         \
      ((op) == OP_LEAVE)     ? 3 :         \
-     ((op) == OP_LABEL)     ? 3 :         \
-     ((op) == OP_CALL)      ? 4 :         \
-     ((op) == OP_CALL_BIF)  ? 4 :         \
+     ((op) == OP_LABEL)       ? 3 :         \
+     ((op) == OP_CALL)        ? 4 :         \
+     ((op) == OP_CALL_BIF)    ? 4 :         \
+     ((op) == OP_PARSE_BEGIN) ? 2 :         \
+     ((op) == OP_PVAR)        ? 3 :         \
+     ((op) == OP_TR_LIT)      ? 3 :         \
+     ((op) == OP_TR_ABS)      ? 3 :         \
+     ((op) == OP_TR_REL)      ? 3 :         \
      1)
 /* clang-format on */
 
@@ -202,6 +245,7 @@
 #define IRXBC_ERR_LOOP       27 /* DO nesting too deep                   */
 #define IRXBC_ERR_IO         28 /* I/O routine call failed               */
 #define IRXBC_ERR_STRTOOLONG 29 /* literal/symbol exceeds IRXBC_STR_MAX  */
-#define IRXBC_ERR_CALL       30 /* CALL stack overflow (IRXBC_CALL_DEPTH) */
+#define IRXBC_ERR_CALL           30 /* CALL stack overflow (IRXBC_CALL_DEPTH)    */
+#define IRXBC_ERR_PARSE_COMPOUND 31 /* compound-variable target in PARSE template */
 
 #endif /* IRXBOPS_H */
