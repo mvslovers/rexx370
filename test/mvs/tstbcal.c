@@ -333,6 +333,18 @@ static void test_arg_bif(struct envblock *env)
           "f:\n"
           "  RETURN ARG()\n",
           "ARG() returns argc");
+
+    /* SC28-1883 §4.3.3: no-value RETURN resets RESULT to uninitialized.
+     * After CALL sub (no RETURN expr), RESULT evaluates to its own name. */
+    bc_only(env,
+            "RESULT = \"old\"\n"
+            "CALL noop\n"
+            "SAY RESULT\n"
+            "EXIT\n"
+            "noop:\n"
+            "  RETURN\n",
+            "RESULT\n",
+            "RESULT uninitialized after no-value RETURN");
 }
 
 /* ------------------------------------------------------------------ */

@@ -147,8 +147,9 @@
 /*  label_pc[sym_idx] first; falls back to BIF registry.            */
 /*  Pushes nothing; result (if any) is available as RESULT variable. */
 /*                                                                    */
-/*  OP_CALL_BIF: expression function call — pops nargs, dispatches   */
-/*  directly to BIF registry, pushes return value onto eval stack.   */
+/*  OP_CALL_BIF: expression function call — pops nargs, tries        */
+/*  label_pc[sym_idx] first (push_result=1); falls back to BIF       */
+/*  registry.  Pushes return value onto eval stack.                  */
 /*                                                                    */
 /*  OP_RETURN: return from internal CALL with no value.              */
 /*  OP_RETURNV: pop TOS, store as RESULT, return from internal CALL. */
@@ -201,5 +202,6 @@
 #define IRXBC_ERR_LOOP       27 /* DO nesting too deep                   */
 #define IRXBC_ERR_IO         28 /* I/O routine call failed               */
 #define IRXBC_ERR_STRTOOLONG 29 /* literal/symbol exceeds IRXBC_STR_MAX  */
+#define IRXBC_ERR_CALL       30 /* CALL stack overflow (IRXBC_CALL_DEPTH) */
 
 #endif /* IRXBOPS_H */

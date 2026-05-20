@@ -1346,7 +1346,7 @@ int irx_bc_execute(struct envblock *envblock,
 
                         if (call_sp >= IRXBC_CALL_DEPTH)
                         {
-                            vm_rc = IRXBC_ERR_LOOP;
+                            vm_rc = IRXBC_ERR_CALL;
                             goto done;
                         }
                         cf = &call_frames[call_sp];
@@ -1402,7 +1402,7 @@ int irx_bc_execute(struct envblock *envblock,
                         if (nargs < bife->min_args ||
                             nargs > bife->max_args)
                         {
-                            vm_rc = IRXBC_ERR_ARITH;
+                            vm_rc = IRXBC_ERR_UNSUP;
                             goto done;
                         }
                         for (ci = 0; ci < nargs; ci++)
@@ -1458,7 +1458,7 @@ int irx_bc_execute(struct envblock *envblock,
 
                         if (call_sp >= IRXBC_CALL_DEPTH)
                         {
-                            vm_rc = IRXBC_ERR_LOOP;
+                            vm_rc = IRXBC_ERR_CALL;
                             goto done;
                         }
                         cf = &call_frames[call_sp];
@@ -1491,7 +1491,8 @@ int irx_bc_execute(struct envblock *envblock,
                         PLstr argv_arr[IRX_MAX_ARGS];
                         int brc;
 
-                        if (sp >= IRXBC_STACK_DEPTH)
+                        /* net stack delta = -nargs+1; overflow only when nargs==0 */
+                        if (sp - nargs + 1 > IRXBC_STACK_DEPTH)
                         {
                             vm_rc = IRXBC_ERR_STACK;
                             goto done;
@@ -1516,7 +1517,7 @@ int irx_bc_execute(struct envblock *envblock,
                         if (nargs < bife->min_args ||
                             nargs > bife->max_args)
                         {
-                            vm_rc = IRXBC_ERR_ARITH;
+                            vm_rc = IRXBC_ERR_UNSUP;
                             goto done;
                         }
                         for (ci = 0; ci < nargs; ci++)
@@ -1551,6 +1552,10 @@ int irx_bc_execute(struct envblock *envblock,
                     {
                         struct bc_call_frame *cf;
                         int ci;
+
+                        /* §4.3.3: no return value — RESULT reverts to
+                         * uninitialized (evaluates to its own name). */
+                        vpool_drop_buf(vpool, "RESULT", 6);
 
                         call_sp--;
                         cf = &call_frames[call_sp];
