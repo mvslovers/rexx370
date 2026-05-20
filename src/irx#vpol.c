@@ -861,41 +861,39 @@ int vpool_get_buf(struct irx_vpool *pool, const char *name_data, int name_len,
     }
 
     /* Stem default fallback. */
+    int dot = first_dot(&name);
+    if (dot >= 0 && name.len > (size_t)(dot + 1))
     {
-        int dot = first_dot(&name);
-        if (dot >= 0 && name.len > (size_t)(dot + 1))
+        Lstr stem_key;
+        int stem_idx;
+        struct vpool_entry *stem_e;
+
+        stem_key.pstr = name.pstr;
+        stem_key.len = (size_t)(dot + 1);
+        stem_key.maxlen = stem_key.len;
+        stem_key.type = LSTRING_TY;
+
+        stem_idx = bucket_index(pool, &stem_key);
+        stem_e = find_in_bucket(pool->buckets[stem_idx], &stem_key);
+        if (stem_e != NULL)
         {
-            Lstr stem_key;
-            int stem_idx;
-            struct vpool_entry *stem_e;
-
-            stem_key.pstr = name.pstr;
-            stem_key.len = (size_t)(dot + 1);
-            stem_key.maxlen = stem_key.len;
-            stem_key.type = LSTRING_TY;
-
-            stem_idx = bucket_index(pool, &stem_key);
-            stem_e = find_in_bucket(pool->buckets[stem_idx], &stem_key);
-            if (stem_e != NULL)
+            tgt = resolve_ref(stem_e);
+            if (tgt != NULL && !(tgt->flags & VPOOL_UNSET))
             {
-                tgt = resolve_ref(stem_e);
-                if (tgt != NULL && !(tgt->flags & VPOOL_UNSET))
+                rc = Lstrcpy(pool->alloc, value, &tgt->value);
+                if (rc != LSTR_OK)
                 {
-                    rc = Lstrcpy(pool->alloc, value, &tgt->value);
-                    if (rc != LSTR_OK)
-                    {
-                        return VPOOL_NOMEM;
-                    }
-                    if (tc_out != NULL)
-                    {
-                        *tc_out = tgt->type_cache;
-                    }
-                    if (ic_out != NULL)
-                    {
-                        *ic_out = tgt->int_cache;
-                    }
-                    return VPOOL_OK;
+                    return VPOOL_NOMEM;
                 }
+                if (tc_out != NULL)
+                {
+                    *tc_out = tgt->type_cache;
+                }
+                if (ic_out != NULL)
+                {
+                    *ic_out = tgt->int_cache;
+                }
+                return VPOOL_OK;
             }
         }
     }

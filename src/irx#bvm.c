@@ -197,6 +197,10 @@ static void try_parse_int_cache(struct bc_stack_slot *slot,
         {
             return; /* non-digit — not a plain integer */
         }
+        if (v > 99999999)
+        {
+            return; /* would overflow int32 fast path */
+        }
         v = v * 10 + (int32_t)(p[i] - (unsigned char)'0');
     }
     slot->type_cache = IRXBC_STACK_LINTEGER;
@@ -244,7 +248,7 @@ static int32_t slot_to_int32(const struct bc_stack_slot *slot)
 }
 
 /* Format int32 into buf (no NUL terminator); return length. */
-static int i64toa(int32_t v, char *buf)
+static int i32toa(int32_t v, char *buf)
 {
     char tmp[21];
     unsigned int uv;
@@ -327,8 +331,8 @@ static int try_arith_fast(struct bc_stack_slot *dst,
             break;
         case OP_MUL:
             /* Avoid overflow: bail if either operand is large */
-            if (va > 1000000000LL || va < -1000000000LL ||
-                vb > 1000000000LL || vb < -1000000000LL)
+            if (va > 1000000000 || va < -1000000000 ||
+                vb > 1000000000 || vb < -1000000000)
             {
                 return 0;
             }
@@ -352,7 +356,7 @@ static int try_arith_fast(struct bc_stack_slot *dst,
             return 0;
     }
 
-    len = i64toa(result, buf);
+    len = i32toa(result, buf);
     if (slot_set_buf(dst, alloc, buf, len) != LSTR_OK)
     {
         return 0;
