@@ -17,6 +17,7 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
 
+#include <ctype.h>
 #include <string.h>
 
 #include "irx.h"
@@ -424,6 +425,124 @@ static int try_arith_fast(struct bc_stack_slot *dst,
 }
 
 /* ================================================================== */
+/*  PARSE sub-VM frame (WP-BC-05 PR A)                               */
+/* ================================================================== */
+
+struct bc_parse_frame
+{
+    Lstr source;
+    int source_len;
+    int scan;
+    int upper;
+    int cur_sym; /* sym_idx of pending PVAR, or -1 */
+    int cur_dot; /* 1 if pending PDOT */
+    int active;  /* 1 while inside a PARSE_BEGIN/PARSE_END pair */
+};
+
+/*
+ * Assign a sub-string of pframe->source to the pending PVAR/PDOT
+ * target and advance the scan pointer.
+ *
+ * seg_end  — exclusive end of the segment (characters beyond it belong
+ *             to the next template item).
+ * new_scan — where to place pframe->scan after this assignment
+ *            (used by TR_LIT/ABS/REL/END; for TR_SPACE the caller
+ *            passes seg_end=source_len but the function advances scan
+ *            to the end of the matched word, not to seg_end).
+ * last_real — 0 for TR_SPACE (one-word semantics),
+ *             1 for all other triggers (leading-blank-then-rest).
+ */
+static int pframe_assign(struct bc_parse_frame *pframe,
+                         struct irx_vpool *vpool,
+                         struct lstr_alloc *alloc,
+                         const char *sym_base, int n_syms,
+                         int seg_end, int new_scan, int last_real)
+{
+    const char *src =
+        Lpstr(&pframe->source) ? (const char *)Lpstr(&pframe->source) : "";
+    int scan = pframe->scan;
+    int content_start, value_end;
+    int vrc;
+    Lstr val;
+
+    if (seg_end > pframe->source_len)
+    {
+        seg_end = pframe->source_len;
+    }
+    if (seg_end < scan)
+    {
+        seg_end = scan;
+    }
+
+    /* Skip leading whitespace */
+    content_start = scan;
+    while (content_start < seg_end &&
+           isspace((unsigned char)src[content_start]))
+    {
+        content_start++;
+    }
+
+    if (last_real)
+    {
+        /* TR_LIT/ABS/REL/END: take from content_start to seg_end */
+        value_end = seg_end;
+        pframe->scan = new_scan;
+    }
+    else
+    {
+        /* TR_SPACE: take one word (non-space characters) */
+        value_end = content_start;
+        while (value_end < seg_end &&
+               !isspace((unsigned char)src[value_end]))
+        {
+            value_end++;
+        }
+        pframe->scan = value_end;
+    }
+
+    /* Dot placeholder — consume the segment but assign nothing */
+    if (pframe->cur_dot)
+    {
+        pframe->cur_dot = 0;
+        pframe->cur_sym = -1;
+        return IRXBC_OK;
+    }
+
+    if (pframe->cur_sym >= 0)
+    {
+        const char *name_data;
+        int name_len =
+            get_entry(sym_base, n_syms, pframe->cur_sym, &name_data);
+        if (name_len < 0)
+        {
+            pframe->cur_sym = -1;
+            return IRXBC_ERR_OPCODE;
+        }
+        Lzeroinit(&val);
+        if (value_end > content_start)
+        {
+            size_t vlen = (size_t)(value_end - content_start);
+            if (Lfx(alloc, &val, vlen) != LSTR_OK)
+            {
+                return IRXBC_ERR_STOR;
+            }
+            memcpy(Lpstr(&val), src + content_start, vlen);
+            Llen(&val) = vlen;
+        }
+        vrc = vpool_set_buf(vpool, name_data, name_len, &val, 0, 0);
+        Lfree(alloc, &val);
+        if (vrc != VPOOL_OK)
+        {
+            pframe->cur_sym = -1;
+            return IRXBC_ERR_STOR;
+        }
+    }
+    pframe->cur_sym = -1;
+    pframe->cur_dot = 0;
+    return IRXBC_OK;
+}
+
+/* ================================================================== */
 /*  irx_bc_execute                                                    */
 /* ================================================================== */
 
@@ -454,8 +573,12 @@ int irx_bc_execute(struct envblock *envblock,
     int n_syms;
     const char *const_base;
     const char *sym_base;
+    struct bc_parse_frame pframe;
     int vm_rc = IRXBC_OK;
     int i;
+
+    memset(&pframe, 0, sizeof(pframe));
+    pframe.cur_sym = -1;
 
     if (bc == NULL)
     {
@@ -1658,6 +1781,264 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                    /* ---- PARSE sub-VM (WP-BC-05 PR A) ------------------- */
+
+                case OP_PARSE_BEGIN:
+                {
+                    unsigned char pbflags = *pc++;
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    sp--;
+                    Lfree(alloc, &pframe.source);
+                    Lzeroinit(&pframe.source);
+                    pframe.upper = (pbflags & 1);
+                    pframe.scan = 0;
+                    pframe.cur_sym = -1;
+                    pframe.cur_dot = 0;
+                    if (Lstrcpy(alloc, &pframe.source, stack[sp].str) !=
+                        LSTR_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    pframe.source_len = (int)Llen(&pframe.source);
+                    if (pframe.upper && pframe.source_len > 0)
+                    {
+                        size_t ui;
+                        unsigned char *up =
+                            (unsigned char *)Lpstr(&pframe.source);
+                        for (ui = 0; ui < (size_t)pframe.source_len; ui++)
+                        {
+                            up[ui] = (unsigned char)toupper((int)up[ui]);
+                        }
+                    }
+                    pframe.active = 1;
+                    break;
+                }
+
+                case OP_PARSE_END:
+                    Lfree(alloc, &pframe.source);
+                    Lzeroinit(&pframe.source);
+                    pframe.active = 0;
+                    pframe.source_len = 0;
+                    pframe.scan = 0;
+                    break;
+
+                case OP_PVAR:
+                    pframe.cur_sym = read_u16(pc);
+                    pc += 2;
+                    pframe.cur_dot = 0;
+                    break;
+
+                case OP_PDOT:
+                    pframe.cur_sym = -1;
+                    pframe.cur_dot = 1;
+                    break;
+
+                case OP_TR_SPACE:
+                {
+                    int prc = pframe_assign(&pframe, vpool, alloc,
+                                            sym_base, n_syms,
+                                            pframe.source_len, 0, 0);
+                    if (prc != IRXBC_OK)
+                    {
+                        vm_rc = prc;
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_TR_LIT:
+                {
+                    const char *lit_data;
+                    int lit_idx = read_u16(pc);
+                    int lit_len, seg_end_lit, new_scan, found, si;
+                    int prc;
+                    pc += 2;
+                    lit_len = get_entry(const_base, n_consts,
+                                        lit_idx, &lit_data);
+                    if (lit_len <= 0)
+                    {
+                        pframe.cur_sym = -1;
+                        pframe.cur_dot = 0;
+                        break;
+                    }
+                    found = -1;
+                    for (si = pframe.scan;
+                         si + lit_len <= pframe.source_len; si++)
+                    {
+                        if (Lpstr(&pframe.source) != NULL &&
+                            memcmp((const char *)Lpstr(&pframe.source) + si,
+                                   lit_data, (size_t)lit_len) == 0)
+                        {
+                            found = si;
+                            break;
+                        }
+                    }
+                    if (found >= 0)
+                    {
+                        seg_end_lit = found;
+                        new_scan = found + lit_len;
+                    }
+                    else
+                    {
+                        seg_end_lit = pframe.source_len;
+                        new_scan = pframe.source_len;
+                    }
+                    prc = pframe_assign(&pframe, vpool, alloc, sym_base,
+                                        n_syms, seg_end_lit, new_scan, 1);
+                    if (prc != IRXBC_OK)
+                    {
+                        vm_rc = prc;
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_TR_ABS:
+                {
+                    int col = read_u16(pc);
+                    int npos = (col >= 1) ? col - 1 : 0;
+                    int seg_end_abs, prc;
+                    pc += 2;
+                    if (npos > pframe.source_len)
+                    {
+                        npos = pframe.source_len;
+                    }
+                    seg_end_abs = (npos > pframe.scan) ? npos : pframe.scan;
+                    prc = pframe_assign(&pframe, vpool, alloc, sym_base,
+                                        n_syms, seg_end_abs, npos, 1);
+                    if (prc != IRXBC_OK)
+                    {
+                        vm_rc = prc;
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_TR_REL:
+                {
+                    int off = read_i16(pc);
+                    int new_scan, seg_end_rel, prc;
+                    pc += 2;
+                    if (off >= 0)
+                    {
+                        new_scan = pframe.scan + off;
+                        if (new_scan > pframe.source_len)
+                        {
+                            new_scan = pframe.source_len;
+                        }
+                        seg_end_rel = new_scan;
+                    }
+                    else
+                    {
+                        int n = -off;
+                        new_scan = (pframe.scan >= n) ? pframe.scan - n : 0;
+                        seg_end_rel = pframe.scan;
+                    }
+                    prc = pframe_assign(&pframe, vpool, alloc, sym_base,
+                                        n_syms, seg_end_rel, new_scan, 1);
+                    if (prc != IRXBC_OK)
+                    {
+                        vm_rc = prc;
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_TR_END:
+                {
+                    int prc = pframe_assign(&pframe, vpool, alloc,
+                                            sym_base, n_syms,
+                                            pframe.source_len,
+                                            pframe.source_len, 1);
+                    if (prc != IRXBC_OK)
+                    {
+                        vm_rc = prc;
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_PUSH_SOURCE:
+                {
+                    const char *calltype =
+                        (call_sp > 0) ? "SUBROUTINE" : "COMMAND";
+                    int cl = (int)strlen(calltype);
+                    char buf[32];
+                    int blen;
+                    /* "MVS " + calltype + " ?" */
+                    memcpy(buf, "MVS ", 4);
+                    memcpy(buf + 4, calltype, (size_t)cl);
+                    memcpy(buf + 4 + cl, " ?", 2);
+                    blen = 4 + cl + 2;
+                    if (sp >= IRXBC_STACK_DEPTH)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    if (slot_set_buf(&stack[sp], alloc, buf, blen) != LSTR_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    sp++;
+                    break;
+                }
+
+                case OP_PUSH_NUMERIC:
+                {
+                    struct irx_wkblk_int *wk = NULL;
+                    int digits = NUMERIC_DIGITS_DEFAULT;
+                    int fuzz = NUMERIC_FUZZ_DEFAULT;
+                    int form = NUMFORM_SCIENTIFIC;
+                    char buf[64];
+                    char tmp[12];
+                    int blen = 0, n;
+                    if (envblock != NULL &&
+                        envblock->envblock_userfield != NULL)
+                    {
+                        wk = (struct irx_wkblk_int *)
+                                 envblock->envblock_userfield;
+                        digits = wk->wkbi_digits;
+                        fuzz = wk->wkbi_fuzz;
+                        form = wk->wkbi_form;
+                    }
+                    n = i32toa(digits, tmp);
+                    memcpy(buf + blen, tmp, (size_t)n);
+                    blen += n;
+                    buf[blen++] = ' ';
+                    n = i32toa(fuzz, tmp);
+                    memcpy(buf + blen, tmp, (size_t)n);
+                    blen += n;
+                    buf[blen++] = ' ';
+                    if (form == NUMFORM_ENGINEERING)
+                    {
+                        memcpy(buf + blen, "ENGINEERING", 11);
+                        blen += 11;
+                    }
+                    else
+                    {
+                        memcpy(buf + blen, "SCIENTIFIC", 10);
+                        blen += 10;
+                    }
+                    if (sp >= IRXBC_STACK_DEPTH)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    if (slot_set_buf(&stack[sp], alloc, buf, blen) != LSTR_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    sp++;
+                    break;
+                }
+
                 default:
                     vm_rc = IRXBC_ERR_OPCODE;
                     goto done;
@@ -1666,6 +2047,12 @@ int irx_bc_execute(struct envblock *envblock,
     }
 
 done:
+    /* Free parse frame source if active */
+    if (pframe.active)
+    {
+        Lfree(alloc, &pframe.source);
+    }
+
     /* Free any active call frame arg Lstr buffers */
     if (call_frames != NULL)
     {
