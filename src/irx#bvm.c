@@ -42,7 +42,7 @@
 
 struct bc_do_frame
 {
-    int64_t counter;
+    int32_t counter;
 };
 
 /* ================================================================== */
@@ -170,7 +170,7 @@ static void try_parse_int_cache(struct bc_stack_slot *slot,
                                 const char *data, int len)
 {
     const unsigned char *p = (const unsigned char *)data;
-    int64_t v = 0;
+    int32_t v = 0;
     int neg = 0;
     int i = 0;
 
@@ -197,19 +197,19 @@ static void try_parse_int_cache(struct bc_stack_slot *slot,
         {
             return; /* non-digit — not a plain integer */
         }
-        v = v * 10 + (int64_t)(p[i] - (unsigned char)'0');
+        v = v * 10 + (int32_t)(p[i] - (unsigned char)'0');
     }
     slot->type_cache = IRXBC_STACK_LINTEGER;
     slot->int_cache = neg ? -v : v;
 }
 
-/* Convert a stack slot to int64.  Uses cached value when available;
+/* Convert a stack slot to int32.  Uses cached value when available;
  * otherwise parses the string.  Returns 0 for non-integer strings. */
-static int64_t slot_to_int64(const struct bc_stack_slot *slot)
+static int32_t slot_to_int32(const struct bc_stack_slot *slot)
 {
     const unsigned char *p;
     size_t len;
-    int64_t v = 0;
+    int32_t v = 0;
     int neg = 0;
     size_t i = 0;
 
@@ -238,16 +238,16 @@ static int64_t slot_to_int64(const struct bc_stack_slot *slot)
         {
             return 0; /* non-integer string — 0 iterations */
         }
-        v = v * 10 + (int64_t)(p[i] - (unsigned char)'0');
+        v = v * 10 + (int32_t)(p[i] - (unsigned char)'0');
     }
     return neg ? -v : v;
 }
 
-/* Format int64 into buf (no NUL terminator); return length. */
-static int i64toa(int64_t v, char *buf)
+/* Format int32 into buf (no NUL terminator); return length. */
+static int i64toa(int32_t v, char *buf)
 {
     char tmp[21];
-    uint64_t uv;
+    unsigned int uv;
     int i = 0;
     int neg = 0;
     int len;
@@ -256,11 +256,11 @@ static int i64toa(int64_t v, char *buf)
     if (v < 0)
     {
         neg = 1;
-        uv = (uint64_t)(-(v + 1)) + 1u;
+        uv = (unsigned int)(-(v + 1)) + 1u;
     }
     else
     {
-        uv = (uint64_t)v;
+        uv = (unsigned int)v;
     }
     if (uv == 0)
     {
@@ -294,9 +294,9 @@ static int try_arith_fast(struct bc_stack_slot *dst,
                           unsigned char op,
                           struct lstr_alloc *alloc)
 {
-    int64_t va;
-    int64_t vb;
-    int64_t result;
+    int32_t va;
+    int32_t vb;
+    int32_t result;
     char buf[24];
     int len;
 
@@ -601,9 +601,9 @@ int irx_bc_execute(struct envblock *envblock,
                     stack[sp].type_cache = 0;
                     stack[sp].int_cache = 0;
                     vrc = vpool_get_buf(vpool, name_data, name_len,
-                                       stack[sp].str,
-                                       &stack[sp].type_cache,
-                                       &stack[sp].int_cache);
+                                        stack[sp].str,
+                                        &stack[sp].type_cache,
+                                        &stack[sp].int_cache);
                     if (vrc == VPOOL_NOT_FOUND)
                     {
                         /* NOVALUE: value is the variable name itself */
@@ -1134,7 +1134,7 @@ int irx_bc_execute(struct envblock *envblock,
                 case OP_FORINIT:
                 {
                     unsigned char n = *pc++;
-                    int64_t count;
+                    int32_t count;
 
                     if (sp < 1)
                     {
@@ -1147,7 +1147,7 @@ int irx_bc_execute(struct envblock *envblock,
                         goto done;
                     }
                     sp--;
-                    count = slot_to_int64(&stack[sp]);
+                    count = slot_to_int32(&stack[sp]);
                     frames[n].counter = count;
                     if (slot_set_bool(&stack[sp], alloc,
                                       count > 0) != LSTR_OK)

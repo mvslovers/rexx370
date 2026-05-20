@@ -811,7 +811,7 @@ int vpool_next(struct irx_vpool *pool, PLstr name, PLstr value)
 /* ------------------------------------------------------------------ */
 
 int vpool_get_buf(struct irx_vpool *pool, const char *name_data, int name_len,
-                  PLstr value, int32_t *tc_out, int64_t *ic_out)
+                  PLstr value, int32_t *tc_out, int32_t *ic_out)
 {
     Lstr name;
     int idx;
@@ -904,7 +904,7 @@ int vpool_get_buf(struct irx_vpool *pool, const char *name_data, int name_len,
 }
 
 int vpool_set_buf(struct irx_vpool *pool, const char *name_data, int name_len,
-                  const PLstr value, int32_t tc, int64_t ic)
+                  const PLstr value, int32_t tc, int32_t ic)
 {
     Lstr name;
     int idx;

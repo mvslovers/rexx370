@@ -40,7 +40,7 @@ struct bc_stack_slot
 {
     PLstr str;          /* canonical string form; always present      */
     int32_t type_cache; /* 0=none, 1=integer, see LINTEGER_TY etc.   */
-    int64_t int_cache;  /* integer fast-path value                    */
+    int32_t int_cache;  /* integer fast-path value                    */
 };
 
 /* ================================================================== */
