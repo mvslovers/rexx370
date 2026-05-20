@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  irxbops.h - REXX/370 Bytecode Opcode Definitions (WP-BC-03)      */
+/*  irxbops.h - REXX/370 Bytecode Opcode Definitions (WP-BC-03/04)   */
 /*                                                                    */
 /*  Opcode encoding for the bytecode VM.                             */
 /*                                                                    */
@@ -137,24 +137,52 @@
 #define OP_LEAVE   0x77 /* 3 bytes: op + i16 — jump to loop end    */
 
 /* ================================================================== */
+/*  Function / CALL ops (WP-BC-04)                                    */
+/*                                                                    */
+/*  OP_LABEL marks a call target in the bytecode stream.  The VM     */
+/*  pre-scans for all OP_LABEL instructions at startup to build a    */
+/*  label_pc[] table indexed by sym_idx.                             */
+/*                                                                    */
+/*  OP_CALL: CALL statement — pops nargs from eval stack, tries      */
+/*  label_pc[sym_idx] first; falls back to BIF registry.            */
+/*  Pushes nothing; result (if any) is available as RESULT variable. */
+/*                                                                    */
+/*  OP_CALL_BIF: expression function call — pops nargs, dispatches   */
+/*  directly to BIF registry, pushes return value onto eval stack.   */
+/*                                                                    */
+/*  OP_RETURN: return from internal CALL with no value.              */
+/*  OP_RETURNV: pop TOS, store as RESULT, return from internal CALL. */
+/*  Both opcodes exit RC=0 when there is no active call frame.       */
+/* ================================================================== */
+
+#define OP_LABEL    0x78 /* 3 bytes: op + sym_idx:u16 — call target  */
+#define OP_CALL     0x79 /* 4 bytes: op + sym_idx:u16 + nargs:u8     */
+#define OP_CALL_BIF 0x7A /* 4 bytes: op + sym_idx:u16 + nargs:u8     */
+#define OP_RETURN   0x7B /* 1 byte — return, no value                 */
+#define OP_RETURNV  0x7C /* 1 byte — pop TOS, store as RESULT, return */
+
+/* ================================================================== */
 /*  Per-opcode size in bytes (including the opcode byte itself)       */
 /* ================================================================== */
 
 /* clang-format off */
-#define OP_SIZE(op)                    \
-    (((op) == OP_PUSH_LIT) ? 3 :      \
-     ((op) == OP_POP)      ? 2 :      \
-     ((op) == OP_LOAD)     ? 3 :      \
-     ((op) == OP_STORE)    ? 3 :      \
-     ((op) == OP_DROP)     ? 3 :      \
-     ((op) == OP_JMP)      ? 3 :      \
-     ((op) == OP_JF)       ? 3 :      \
-     ((op) == OP_JT)       ? 3 :      \
-     ((op) == OP_FORINIT)  ? 2 :      \
-     ((op) == OP_BYINIT)   ? 2 :      \
-     ((op) == OP_DECFOR)   ? 4 :      \
-     ((op) == OP_ITERATE)  ? 3 :      \
-     ((op) == OP_LEAVE)    ? 3 :      \
+#define OP_SIZE(op)                        \
+    (((op) == OP_PUSH_LIT)  ? 3 :         \
+     ((op) == OP_POP)       ? 2 :         \
+     ((op) == OP_LOAD)      ? 3 :         \
+     ((op) == OP_STORE)     ? 3 :         \
+     ((op) == OP_DROP)      ? 3 :         \
+     ((op) == OP_JMP)       ? 3 :         \
+     ((op) == OP_JF)        ? 3 :         \
+     ((op) == OP_JT)        ? 3 :         \
+     ((op) == OP_FORINIT)   ? 2 :         \
+     ((op) == OP_BYINIT)    ? 2 :         \
+     ((op) == OP_DECFOR)    ? 4 :         \
+     ((op) == OP_ITERATE)   ? 3 :         \
+     ((op) == OP_LEAVE)     ? 3 :         \
+     ((op) == OP_LABEL)     ? 3 :         \
+     ((op) == OP_CALL)      ? 4 :         \
+     ((op) == OP_CALL_BIF)  ? 4 :         \
      1)
 /* clang-format on */
 
@@ -162,15 +190,15 @@
 /*  Compiler and VM return codes                                      */
 /* ================================================================== */
 
-#define IRXBC_OK         0  /* success                               */
-#define IRXBC_ERR_STOR   20 /* irxstor allocation failed             */
-#define IRXBC_ERR_TOKN   21 /* tokenizer returned an error           */
-#define IRXBC_ERR_UNSUP  22 /* unsupported construct                 */
-#define IRXBC_ERR_OPCODE 23 /* unknown opcode encountered by VM      */
-#define IRXBC_ERR_ARITH  24 /* arithmetic error (type, divzero etc.) */
-#define IRXBC_ERR_STACK  25 /* stack underflow or overflow           */
-#define IRXBC_ERR_PATCH  26 /* too many forward-jump patches         */
-#define IRXBC_ERR_LOOP   27 /* DO nesting too deep                   */
+#define IRXBC_OK             0  /* success                               */
+#define IRXBC_ERR_STOR       20 /* irxstor allocation failed             */
+#define IRXBC_ERR_TOKN       21 /* tokenizer returned an error           */
+#define IRXBC_ERR_UNSUP      22 /* unsupported construct                 */
+#define IRXBC_ERR_OPCODE     23 /* unknown opcode encountered by VM      */
+#define IRXBC_ERR_ARITH      24 /* arithmetic error (type, divzero etc.) */
+#define IRXBC_ERR_STACK      25 /* stack underflow or overflow           */
+#define IRXBC_ERR_PATCH      26 /* too many forward-jump patches         */
+#define IRXBC_ERR_LOOP       27 /* DO nesting too deep                   */
 #define IRXBC_ERR_IO         28 /* I/O routine call failed               */
 #define IRXBC_ERR_STRTOOLONG 29 /* literal/symbol exceeds IRXBC_STR_MAX  */
 

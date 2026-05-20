@@ -1,7 +1,13 @@
 /* ------------------------------------------------------------------ */
-/*  irx#bcom.c - REXX/370 Bytecode Compiler (WP-BC-03)               */
+/*  irx#bcom.c - REXX/370 Bytecode Compiler (WP-BC-03/04)            */
 /*                                                                    */
 /*  irx_bc_compile() — Entry point.                                  */
+/*                                                                    */
+/*  Scope (WP-BC-04 extends WP-BC-03):                               */
+/*    - CALL name [arg,...] statement  (OP_CALL)                      */
+/*    - RETURN [expr]                  (OP_RETURN / OP_RETURNV)       */
+/*    - Function call in expression:   name(arg,...) (OP_CALL_BIF)   */
+/*    - Internal labels               (OP_LABEL)                     */
 /*                                                                    */
 /*  Scope (WP-BC-03 extends WP-BC-02):                               */
 /*    - SAY statement                                                 */
@@ -30,6 +36,7 @@
 #include "irxbvm.h"
 #include "irxexbl.h"
 #include "irxfunc.h"
+#include "irxpars.h"
 #include "irxtokn.h"
 #include "irxwkblk.h"
 
@@ -488,6 +495,183 @@ static void loop_add_iterate_patch(struct bcom_ctx *ctx, struct bc_loop_ctx *f,
 }
 
 /* ================================================================== */
+/*  Adjacency check (WP-BC-04)                                        */
+/* ================================================================== */
+
+/* True when b immediately follows a in source with no whitespace gap. */
+static int toks_adjacent_bc(const struct irx_token *a,
+                            const struct irx_token *b)
+{
+    int end;
+    if (a == NULL || b == NULL)
+    {
+        return 0;
+    }
+    if (a->tok_line != b->tok_line)
+    {
+        return 0;
+    }
+    end = (int)a->tok_col + (int)a->tok_length;
+    /* STRING tokens are delimited by quotes not reflected in tok_length */
+    if (a->tok_type == TOK_STRING)
+    {
+        end += 2;
+    }
+    return end == (int)b->tok_col;
+}
+
+/* ================================================================== */
+/*  Function call expression — name(arg, ...) (WP-BC-04)             */
+/* ================================================================== */
+
+/* Called with ctx->pos pointing PAST the symbol and '(' already
+ * consumed.  Collects comma-separated arg expressions up to ')'.
+ * Emits OP_CALL_BIF sym_idx nargs.  sym_idx is for the uppercased
+ * function name. */
+static void bc_funcall(struct bcom_ctx *ctx, int sym_idx)
+{
+    int nargs = 0;
+
+    /* Empty arg list */
+    if (tok_type_at(ctx, 0, TOK_RPAREN))
+    {
+        ctx->pos++;
+        emit_byte(ctx, OP_CALL_BIF);
+        emit_u16(ctx, sym_idx);
+        emit_byte(ctx, (unsigned char)nargs);
+        return;
+    }
+
+    for (;;)
+    {
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        if (nargs >= IRX_MAX_ARGS)
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        nargs++;
+
+        if (tok_type_at(ctx, 0, TOK_RPAREN))
+        {
+            ctx->pos++;
+            break;
+        }
+        if (tok_type_at(ctx, 0, TOK_COMMA))
+        {
+            ctx->pos++;
+            continue;
+        }
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
+    emit_byte(ctx, OP_CALL_BIF);
+    emit_u16(ctx, sym_idx);
+    emit_byte(ctx, (unsigned char)nargs);
+}
+
+/* ================================================================== */
+/*  CALL statement (WP-BC-04)                                         */
+/* ================================================================== */
+
+/* Collect comma-separated args until EOC/EOF.  Each arg is an expr.
+ * Emits OP_CALL sym_idx nargs. */
+static void bc_call_stmt(struct bcom_ctx *ctx)
+{
+    const struct irx_token *t;
+    const char *name;
+    int sym_idx;
+    int nargs = 0;
+
+    ctx->pos++; /* consume CALL */
+
+    t = tok_at(ctx, 0);
+    if (t == NULL || t->tok_type != TOK_SYMBOL ||
+        (t->tok_flags & TOKF_CONSTANT))
+    {
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
+    name = (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+    sym_idx = add_sym(ctx, name);
+    if (sym_idx < 0)
+    {
+        return;
+    }
+    ctx->pos++; /* consume target name */
+
+    /* Optional arg list: CALL NAME arg1, arg2 ... */
+    if (!tok_ends_clause(ctx))
+    {
+        for (;;)
+        {
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            if (nargs >= IRX_MAX_ARGS)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            nargs++;
+            if (tok_ends_clause(ctx))
+            {
+                break;
+            }
+            if (tok_type_at(ctx, 0, TOK_COMMA))
+            {
+                ctx->pos++;
+                continue;
+            }
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+    }
+
+    emit_byte(ctx, OP_CALL);
+    emit_u16(ctx, sym_idx);
+    emit_byte(ctx, (unsigned char)nargs);
+}
+
+/* ================================================================== */
+/*  RETURN statement (WP-BC-04)                                       */
+/* ================================================================== */
+
+static void bc_return_stmt(struct bcom_ctx *ctx)
+{
+    ctx->pos++; /* consume RETURN */
+
+    if (tok_ends_clause(ctx))
+    {
+        emit_byte(ctx, OP_RETURN);
+        return;
+    }
+
+    bc_exp0(ctx);
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+    emit_byte(ctx, OP_RETURNV);
+}
+
+/* ================================================================== */
 /*  Expression compiler (bc_exp0 .. bc_exp8)                          */
 /* ================================================================== */
 
@@ -559,16 +743,33 @@ static void bc_exp8(struct bcom_ctx *ctx)
         }
         else
         {
+            const struct irx_token *next = tok_at(ctx, 1);
             const char *name =
                 (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
-            int si = add_sym(ctx, name);
-            if (si < 0)
+
+            /* Function call: SYMBOL immediately followed by '(' */
+            if (next != NULL && next->tok_type == TOK_LPAREN &&
+                toks_adjacent_bc(t, next))
             {
-                return;
+                int si = add_sym(ctx, name);
+                if (si < 0)
+                {
+                    return;
+                }
+                ctx->pos += 2; /* consume symbol + '(' */
+                bc_funcall(ctx, si);
             }
-            ctx->pos++;
-            emit_byte(ctx, OP_LOAD);
-            emit_u16(ctx, si);
+            else
+            {
+                int si = add_sym(ctx, name);
+                if (si < 0)
+                {
+                    return;
+                }
+                ctx->pos++;
+                emit_byte(ctx, OP_LOAD);
+                emit_u16(ctx, si);
+            }
         }
         return;
     }
@@ -769,6 +970,7 @@ static const char *const bc_kw_barriers[] = {
     "TO", "BY", "FOR", "WHILE", "UNTIL", "FOREVER",
     "IF", "DO", "SAY", "SELECT", "EXIT",
     "ITERATE", "LEAVE", "NOP",
+    "CALL", "RETURN", "PROCEDURE",
     NULL};
 
 static int is_kw_barrier(const struct bcom_ctx *ctx, int offset)
@@ -1835,6 +2037,25 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
+    if (tok_kw(ctx, 0, "CALL"))
+    {
+        bc_call_stmt(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "RETURN"))
+    {
+        bc_return_stmt(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "PROCEDURE"))
+    {
+        /* PROCEDURE [EXPOSE ...] is not supported in WP-BC-04 */
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
     /* Assignment: simple-symbol = expr */
     if (t0->tok_type == TOK_SYMBOL && !(t0->tok_flags & TOKF_CONSTANT) &&
         t1 != NULL && t1->tok_type == TOK_COMPARISON &&
@@ -1886,16 +2107,21 @@ static void bc_program(struct bcom_ctx *ctx)
             tok_type_at(ctx, 1, TOK_SEMICOLON) &&
             tok_ch(ctx, 1) == ':')
         {
+            const char *lname =
+                (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+            int lsi = add_sym(ctx, lname);
+            if (lsi < 0)
+            {
+                return;
+            }
+            emit_byte(ctx, OP_LABEL);
+            emit_u16(ctx, lsi);
             ctx->pos += 2;
             continue;
         }
 
         bc_stmt(ctx);
         if (ctx->rc != IRXBC_OK)
-        {
-            return;
-        }
-        if (ctx->hit_exit)
         {
             return;
         }

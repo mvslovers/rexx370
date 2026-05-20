@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  irx#bvm.c - REXX/370 Bytecode VM Loop (WP-BC-03)                 */
+/*  irx#bvm.c - REXX/370 Bytecode VM Loop (WP-BC-03/04)              */
 /*                                                                    */
 /*  irx_bc_execute() — Entry point.                                  */
 /*                                                                    */
@@ -7,6 +7,8 @@
 /*  logical/string opcodes, PUSH_LIT / LOAD / STORE / POP.          */
 /*  WP-BC-03: control flow (JMP/JF/JT), SAY, DO loop ops            */
 /*  (FORINIT/BYINIT/DECFOR stubs), ITERATE, LEAVE.                  */
+/*  WP-BC-04: internal function CALL/RETURN, BIF dispatch via        */
+/*  OP_CALL_BIF; label table pre-scan; proxy irx_parser for BIFs.   */
 /*                                                                    */
 /*  Stack discipline: SP always points to the next FREE slot.        */
 /*    push: stack[sp++]                                              */
@@ -19,6 +21,7 @@
 
 #include "irx.h"
 #include "irxarith.h"
+#include "irxbif.h"
 #include "irxbops.h"
 #include "irxbvm.h"
 #include "irxexbl.h"
@@ -44,6 +47,41 @@ struct bc_do_frame
 {
     int32_t counter;
 };
+
+/* ================================================================== */
+/*  Call frame (WP-BC-04)                                             */
+/*                                                                    */
+/*  One frame per active CALL.  Args are copied from the eval stack   */
+/*  at call time and freed when the frame is popped by RETURN.        */
+/* ================================================================== */
+
+#define IRXBC_CALL_DEPTH 16
+
+struct bc_call_frame
+{
+    const unsigned char *return_pc;
+    int argc;
+    int push_result; /* 1 = leave return value on eval stack (expr call) */
+    Lstr args[IRX_MAX_ARGS];
+    int arg_exists[IRX_MAX_ARGS];
+};
+
+/* ================================================================== */
+/*  BIF registry access (WP-BC-04)                                   */
+/* ================================================================== */
+
+static const struct irx_bif_registry *
+bvm_get_bif_registry(struct envblock *envblock)
+{
+    struct irx_wkblk_int *wk;
+
+    if (envblock == NULL || envblock->envblock_userfield == NULL)
+    {
+        return NULL;
+    }
+    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+    return (const struct irx_bif_registry *)wk->wkbi_bif_registry;
+}
 
 /* ================================================================== */
 /*  Read a little-endian u16 from the bytecode stream.               */
@@ -90,6 +128,25 @@ static int get_entry(const char *table_base, int table_count, int idx,
 /* ================================================================== */
 /*  Lstr helpers                                                      */
 /* ================================================================== */
+
+/* Copy a PLstr to an Lstr by value (used for call frame arg saving). */
+static int lstr_copy(struct lstr_alloc *alloc, Lstr *dst, PLstr src)
+{
+    size_t len = Llen(src);
+
+    Lzeroinit(dst);
+    if (len == 0)
+    {
+        return LSTR_OK;
+    }
+    if (Lfx(alloc, dst, len) != LSTR_OK)
+    {
+        return LSTR_ERR_NOMEM;
+    }
+    memcpy(Lpstr(dst), Lpstr(src), len);
+    Llen(dst) = len;
+    return LSTR_OK;
+}
 
 /* Copy a raw byte buffer into a stack slot's Lstr, using the given
  * lstring allocator.  Resets type_cache. */
@@ -375,16 +432,28 @@ int irx_bc_execute(struct envblock *envblock,
                    int *rc_out)
 {
     const unsigned char *pc;
+    const unsigned char *code_base;
     unsigned char op;
     struct lstr_alloc *alloc = NULL;
     struct irx_vpool *vpool = NULL;
     struct bc_stack_slot *stack = NULL;
     struct bc_do_frame *frames = NULL;
+    struct bc_call_frame *call_frames = NULL;
+    struct irx_parser *proxy_parser = NULL;
+    int *label_pc = NULL;
     Lstr *lstrs = NULL;
     void *stack_mem = NULL;
     void *lstr_mem = NULL;
     void *frames_mem = NULL;
+    void *call_frame_mem = NULL;
+    void *proxy_parser_mem = NULL;
+    void *label_pc_mem = NULL;
     int sp = 0; /* next free slot */
+    int call_sp = 0;
+    int n_consts;
+    int n_syms;
+    const char *const_base;
+    const char *sym_base;
     int vm_rc = IRXBC_OK;
     int i;
 
@@ -447,12 +516,77 @@ int irx_bc_execute(struct envblock *envblock,
     }
 
     /* --- Fetch constants / symbol table pointers --------------------- */
-    {
-        const char *const_base = IRXBC_CONST_TBL(bc);
-        const char *sym_base = IRXBC_SYM_TBL(bc);
-        int n_consts = (int)bc->const_count;
-        int n_syms = (int)bc->symbol_count;
+    const_base = IRXBC_CONST_TBL(bc);
+    sym_base = IRXBC_SYM_TBL(bc);
+    n_consts = (int)bc->const_count;
+    n_syms = (int)bc->symbol_count;
+    code_base = IRXBC_CODE(bc);
 
+    /* --- Call frame array (WP-BC-04) --------------------------------- */
+    if (irxstor(RXSMGET,
+                IRXBC_CALL_DEPTH * (int)sizeof(struct bc_call_frame),
+                &call_frame_mem, envblock) != 0)
+    {
+        vm_rc = IRXBC_ERR_STOR;
+        goto done;
+    }
+    memset(call_frame_mem, 0,
+           IRXBC_CALL_DEPTH * sizeof(struct bc_call_frame));
+    call_frames = (struct bc_call_frame *)call_frame_mem;
+
+    /* --- Label PC table (WP-BC-04) — indexed by sym_idx -------------- */
+    if (n_syms > 0)
+    {
+        if (irxstor(RXSMGET, n_syms * (int)sizeof(int),
+                    &label_pc_mem, envblock) != 0)
+        {
+            vm_rc = IRXBC_ERR_STOR;
+            goto done;
+        }
+        label_pc = (int *)label_pc_mem;
+        for (i = 0; i < n_syms; i++)
+        {
+            label_pc[i] = -1;
+        }
+        /* Pre-scan bytecode for OP_LABEL instructions */
+        {
+            int scan_pos = 0;
+            int code_len = (int)bc->code_length;
+
+            while (scan_pos < code_len)
+            {
+                unsigned char scan_op = code_base[scan_pos];
+                int opsz = OP_SIZE(scan_op);
+
+                if (scan_op == OP_LABEL && scan_pos + 2 < code_len)
+                {
+                    int lsi = (int)code_base[scan_pos + 1] |
+                              ((int)code_base[scan_pos + 2] << 8);
+                    if (lsi >= 0 && lsi < n_syms)
+                    {
+                        label_pc[lsi] = scan_pos + 3;
+                    }
+                }
+                scan_pos += opsz;
+            }
+        }
+    }
+
+    /* --- Proxy parser for BIF dispatch (WP-BC-04) -------------------- */
+    if (irxstor(RXSMGET, (int)sizeof(struct irx_parser),
+                &proxy_parser_mem, envblock) != 0)
+    {
+        vm_rc = IRXBC_ERR_STOR;
+        goto done;
+    }
+    proxy_parser = (struct irx_parser *)proxy_parser_mem;
+    memset(proxy_parser, 0, sizeof(struct irx_parser));
+    proxy_parser->alloc = alloc;
+    proxy_parser->envblock = envblock;
+    proxy_parser->vpool = vpool;
+    /* call_args / call_argc updated per call */
+
+    {
         pc = IRXBC_ENTRY(bc);
 
         /* ---- VM loop ------------------------------------------------ */
@@ -1181,6 +1315,344 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                    /* ---- WP-BC-04: function / CALL / RETURN ----------- */
+
+                case OP_LABEL:
+                    /* No-op at runtime; label table built during pre-scan. */
+                    pc += 2;
+                    break;
+
+                case OP_CALL:
+                {
+                    int sym_idx = read_u16(pc);
+                    int nargs = (int)pc[2];
+                    int target = (label_pc != NULL && sym_idx >= 0 &&
+                                  sym_idx < n_syms)
+                                     ? label_pc[sym_idx]
+                                     : -1;
+                    pc += 3;
+
+                    if (sp < nargs)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+
+                    if (target >= 0)
+                    {
+                        /* Internal function call — push call frame */
+                        struct bc_call_frame *cf;
+                        int ci;
+
+                        if (call_sp >= IRXBC_CALL_DEPTH)
+                        {
+                            vm_rc = IRXBC_ERR_LOOP;
+                            goto done;
+                        }
+                        cf = &call_frames[call_sp];
+                        memset(cf, 0, sizeof(struct bc_call_frame));
+                        cf->return_pc = pc;
+                        cf->argc = nargs;
+                        cf->push_result = 0;
+                        for (ci = 0; ci < nargs; ci++)
+                        {
+                            PLstr src = stack[sp - nargs + ci].str;
+                            if (lstr_copy(alloc, &cf->args[ci], src) != LSTR_OK)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            cf->arg_exists[ci] = 1;
+                        }
+                        sp -= nargs;
+                        call_sp++;
+                        proxy_parser->call_args = cf->args;
+                        proxy_parser->call_arg_exists = cf->arg_exists;
+                        proxy_parser->call_argc = nargs;
+                        pc = code_base + target;
+                    }
+                    else
+                    {
+                        /* BIF fallback for CALL stmt */
+                        const struct irx_bif_registry *reg;
+                        const struct irx_bif_entry *bife;
+                        const char *name_data;
+                        int name_len;
+                        PLstr argv_arr[IRX_MAX_ARGS];
+                        int ci;
+                        int brc;
+
+                        name_len = get_entry(sym_base, n_syms,
+                                             sym_idx, &name_data);
+                        if (name_len < 0)
+                        {
+                            vm_rc = IRXBC_ERR_OPCODE;
+                            goto done;
+                        }
+                        reg = bvm_get_bif_registry(envblock);
+                        bife = irx_bif_find(
+                            reg,
+                            (const unsigned char *)name_data,
+                            (size_t)name_len);
+                        if (bife == NULL)
+                        {
+                            vm_rc = IRXBC_ERR_UNSUP;
+                            goto done;
+                        }
+                        if (nargs < bife->min_args ||
+                            nargs > bife->max_args)
+                        {
+                            vm_rc = IRXBC_ERR_ARITH;
+                            goto done;
+                        }
+                        for (ci = 0; ci < nargs; ci++)
+                        {
+                            argv_arr[ci] = stack[sp - nargs + ci].str;
+                        }
+                        brc = bife->handler(proxy_parser, nargs,
+                                            argv_arr,
+                                            &proxy_parser->result);
+                        sp -= nargs;
+                        if (brc != IRXPARS_OK)
+                        {
+                            vm_rc = IRXBC_ERR_ARITH;
+                            goto done;
+                        }
+                        /* Store result as RESULT variable (CALL stmt) */
+                        if (vpool_set_buf(vpool, "RESULT", 6,
+                                          &proxy_parser->result,
+                                          0, 0) != VPOOL_OK)
+                        {
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
+                    }
+                    break;
+                }
+
+                case OP_CALL_BIF:
+                {
+                    int sym_idx = read_u16(pc);
+                    int nargs = (int)pc[2];
+                    int target = (label_pc != NULL && sym_idx >= 0 &&
+                                  sym_idx < n_syms)
+                                     ? label_pc[sym_idx]
+                                     : -1;
+                    const char *name_data;
+                    int name_len;
+                    int ci;
+
+                    pc += 3;
+                    if (sp < nargs)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+
+                    if (target >= 0)
+                    {
+                        /* User-defined function: jump to label.
+                         * push_result=1 causes RETURNV to leave the
+                         * value on the eval stack for the caller. */
+                        struct bc_call_frame *cf;
+
+                        if (call_sp >= IRXBC_CALL_DEPTH)
+                        {
+                            vm_rc = IRXBC_ERR_LOOP;
+                            goto done;
+                        }
+                        cf = &call_frames[call_sp];
+                        memset(cf, 0, sizeof(struct bc_call_frame));
+                        cf->return_pc = pc;
+                        cf->argc = nargs;
+                        cf->push_result = 1;
+                        for (ci = 0; ci < nargs; ci++)
+                        {
+                            PLstr src = stack[sp - nargs + ci].str;
+                            if (lstr_copy(alloc, &cf->args[ci], src) != LSTR_OK)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            cf->arg_exists[ci] = 1;
+                        }
+                        sp -= nargs;
+                        call_sp++;
+                        proxy_parser->call_args = cf->args;
+                        proxy_parser->call_arg_exists = cf->arg_exists;
+                        proxy_parser->call_argc = nargs;
+                        pc = code_base + target;
+                    }
+                    else
+                    {
+                        /* BIF dispatch */
+                        const struct irx_bif_registry *reg;
+                        const struct irx_bif_entry *bife;
+                        PLstr argv_arr[IRX_MAX_ARGS];
+                        int brc;
+
+                        if (sp >= IRXBC_STACK_DEPTH)
+                        {
+                            vm_rc = IRXBC_ERR_STACK;
+                            goto done;
+                        }
+                        name_len = get_entry(sym_base, n_syms,
+                                             sym_idx, &name_data);
+                        if (name_len < 0)
+                        {
+                            vm_rc = IRXBC_ERR_OPCODE;
+                            goto done;
+                        }
+                        reg = bvm_get_bif_registry(envblock);
+                        bife = irx_bif_find(
+                            reg,
+                            (const unsigned char *)name_data,
+                            (size_t)name_len);
+                        if (bife == NULL)
+                        {
+                            vm_rc = IRXBC_ERR_UNSUP;
+                            goto done;
+                        }
+                        if (nargs < bife->min_args ||
+                            nargs > bife->max_args)
+                        {
+                            vm_rc = IRXBC_ERR_ARITH;
+                            goto done;
+                        }
+                        for (ci = 0; ci < nargs; ci++)
+                        {
+                            argv_arr[ci] = stack[sp - nargs + ci].str;
+                        }
+                        brc = bife->handler(proxy_parser, nargs,
+                                            argv_arr,
+                                            &proxy_parser->result);
+                        sp -= nargs;
+                        if (brc != IRXPARS_OK)
+                        {
+                            vm_rc = IRXBC_ERR_ARITH;
+                            goto done;
+                        }
+                        if (slot_set_buf(
+                                &stack[sp], alloc,
+                                (const char *)Lpstr(&proxy_parser->result),
+                                (int)Llen(&proxy_parser->result)) != LSTR_OK)
+                        {
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
+                        sp++;
+                    }
+                    break;
+                }
+
+                case OP_RETURN:
+                {
+                    if (call_sp > 0)
+                    {
+                        struct bc_call_frame *cf;
+                        int ci;
+
+                        call_sp--;
+                        cf = &call_frames[call_sp];
+                        for (ci = 0; ci < IRX_MAX_ARGS; ci++)
+                        {
+                            Lfree(alloc, &cf->args[ci]);
+                        }
+                        pc = cf->return_pc;
+                        if (call_sp > 0)
+                        {
+                            struct bc_call_frame *parent =
+                                &call_frames[call_sp - 1];
+                            proxy_parser->call_args = parent->args;
+                            proxy_parser->call_arg_exists =
+                                parent->arg_exists;
+                            proxy_parser->call_argc = parent->argc;
+                        }
+                        else
+                        {
+                            proxy_parser->call_args = NULL;
+                            proxy_parser->call_arg_exists = NULL;
+                            proxy_parser->call_argc = 0;
+                        }
+                    }
+                    else
+                    {
+                        if (rc_out != NULL)
+                        {
+                            *rc_out = 0;
+                        }
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_RETURNV:
+                {
+                    int vrc;
+                    int push_r;
+
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    sp--;
+                    vrc = vpool_set_buf(vpool, "RESULT", 6,
+                                        stack[sp].str,
+                                        stack[sp].type_cache,
+                                        stack[sp].int_cache);
+                    if (vrc != VPOOL_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+
+                    if (call_sp > 0)
+                    {
+                        struct bc_call_frame *cf;
+                        int ci;
+
+                        call_sp--;
+                        cf = &call_frames[call_sp];
+                        push_r = cf->push_result;
+                        for (ci = 0; ci < IRX_MAX_ARGS; ci++)
+                        {
+                            Lfree(alloc, &cf->args[ci]);
+                        }
+                        pc = cf->return_pc;
+                        if (call_sp > 0)
+                        {
+                            struct bc_call_frame *parent =
+                                &call_frames[call_sp - 1];
+                            proxy_parser->call_args = parent->args;
+                            proxy_parser->call_arg_exists =
+                                parent->arg_exists;
+                            proxy_parser->call_argc = parent->argc;
+                        }
+                        else
+                        {
+                            proxy_parser->call_args = NULL;
+                            proxy_parser->call_arg_exists = NULL;
+                            proxy_parser->call_argc = 0;
+                        }
+                        if (push_r)
+                        {
+                            /* Expression context: leave return value
+                             * on the eval stack for the caller. */
+                            sp++;
+                        }
+                    }
+                    else
+                    {
+                        if (rc_out != NULL)
+                        {
+                            *rc_out = 0;
+                        }
+                        goto done;
+                    }
+                    break;
+                }
+
                 default:
                     vm_rc = IRXBC_ERR_OPCODE;
                     goto done;
@@ -1189,6 +1661,25 @@ int irx_bc_execute(struct envblock *envblock,
     }
 
 done:
+    /* Free any active call frame arg Lstr buffers */
+    if (call_frames != NULL)
+    {
+        int fi, ci;
+        for (fi = 0; fi < call_sp; fi++)
+        {
+            for (ci = 0; ci < IRX_MAX_ARGS; ci++)
+            {
+                Lfree(alloc, &call_frames[fi].args[ci]);
+            }
+        }
+    }
+
+    /* Free proxy parser result Lstr and proxy parser itself */
+    if (proxy_parser != NULL)
+    {
+        Lfree(alloc, &proxy_parser->result);
+    }
+
     /* Free Lstr buffers */
     if (lstrs != NULL)
     {
@@ -1205,6 +1696,21 @@ done:
     }
 
     /* Free heap arrays */
+    if (label_pc_mem != NULL)
+    {
+        void *p = label_pc_mem;
+        irxstor(RXSMFRE, 0, &p, envblock);
+    }
+    if (proxy_parser_mem != NULL)
+    {
+        void *p = proxy_parser_mem;
+        irxstor(RXSMFRE, 0, &p, envblock);
+    }
+    if (call_frame_mem != NULL)
+    {
+        void *p = call_frame_mem;
+        irxstor(RXSMFRE, 0, &p, envblock);
+    }
     if (frames_mem != NULL)
     {
         void *p = frames_mem;
