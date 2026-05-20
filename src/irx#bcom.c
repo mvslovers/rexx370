@@ -37,9 +37,9 @@
 /*  Compiler limits                                                   */
 /* ================================================================== */
 
-#define BCOM_MAX_CODE   4096
-#define BCOM_MAX_CONSTS 128
-#define BCOM_MAX_SYMS   128
+#define BCOM_MAX_CODE   16384
+#define BCOM_MAX_CONSTS 512
+#define BCOM_MAX_SYMS   512
 #define BCOM_MAX_LOOP   16
 #define BCOM_MAX_LPATCH 48
 #define BCOM_MAX_LABEL  33
@@ -280,7 +280,8 @@ static int add_const(struct bcom_ctx *ctx, const char *text, int len)
     int i;
     if (len > IRXBC_STR_MAX)
     {
-        len = IRXBC_STR_MAX;
+        ctx->rc = IRXBC_ERR_STRTOOLONG;
+        return -1;
     }
     for (i = 0; i < ctx->const_count; i++)
     {
@@ -292,6 +293,7 @@ static int add_const(struct bcom_ctx *ctx, const char *text, int len)
     }
     if (ctx->const_count >= BCOM_MAX_CONSTS)
     {
+        ctx->rc = IRXBC_ERR_STOR;
         return -1;
     }
     i = ctx->const_count++;
@@ -309,7 +311,8 @@ static int add_sym(struct bcom_ctx *ctx, const char *name)
     int len = (int)strlen(name);
     if (len > IRXBC_STR_MAX)
     {
-        len = IRXBC_STR_MAX;
+        ctx->rc = IRXBC_ERR_STRTOOLONG;
+        return -1;
     }
     for (i = 0; i < ctx->sym_count; i++)
     {
@@ -321,6 +324,7 @@ static int add_sym(struct bcom_ctx *ctx, const char *name)
     }
     if (ctx->sym_count >= BCOM_MAX_SYMS)
     {
+        ctx->rc = IRXBC_ERR_STOR;
         return -1;
     }
     i = ctx->sym_count++;
@@ -335,7 +339,6 @@ static void emit_push_int(struct bcom_ctx *ctx, const char *s)
     int ci = add_const(ctx, s, (int)strlen(s));
     if (ci < 0)
     {
-        ctx->rc = IRXBC_ERR_STOR;
         return;
     }
     emit_byte(ctx, OP_PUSH_LIT);
@@ -520,7 +523,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
         int ci = add_const(ctx, t->tok_text, (int)t->tok_length);
         if (ci < 0)
         {
-            ctx->rc = IRXBC_ERR_STOR;
             return;
         }
         ctx->pos++;
@@ -534,7 +536,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
         int ci = add_const(ctx, t->tok_text, (int)t->tok_length);
         if (ci < 0)
         {
-            ctx->rc = IRXBC_ERR_STOR;
             return;
         }
         ctx->pos++;
@@ -550,7 +551,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
             int ci = add_const(ctx, t->tok_text, (int)t->tok_length);
             if (ci < 0)
             {
-                ctx->rc = IRXBC_ERR_STOR;
                 return;
             }
             ctx->pos++;
@@ -564,7 +564,6 @@ static void bc_exp8(struct bcom_ctx *ctx)
             int si = add_sym(ctx, name);
             if (si < 0)
             {
-                ctx->rc = IRXBC_ERR_STOR;
                 return;
             }
             ctx->pos++;
@@ -1281,13 +1280,11 @@ static void C_do_bc(struct bcom_ctx *ctx)
     int loop_type = BCTL_DO_FOREVER;
     int cond_jf = -1;
 
-    int si_ctr = -1;
     int si_var = -1;
     int si_lim = -1;
     int si_stp = -1;
     int si_for = -1;
 
-    char sym_ctr[24];
     char sym_lim[24];
     char sym_stp[24];
     char sym_for[24];
@@ -1297,7 +1294,6 @@ static void C_do_bc(struct bcom_ctx *ctx)
 
     int depth = ctx->loop_depth;
 
-    make_do_sym(sym_ctr, depth, "CTR");
     make_do_sym(sym_lim, depth, "LIM");
     make_do_sym(sym_stp, depth, "STP");
     make_do_sym(sym_for, depth, "FOR");
@@ -1350,7 +1346,6 @@ static void C_do_bc(struct bcom_ctx *ctx)
         si_stp = add_sym(ctx, sym_stp);
         if (si_var < 0 || si_lim < 0 || si_stp < 0)
         {
-            ctx->rc = IRXBC_ERR_STOR;
             return;
         }
 
@@ -1404,7 +1399,6 @@ static void C_do_bc(struct bcom_ctx *ctx)
             si_for = add_sym(ctx, sym_for);
             if (si_for < 0)
             {
-                ctx->rc = IRXBC_ERR_STOR;
                 return;
             }
             bc_exp0(ctx);
@@ -1417,20 +1411,13 @@ static void C_do_bc(struct bcom_ctx *ctx)
     }
     else
     {
-        /* DO count_expr */
+        /* DO count_expr — count stays on eval stack; FORINIT consumes it */
         loop_type = BCTL_DO_COUNT;
-        si_ctr = add_sym(ctx, sym_ctr);
-        if (si_ctr < 0)
-        {
-            ctx->rc = IRXBC_ERR_STOR;
-            return;
-        }
         bc_exp0(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
         }
-        emit_store(ctx, si_ctr);
     }
 
     consume_eoc(ctx);
@@ -1440,6 +1427,19 @@ static void C_do_bc(struct bcom_ctx *ctx)
     if (lf == NULL)
     {
         return;
+    }
+
+    /* ---- DO COUNT: FORINIT + entry guard (once, before loop_top) -- */
+    if (loop_type == BCTL_DO_COUNT)
+    {
+        emit_byte(ctx, OP_FORINIT);
+        emit_byte(ctx, (unsigned char)depth);
+        cond_jf = emit_jmp_op(ctx, OP_JF);
+        if (cond_jf < 0 || ctx->rc != IRXBC_OK)
+        {
+            loop_pop(ctx);
+            return;
+        }
     }
 
     /* ---- loop_top ------------------------------------------------- */
@@ -1468,19 +1468,6 @@ static void C_do_bc(struct bcom_ctx *ctx)
             return;
         }
         consume_eoc(ctx);
-        cond_jf = emit_jmp_op(ctx, OP_JF);
-        if (cond_jf < 0)
-        {
-            loop_pop(ctx);
-            return;
-        }
-    }
-    else if (loop_type == BCTL_DO_COUNT)
-    {
-        /* Exit if counter <= 0 */
-        emit_load(ctx, si_ctr);
-        emit_push_int(ctx, "0");
-        emit_byte(ctx, OP_GT);
         cond_jf = emit_jmp_op(ctx, OP_JF);
         if (cond_jf < 0)
         {
@@ -1532,11 +1519,22 @@ static void C_do_bc(struct bcom_ctx *ctx)
 
     if (loop_type == BCTL_DO_COUNT)
     {
+        int decfor_pos;
         loop_set_iterate(ctx, lf, ctx->code_len);
-        emit_load(ctx, si_ctr);
-        emit_push_int(ctx, "1");
-        emit_byte(ctx, OP_SUB);
-        emit_store(ctx, si_ctr);
+        /* DECFOR: dec frame[depth]; jump to loop_end when exhausted */
+        decfor_pos = ctx->code_len;
+        emit_byte(ctx, OP_DECFOR);
+        emit_byte(ctx, (unsigned char)depth);
+        emit_i16(ctx, 0); /* placeholder — patched after backward JMP */
+        emit_jmp_back(ctx, OP_JMP, loop_top);
+        /* ctx->code_len is now loop_end; patch DECFOR i16 */
+        if (ctx->rc == IRXBC_OK)
+        {
+            int off = ctx->code_len - (decfor_pos + 4);
+            unsigned int uv = (unsigned int)(short)(off);
+            ctx->code[decfor_pos + 2] = (unsigned char)(uv & 0xFF);
+            ctx->code[decfor_pos + 3] = (unsigned char)((uv >> 8) & 0xFF);
+        }
     }
     else if (loop_type == BCTL_DO_TO)
     {
@@ -1583,15 +1581,16 @@ static void C_do_bc(struct bcom_ctx *ctx)
         }
     }
 
-    /* ---- JMP back to loop_top (omitted for DO BLOCK) ------------- */
+    /* ---- JMP back to loop_top (omitted for DO BLOCK and DO COUNT) -- */
     if (loop_type == BCTL_DO_BLOCK)
     {
         /* Simple group: no backward jump.  ITERATE and LEAVE both
          * resolve to loop_end (the fall-through point). */
         loop_set_iterate(ctx, lf, ctx->code_len);
     }
-    else
+    else if (loop_type != BCTL_DO_COUNT)
     {
+        /* DO COUNT already emitted DECFOR + JMP back in the iterate section */
         emit_jmp_back(ctx, OP_JMP, loop_top);
     }
 
@@ -1847,7 +1846,6 @@ static void bc_stmt(struct bcom_ctx *ctx)
         int si = add_sym(ctx, name);
         if (si < 0)
         {
-            ctx->rc = IRXBC_ERR_STOR;
             return;
         }
         ctx->pos += 2;

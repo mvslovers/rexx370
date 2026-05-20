@@ -26,6 +26,8 @@
 #ifndef IRXVPOOL_H
 #define IRXVPOOL_H
 
+#include <stdint.h>
+
 #include "lstralloc.h"
 #include "lstring.h"
 
@@ -58,6 +60,8 @@ struct vpool_entry
     Lstr value;                      /* variable value              */
     int flags;                       /* VPOOL_DROPPED / _EXPOSED_REF */
     struct vpool_entry *exposed_ref; /* -> parent entry if exposed  */
+    int32_t type_cache; /* 0=unknown, IRXBC_STACK_LINTEGER=1        */
+    int64_t int_cache;  /* integer value when type_cache==1         */
 };
 
 /* ================================================================== */
@@ -125,5 +129,25 @@ int vpool_expose_stem(struct irx_vpool *pool,
 int vpool_next(struct irx_vpool *pool,
                PLstr name, PLstr value) asm("VPOOLNXT");
 void vpool_next_reset(struct irx_vpool *pool) asm("VPOOLNRS");
+
+/* Buffer-pointer variants — bypass temporary Lstr allocation.
+ * The name is passed as (data, len) directly; no irxstor call is made
+ * for the lookup key.  type_cache/int_cache propagate the bytecode VM
+ * integer fast-path through variable load/store round-trips. */
+int vpool_get_buf(struct irx_vpool *pool,
+                  const char *name_data, int name_len,
+                  PLstr value,
+                  int32_t *type_cache_out,
+                  int64_t *int_cache_out) asm("VPOOLGTB");
+
+int vpool_set_buf(struct irx_vpool *pool,
+                  const char *name_data, int name_len,
+                  const PLstr value,
+                  int32_t type_cache,
+                  int64_t int_cache) asm("VPOOLSTB");
+
+int vpool_drop_buf(struct irx_vpool *pool,
+                   const char *name_data,
+                   int name_len) asm("VPOOLDRB");
 
 #endif /* IRXVPOOL_H */

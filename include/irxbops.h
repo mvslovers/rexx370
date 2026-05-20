@@ -4,8 +4,9 @@
 /*  Opcode encoding for the bytecode VM.                             */
 /*                                                                    */
 /*  Operand-bearing opcodes carry inline operands:                   */
+/*    4-byte: op + n:u8 + i16-le offset  (DECFOR)                    */
 /*    3-byte: op + i16-le signed offset  (JMP, JF, JT, ITERATE,     */
-/*            LEAVE, DECFOR)                                          */
+/*            LEAVE)                                                  */
 /*    3-byte: op + u16-le index          (PUSH_LIT, LOAD, STORE,    */
 /*            DROP)                                                   */
 /*    2-byte: op + u8                    (POP, FORINIT, BYINIT)      */
@@ -119,9 +120,9 @@
 /* ================================================================== */
 
 #define OP_TOINT   0x71 /* 1 byte — coerce TOS to integer string   */
-#define OP_FORINIT 0x72 /* 2 bytes: op + n:u8 — pop count → frame  */
+#define OP_FORINIT 0x72 /* 2 bytes: op + n:u8 — pop count → frame[n], push bool (count>0) */
 #define OP_BYINIT  0x73 /* 2 bytes: op + n:u8 — reserved           */
-#define OP_DECFOR  0x74 /* 3 bytes: op + i16 — dec frame, JT back  */
+#define OP_DECFOR  0x74 /* 4 bytes: op + n:u8 + i16 — dec frame[n], jump-if-done */
 #define OP_DOTEST  0x75 /* 1 byte — reserved (WHILE/UNTIL via JF)  */
 
 /* ================================================================== */
@@ -151,7 +152,7 @@
      ((op) == OP_JT)       ? 3 :      \
      ((op) == OP_FORINIT)  ? 2 :      \
      ((op) == OP_BYINIT)   ? 2 :      \
-     ((op) == OP_DECFOR)   ? 3 :      \
+     ((op) == OP_DECFOR)   ? 4 :      \
      ((op) == OP_ITERATE)  ? 3 :      \
      ((op) == OP_LEAVE)    ? 3 :      \
      1)
@@ -170,6 +171,7 @@
 #define IRXBC_ERR_STACK  25 /* stack underflow or overflow           */
 #define IRXBC_ERR_PATCH  26 /* too many forward-jump patches         */
 #define IRXBC_ERR_LOOP   27 /* DO nesting too deep                   */
-#define IRXBC_ERR_IO     28 /* I/O routine call failed               */
+#define IRXBC_ERR_IO         28 /* I/O routine call failed               */
+#define IRXBC_ERR_STRTOOLONG 29 /* literal/symbol exceeds IRXBC_STR_MAX  */
 
 #endif /* IRXBOPS_H */

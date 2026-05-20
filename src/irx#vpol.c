@@ -86,6 +86,8 @@ static void vp_entry_init(struct vpool_entry *e)
     Lzeroinit(&e->value);
     e->flags = 0;
     e->exposed_ref = NULL;
+    e->type_cache = 0;
+    e->int_cache = 0;
 }
 
 static struct vpool_entry *vp_entry_new(struct lstr_alloc *a)
@@ -434,6 +436,8 @@ int vpool_set(struct irx_vpool *pool, const PLstr name, const PLstr value)
             return VPOOL_NOMEM;
         }
         tgt->flags &= ~VPOOL_UNSET;
+        tgt->type_cache = 0;
+        tgt->int_cache = 0;
         return VPOOL_OK;
     }
 
@@ -800,4 +804,192 @@ int vpool_next(struct irx_vpool *pool, PLstr name, PLstr value)
     /* Pre-advance so the caller can detect the final entry: if the
      * advance lands us at the end, next call returns VPOOL_LAST. */
     return VPOOL_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Buffer-pointer variants (no irxstor call for the lookup key)      */
+/* ------------------------------------------------------------------ */
+
+int vpool_get_buf(struct irx_vpool *pool, const char *name_data, int name_len,
+                  PLstr value, int32_t *tc_out, int64_t *ic_out)
+{
+    Lstr name;
+    int idx;
+    int rc;
+    struct vpool_entry *e;
+    struct vpool_entry *tgt;
+
+    if (pool == NULL || name_data == NULL || value == NULL)
+    {
+        return VPOOL_BADARG;
+    }
+
+    name.pstr = (unsigned char *)name_data;
+    name.len = (size_t)name_len;
+    name.maxlen = (size_t)name_len;
+    name.type = LSTRING_TY;
+
+    if (matches_exposed_stem(pool, &name) && pool->parent != NULL)
+    {
+        return vpool_get_buf(pool->parent, name_data, name_len, value,
+                             tc_out, ic_out);
+    }
+
+    idx = bucket_index(pool, &name);
+    e = find_in_bucket(pool->buckets[idx], &name);
+
+    if (e != NULL)
+    {
+        tgt = resolve_ref(e);
+        if (tgt != NULL && !(tgt->flags & VPOOL_UNSET))
+        {
+            rc = Lstrcpy(pool->alloc, value, &tgt->value);
+            if (rc != LSTR_OK)
+            {
+                return VPOOL_NOMEM;
+            }
+            if (tc_out != NULL)
+            {
+                *tc_out = tgt->type_cache;
+            }
+            if (ic_out != NULL)
+            {
+                *ic_out = tgt->int_cache;
+            }
+            return VPOOL_OK;
+        }
+    }
+
+    /* Stem default fallback. */
+    {
+        int dot = first_dot(&name);
+        if (dot >= 0 && name.len > (size_t)(dot + 1))
+        {
+            Lstr stem_key;
+            int stem_idx;
+            struct vpool_entry *stem_e;
+
+            stem_key.pstr = name.pstr;
+            stem_key.len = (size_t)(dot + 1);
+            stem_key.maxlen = stem_key.len;
+            stem_key.type = LSTRING_TY;
+
+            stem_idx = bucket_index(pool, &stem_key);
+            stem_e = find_in_bucket(pool->buckets[stem_idx], &stem_key);
+            if (stem_e != NULL)
+            {
+                tgt = resolve_ref(stem_e);
+                if (tgt != NULL && !(tgt->flags & VPOOL_UNSET))
+                {
+                    rc = Lstrcpy(pool->alloc, value, &tgt->value);
+                    if (rc != LSTR_OK)
+                    {
+                        return VPOOL_NOMEM;
+                    }
+                    if (tc_out != NULL)
+                    {
+                        *tc_out = tgt->type_cache;
+                    }
+                    if (ic_out != NULL)
+                    {
+                        *ic_out = tgt->int_cache;
+                    }
+                    return VPOOL_OK;
+                }
+            }
+        }
+    }
+
+    return VPOOL_NOT_FOUND;
+}
+
+int vpool_set_buf(struct irx_vpool *pool, const char *name_data, int name_len,
+                  const PLstr value, int32_t tc, int64_t ic)
+{
+    Lstr name;
+    int idx;
+    int rc;
+    struct vpool_entry *e;
+    struct vpool_entry *tgt;
+
+    if (pool == NULL || name_data == NULL || value == NULL)
+    {
+        return VPOOL_BADARG;
+    }
+    if (memcmp(pool->vp_id, VPOOL_ID, VPOOL_ID_LEN) != 0)
+    {
+        return VPOOL_BADARG;
+    }
+
+    name.pstr = (unsigned char *)name_data;
+    name.len = (size_t)name_len;
+    name.maxlen = (size_t)name_len;
+    name.type = LSTRING_TY;
+
+    if (matches_exposed_stem(pool, &name) && pool->parent != NULL)
+    {
+        return vpool_set_buf(pool->parent, name_data, name_len, value, tc, ic);
+    }
+
+    idx = bucket_index(pool, &name);
+    e = find_in_bucket(pool->buckets[idx], &name);
+
+    if (e != NULL)
+    {
+        tgt = resolve_ref(e);
+        if (tgt == NULL)
+        {
+            return VPOOL_BADARG;
+        }
+        rc = Lstrcpy(pool->alloc, &tgt->value, value);
+        if (rc != LSTR_OK)
+        {
+            return VPOOL_NOMEM;
+        }
+        tgt->flags &= ~VPOOL_UNSET;
+        tgt->type_cache = tc;
+        tgt->int_cache = ic;
+        return VPOOL_OK;
+    }
+
+    /* Create a new local entry. */
+    e = vp_entry_new(pool->alloc);
+    if (e == NULL)
+    {
+        return VPOOL_NOMEM;
+    }
+
+    rc = Lstrcpy(pool->alloc, &e->name, &name);
+    if (rc != LSTR_OK)
+    {
+        vp_entry_free(pool->alloc, e);
+        return VPOOL_NOMEM;
+    }
+    rc = Lstrcpy(pool->alloc, &e->value, value);
+    if (rc != LSTR_OK)
+    {
+        vp_entry_free(pool->alloc, e);
+        return VPOOL_NOMEM;
+    }
+    e->type_cache = tc;
+    e->int_cache = ic;
+
+    return link_entry(pool, e);
+}
+
+int vpool_drop_buf(struct irx_vpool *pool, const char *name_data, int name_len)
+{
+    Lstr name;
+
+    if (pool == NULL || name_data == NULL)
+    {
+        return VPOOL_BADARG;
+    }
+
+    name.pstr = (unsigned char *)name_data;
+    name.len = (size_t)name_len;
+    name.maxlen = (size_t)name_len;
+    name.type = LSTRING_TY;
+
+    return vpool_drop(pool, &name);
 }

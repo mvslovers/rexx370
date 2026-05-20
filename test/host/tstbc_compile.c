@@ -144,8 +144,8 @@ static void test_compile_unsupported(struct envblock *env)
 
     printf("  [compile: unsupported construct]\n");
 
-    /* "say 'hello'" is not handled in Phase 1. */
-    rc = irx_bc_compile(env, "say 'hello'", (int)strlen("say 'hello'"), &bc);
+    /* CALL is not yet handled by the bytecode compiler. */
+    rc = irx_bc_compile(env, "CALL foo", (int)strlen("CALL foo"), &bc);
     CHECK(rc == IRXBC_ERR_UNSUP,
           "compile returns IRXBC_ERR_UNSUP for unsupported construct");
     CHECK(bc == NULL, "bc is NULL on error");

@@ -1393,6 +1393,16 @@ static int kw_iterate(struct irx_parser *p)
             return IRXPARS_OK;
         }
     }
+    else if (f->do_type == DO_COUNT)
+    {
+        if (f->ctrl_count <= 0)
+        {
+            p->tok_pos = f->loop_end;
+            irx_ctrl_frame_pop(p);
+            return IRXPARS_OK;
+        }
+        f->ctrl_count--;
+    }
 
     p->tok_pos = f->loop_start;
     return IRXPARS_OK;
