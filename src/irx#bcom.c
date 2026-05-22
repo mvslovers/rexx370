@@ -1334,7 +1334,11 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
             {
                 return;
             }
-            nexposed++;
+            if (++nexposed > 255)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
         }
         else if (t->tok_type == TOK_SYMBOL && !(t->tok_flags & TOKF_CONSTANT))
         {
@@ -1356,7 +1360,11 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
             {
                 return;
             }
-            nexposed++;
+            if (++nexposed > 255)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
             ctx->pos++;
         }
         else
@@ -1365,11 +1373,6 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
         }
     }
 
-    if (nexposed > 255)
-    {
-        ctx->rc = IRXBC_ERR_UNSUP;
-        return;
-    }
     ctx->code[expose_patch] = (unsigned char)nexposed;
 }
 

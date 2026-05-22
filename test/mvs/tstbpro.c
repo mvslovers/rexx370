@@ -7,10 +7,10 @@
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    LSTR="-I contrib/lstring370-0.1.0-dev/include"                  */
-/*    LSRC="../lstring370/src/lstr#cor.c ../lstring370/src/lstr#cvt.c */
-/*          ../lstring370/src/lstr#fmt.c ../lstring370/src/lstr#srch.c */
-/*          ../lstring370/src/lstr#sub.c ../lstring370/src/lstr#wrd.c */
-/*          ../lstring370/src/lstr#xlt.c"                             */
+/*    LSRC="../../lstring370/src/lstr#cor.c ../../lstring370/src/lstr#cvt.c */
+/*          ../../lstring370/src/lstr#fmt.c ../../lstring370/src/lstr#srch.c */
+/*          ../../lstring370/src/lstr#sub.c ../../lstring370/src/lstr#wrd.c */
+/*          ../../lstring370/src/lstr#xlt.c"                          */
 /*    gcc -I include $LSTR -Wall -Wextra -std=gnu99 \                 */
 /*        -o /tmp/tstbpro test/mvs/tstbpro.c \                        */
 /*        src/irx#init.c  src/irx#term.c  src/irx#stor.c \           */
@@ -345,16 +345,16 @@ static void test_proc_return_value(struct envblock *env)
             "3\n7\n7\n",
             "EXPOSE function accumulates and returns");
 
-    /* RETURN without value: RESULT cleared in caller's scope */
+    /* PROCEDURE RETURN without value: caller's RESULT is preserved */
     equiv(env,
           "result = 'old'\n"
           "CALL sub\n"
-          "SAY result\n" /* 'result' should be its own name after RETURN */
+          "SAY result\n" /* PROCEDURE isolates scope — caller's result untouched */
           "EXIT\n"
           "sub:\n"
           "PROCEDURE\n"
           "RETURN\n",
-          "PROCEDURE RETURN clears RESULT in caller");
+          "PROCEDURE RETURN preserves caller RESULT");
 }
 
 /* ------------------------------------------------------------------ */

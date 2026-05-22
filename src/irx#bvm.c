@@ -2107,7 +2107,8 @@ int irx_bc_execute(struct envblock *envblock,
                     int sym_idx = read_u16(pc);
                     const char *name_data;
                     int name_len;
-                    Lstr name_lstr;
+                    Lstr name_lstr; /* stack Lstr wrapping sym table — read-only */
+                    int erc;
 
                     pc += 2;
                     name_len = get_entry(sym_base, n_syms, sym_idx, &name_data);
@@ -2121,11 +2122,16 @@ int irx_bc_execute(struct envblock *envblock,
                     name_lstr.len = (size_t)name_len;
                     if (name_len > 0 && name_data[name_len - 1] == '.')
                     {
-                        vpool_expose_stem(vpool, &name_lstr);
+                        erc = vpool_expose_stem(vpool, &name_lstr);
                     }
                     else
                     {
-                        vpool_expose_var(vpool, &name_lstr);
+                        erc = vpool_expose_var(vpool, &name_lstr);
+                    }
+                    if (erc != VPOOL_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
                     }
                     break;
                 }
@@ -2136,7 +2142,7 @@ int irx_bc_execute(struct envblock *envblock,
                     const char *name_data;
                     int name_len;
                     struct bc_call_frame *cf;
-                    Lstr iname;
+                    Lstr iname; /* stack Lstr wrapping sym table — read-only */
                     Lstr ival;
                     size_t ipos;
                     size_t ilen;
@@ -2172,6 +2178,7 @@ int irx_bc_execute(struct envblock *envblock,
                         size_t wend;
                         Lstr ename;
                         size_t ui;
+                        int erc;
 
                         while (ipos < ilen &&
                                isspace((unsigned char)ival.pstr[ipos]))
@@ -2206,13 +2213,19 @@ int irx_bc_execute(struct envblock *envblock,
                         if (ename.len > 0 &&
                             ename.pstr[ename.len - 1] == '.')
                         {
-                            vpool_expose_stem(vpool, &ename);
+                            erc = vpool_expose_stem(vpool, &ename);
                         }
                         else
                         {
-                            vpool_expose_var(vpool, &ename);
+                            erc = vpool_expose_var(vpool, &ename);
                         }
                         Lfree(alloc, &ename);
+                        if (erc != VPOOL_OK)
+                        {
+                            Lfree(alloc, &ival);
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
                     }
                     Lfree(alloc, &ival);
                     break;
