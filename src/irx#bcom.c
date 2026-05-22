@@ -1261,6 +1261,122 @@ static void bc_parse_stmt(struct bcom_ctx *ctx)
 }
 
 /* ================================================================== */
+/*  PROCEDURE [EXPOSE ...] statement compiler (WP-BC-05 PR B)         */
+/* ================================================================== */
+
+static void bc_procedure_stmt(struct bcom_ctx *ctx)
+{
+    int expose_patch;
+    int nexposed = 0;
+
+    ctx->pos++; /* consume PROCEDURE */
+
+    emit_byte(ctx, OP_PROC);
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+    expose_patch = ctx->code_len;
+    emit_byte(ctx, 0); /* nexposed placeholder — filled in below */
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+
+    if (!tok_kw(ctx, 0, "EXPOSE"))
+    {
+        return; /* no EXPOSE clause — isolated scope, nexposed stays 0 */
+    }
+    ctx->pos++; /* consume EXPOSE */
+
+    while (!tok_ends_clause(ctx))
+    {
+        const struct irx_token *t = tok_at(ctx, 0);
+        if (t == NULL)
+        {
+            break;
+        }
+
+        if (t->tok_type == TOK_LPAREN)
+        {
+            /* (varname) — indirect expose */
+            const char *iname;
+            int si;
+            ctx->pos++; /* consume ( */
+            t = tok_at(ctx, 0);
+            if (t == NULL || t->tok_type != TOK_SYMBOL ||
+                (t->tok_flags & TOKF_CONSTANT))
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            iname = (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+            si = add_sym(ctx, iname);
+            if (si < 0)
+            {
+                return;
+            }
+            ctx->pos++; /* consume varname */
+            t = tok_at(ctx, 0);
+            if (t == NULL || t->tok_type != TOK_RPAREN)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            ctx->pos++; /* consume ) */
+            emit_byte(ctx, OP_EXPOSE_INDIRECT);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_u16(ctx, si);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            if (++nexposed > 255)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+        }
+        else if (t->tok_type == TOK_SYMBOL && !(t->tok_flags & TOKF_CONSTANT))
+        {
+            /* plain name or stem. */
+            const char *name =
+                (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+            int si = add_sym(ctx, name);
+            if (si < 0)
+            {
+                return;
+            }
+            emit_byte(ctx, OP_EXPOSE);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_u16(ctx, si);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            if (++nexposed > 255)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            ctx->pos++;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    ctx->code[expose_patch] = (unsigned char)nexposed;
+}
+
+/* ================================================================== */
 /*  Expression compiler (bc_exp0 .. bc_exp8)                          */
 /* ================================================================== */
 
@@ -2644,10 +2760,53 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
+    if (tok_kw(ctx, 0, "ARG"))
+    {
+        /* ARG template [, template ...] ≡ PARSE UPPER ARG template [...] */
+        int arg_idx = 1;
+        ctx->pos++; /* consume ARG */
+        for (;;)
+        {
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            bc_push_arg_n(ctx, arg_idx++);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_byte(ctx, OP_PARSE_BEGIN);
+            emit_byte(ctx, 0x01); /* UPPER flag */
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            bc_parse_template(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_byte(ctx, OP_PARSE_END);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            if (tok_type_at(ctx, 0, TOK_COMMA))
+            {
+                ctx->pos++;
+            }
+            else
+            {
+                break;
+            }
+        }
+        return;
+    }
+
     if (tok_kw(ctx, 0, "PROCEDURE"))
     {
-        /* PROCEDURE [EXPOSE ...] is not supported in WP-BC-04 */
-        ctx->rc = IRXBC_ERR_UNSUP;
+        bc_procedure_stmt(ctx);
         return;
     }
 

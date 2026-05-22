@@ -65,6 +65,8 @@ struct bc_call_frame
     int push_result; /* 1 = leave return value on eval stack (expr call) */
     Lstr args[IRX_MAX_ARGS];
     int arg_exists[IRX_MAX_ARGS];
+    struct irx_vpool *prev_vpool; /* caller's vpool saved by OP_PROC */
+    int has_isolated_scope;       /* 1 if OP_PROC created a child scope */
 };
 
 /* ================================================================== */
@@ -1676,12 +1678,25 @@ int irx_bc_execute(struct envblock *envblock,
                         struct bc_call_frame *cf;
                         int ci;
 
-                        /* §4.3.3: no return value — RESULT reverts to
-                         * uninitialized (evaluates to its own name). */
-                        vpool_drop_buf(vpool, "RESULT", 6);
-
                         call_sp--;
                         cf = &call_frames[call_sp];
+
+                        /* Scope teardown (PROCEDURE EXPOSE) */
+                        if (cf->has_isolated_scope)
+                        {
+                            vpool_destroy(vpool);
+                            vpool = cf->prev_vpool;
+                            proxy_parser->vpool = vpool;
+                            /* Isolated scope: RESULT in caller's pool is
+                             * untouched — matches token-walk kw_return. */
+                        }
+                        else
+                        {
+                            /* §4.3.3: no return value — RESULT reverts to
+                             * uninitialized in the shared variable pool. */
+                            vpool_drop_buf(vpool, "RESULT", 6);
+                        }
+
                         for (ci = 0; ci < IRX_MAX_ARGS; ci++)
                         {
                             Lfree(alloc, &cf->args[ci]);
@@ -1725,15 +1740,6 @@ int irx_bc_execute(struct envblock *envblock,
                         goto done;
                     }
                     sp--;
-                    vrc = vpool_set_buf(vpool, "RESULT", 6,
-                                        stack[sp].str,
-                                        stack[sp].type_cache,
-                                        stack[sp].int_cache);
-                    if (vrc != VPOOL_OK)
-                    {
-                        vm_rc = IRXBC_ERR_STOR;
-                        goto done;
-                    }
 
                     if (call_sp > 0)
                     {
@@ -1743,6 +1749,26 @@ int irx_bc_execute(struct envblock *envblock,
                         call_sp--;
                         cf = &call_frames[call_sp];
                         push_r = cf->push_result;
+
+                        /* Scope teardown before storing RESULT in
+                         * caller's pool (PROCEDURE EXPOSE). */
+                        if (cf->has_isolated_scope)
+                        {
+                            vpool_destroy(vpool);
+                            vpool = cf->prev_vpool;
+                            proxy_parser->vpool = vpool;
+                        }
+
+                        vrc = vpool_set_buf(vpool, "RESULT", 6,
+                                            stack[sp].str,
+                                            stack[sp].type_cache,
+                                            stack[sp].int_cache);
+                        if (vrc != VPOOL_OK)
+                        {
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
+
                         for (ci = 0; ci < IRX_MAX_ARGS; ci++)
                         {
                             Lfree(alloc, &cf->args[ci]);
@@ -1772,6 +1798,15 @@ int irx_bc_execute(struct envblock *envblock,
                     }
                     else
                     {
+                        vrc = vpool_set_buf(vpool, "RESULT", 6,
+                                            stack[sp].str,
+                                            stack[sp].type_cache,
+                                            stack[sp].int_cache);
+                        if (vrc != VPOOL_OK)
+                        {
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
                         if (rc_out != NULL)
                         {
                             *rc_out = 0;
@@ -2039,6 +2074,163 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                    /* ---- PROCEDURE EXPOSE opcodes (WP-BC-05 PR B) --- */
+
+                case OP_PROC:
+                {
+                    unsigned char nexposed = *pc++;
+                    struct bc_call_frame *cf;
+                    struct irx_vpool *new_vpool;
+
+                    (void)nexposed; /* informational; OP_EXPOSE follow */
+                    if (call_sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    cf = &call_frames[call_sp - 1];
+                    new_vpool = vpool_create(alloc, vpool);
+                    if (new_vpool == NULL)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    cf->prev_vpool = vpool;
+                    cf->has_isolated_scope = 1;
+                    vpool = new_vpool;
+                    proxy_parser->vpool = vpool;
+                    break;
+                }
+
+                case OP_EXPOSE:
+                {
+                    int sym_idx = read_u16(pc);
+                    const char *name_data;
+                    int name_len;
+                    Lstr name_lstr; /* stack Lstr wrapping sym table — read-only */
+                    int erc;
+
+                    pc += 2;
+                    name_len = get_entry(sym_base, n_syms, sym_idx, &name_data);
+                    if (name_len < 0)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    Lzeroinit(&name_lstr);
+                    name_lstr.pstr = (unsigned char *)name_data;
+                    name_lstr.len = (size_t)name_len;
+                    if (name_len > 0 && name_data[name_len - 1] == '.')
+                    {
+                        erc = vpool_expose_stem(vpool, &name_lstr);
+                    }
+                    else
+                    {
+                        erc = vpool_expose_var(vpool, &name_lstr);
+                    }
+                    if (erc != VPOOL_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_EXPOSE_INDIRECT:
+                {
+                    int sym_idx = read_u16(pc);
+                    const char *name_data;
+                    int name_len;
+                    struct bc_call_frame *cf;
+                    Lstr iname; /* stack Lstr wrapping sym table — read-only */
+                    Lstr ival;
+                    size_t ipos;
+                    size_t ilen;
+
+                    pc += 2;
+                    if (call_sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    cf = &call_frames[call_sp - 1];
+                    if (!cf->has_isolated_scope || cf->prev_vpool == NULL)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    name_len = get_entry(sym_base, n_syms, sym_idx, &name_data);
+                    if (name_len < 0)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    Lzeroinit(&iname);
+                    iname.pstr = (unsigned char *)name_data;
+                    iname.len = (size_t)name_len;
+                    Lzeroinit(&ival);
+                    vpool_get(cf->prev_vpool, &iname, &ival);
+                    ilen = ival.len;
+                    ipos = 0;
+                    while (ipos < ilen)
+                    {
+                        size_t wstart;
+                        size_t wend;
+                        Lstr ename;
+                        size_t ui;
+                        int erc;
+
+                        while (ipos < ilen &&
+                               isspace((unsigned char)ival.pstr[ipos]))
+                        {
+                            ipos++;
+                        }
+                        wstart = ipos;
+                        while (ipos < ilen &&
+                               !isspace((unsigned char)ival.pstr[ipos]))
+                        {
+                            ipos++;
+                        }
+                        wend = ipos;
+                        if (wend == wstart)
+                        {
+                            break;
+                        }
+                        Lzeroinit(&ename);
+                        if (Lfx(alloc, &ename, wend - wstart) != LSTR_OK)
+                        {
+                            Lfree(alloc, &ival);
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
+                        memcpy(ename.pstr, ival.pstr + wstart, wend - wstart);
+                        ename.len = wend - wstart;
+                        for (ui = 0; ui < ename.len; ui++)
+                        {
+                            ename.pstr[ui] =
+                                (unsigned char)toupper((int)ename.pstr[ui]);
+                        }
+                        if (ename.len > 0 &&
+                            ename.pstr[ename.len - 1] == '.')
+                        {
+                            erc = vpool_expose_stem(vpool, &ename);
+                        }
+                        else
+                        {
+                            erc = vpool_expose_var(vpool, &ename);
+                        }
+                        Lfree(alloc, &ename);
+                        if (erc != VPOOL_OK)
+                        {
+                            Lfree(alloc, &ival);
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
+                    }
+                    Lfree(alloc, &ival);
+                    break;
+                }
+
                 default:
                     vm_rc = IRXBC_ERR_OPCODE;
                     goto done;
@@ -2078,6 +2270,24 @@ done:
         for (i = 0; i < IRXBC_STACK_DEPTH; i++)
         {
             Lfree(alloc, &lstrs[i]);
+        }
+    }
+
+    /* Unwind any active PROCEDURE EXPOSE isolated scopes */
+    if (call_frames != NULL)
+    {
+        int fi;
+        for (fi = call_sp - 1; fi >= 0; fi--)
+        {
+            struct bc_call_frame *cf = &call_frames[fi];
+            if (cf->has_isolated_scope && cf->prev_vpool != NULL)
+            {
+                if (vpool != NULL)
+                {
+                    vpool_destroy(vpool);
+                }
+                vpool = cf->prev_vpool;
+            }
         }
     }
 
