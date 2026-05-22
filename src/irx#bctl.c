@@ -84,6 +84,9 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_TR_END,        "TR_END"        },
     { OP_PUSH_SOURCE,   "PUSH_SOURCE"   },
     { OP_PUSH_NUMERIC,  "PUSH_NUMERIC"  },
+    { OP_PROC,             "PROC"             },
+    { OP_EXPOSE,           "EXPOSE"           },
+    { OP_EXPOSE_INDIRECT,  "EXPOSE_INDIRECT"  },
 };
 
 /* clang-format on */
@@ -233,7 +236,8 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
         else if (sz == 3 && (op == OP_PUSH_LIT || op == OP_LOAD ||
                              op == OP_STORE || op == OP_DROP ||
                              op == OP_LABEL || op == OP_PVAR ||
-                             op == OP_TR_LIT || op == OP_TR_ABS))
+                             op == OP_TR_LIT || op == OP_TR_ABS ||
+                             op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT))
         {
             /* u16 table index */
             int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
@@ -251,9 +255,10 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                 app_str(buf, bufsz, &pos, entry + 1, slen);
                 app_cstr(buf, bufsz, &pos, "\"");
             }
-            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR */
+            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR/EXPOSE */
             else if ((op == OP_LOAD || op == OP_STORE || op == OP_DROP ||
-                      op == OP_LABEL || op == OP_PVAR) &&
+                      op == OP_LABEL || op == OP_PVAR ||
+                      op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT) &&
                      idx >= 0 && idx < n_syms)
             {
                 const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;

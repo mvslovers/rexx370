@@ -1197,6 +1197,50 @@ include = [
 "mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
+# TSTBPRO - WP-BC-05 PR B: PROCEDURE EXPOSE bytecode tests.
+# Verifies PROCEDURE scope isolation, EXPOSE direct and indirect,
+# return values, and nested call behaviour.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTBPRO)'
+#   Batch  :  EXEC PGM=TSTBPRO
+#
+# Expected: CC=0
+#
+# WP-BC-05 / GitHub mvslovers/rexx370#151.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTBPRO"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTBPRO",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
 # TSTLOAD - WP-CPS-07 IRXLOAD C-core unit tests.
 # Tests irx_load_dispatch() directly (bypasses the asm IRXLOAD
 # wrapper). Host build uses the filesystem backend; MVS build
