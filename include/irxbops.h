@@ -207,7 +207,7 @@
 #define OP_DROP_STEM  0x90 /* 4 bytes: op + stem_sym:u16 + tail_count:u8 */
 
 /* ================================================================== */
-/*  PARSE sub-VM opcodes (WP-BC-05 PR A)                             */
+/*  PARSE sub-VM opcodes (WP-BC-05 PR A + PR C)                      */
 /*                                                                    */
 /*  PARSE [UPPER] source template [, template ...]                    */
 /*                                                                    */
@@ -215,9 +215,16 @@
 /*  OP_PARSE_BEGIN, which pops it and initialises the parse frame.   */
 /*  OP_PUSH_SOURCE / OP_PUSH_NUMERIC are dedicated pushers for the   */
 /*  SOURCE and NUMERIC sources whose value is VM-state-dependent.    */
+/*  OP_PULL_FROM_QUEUE pushes the next line from the external data   */
+/*  queue (WP-33b stub — returns IRXBC_ERR_UNSUP at runtime).       */
 /*                                                                    */
-/*  Within a template, items (OP_PVAR / OP_PDOT) are each followed   */
-/*  immediately by a trigger opcode that determines how far to scan:  */
+/*  Within a template, items are each followed immediately by a      */
+/*  trigger opcode that determines how far to scan:                   */
+/*    OP_PVAR         — simple variable target (sym_idx:u16)          */
+/*    OP_PVAR_STEM    — compound variable target (stem_sym:u16 +      */
+/*                      tail_count:u8, tails already pushed on stack) */
+/*    OP_PDOT         — dot placeholder (consumes but discards)       */
+/*  Triggers:                                                         */
 /*    OP_TR_SPACE — one word (leading whitespace stripped)            */
 /*    OP_TR_LIT   — up to the first occurrence of a literal string   */
 /*    OP_TR_ABS   — up to an absolute column (1-based; inline u16)   */
@@ -227,8 +234,6 @@
 /*  When no template items precede a position trigger, the compiler   */
 /*  emits OP_PDOT + trigger to silently advance the scan position.   */
 /*                                                                    */
-/*  Compound-variable targets (a.i) are rejected at compile time     */
-/*  with IRXBC_ERR_PARSE_COMPOUND (unlocked in PR C).               */
 /*  Indirect patterns (var) are rejected with IRXBC_ERR_UNSUP.      */
 /* ================================================================== */
 
@@ -243,6 +248,21 @@
 #define OP_TR_END       0x88 /* 1 byte — trigger: rest of string      */
 #define OP_PUSH_SOURCE  0x89 /* 1 byte — push PARSE SOURCE string     */
 #define OP_PUSH_NUMERIC 0x8A /* 1 byte — push PARSE NUMERIC string    */
+
+/* ================================================================== */
+/*  PARSE compound-target opcode (WP-BC-05 PR C)                     */
+/*                                                                    */
+/*  OP_PVAR_STEM is emitted for compound variable targets in PARSE    */
+/*  templates (e.g. PARSE ARG a.1, PARSE VAR x a.i b.j).            */
+/*  Before OP_PVAR_STEM, the compiler pushes tail_count values onto  */
+/*  the eval stack (constant tails via OP_PUSH_LIT, variable tails   */
+/*  via OP_LOAD).  The VM pops them, builds the compound name, and   */
+/*  stores it in the parse frame; the following trigger opcode then   */
+/*  assigns the matched substring to that compound variable.          */
+/* ================================================================== */
+
+#define OP_PVAR_STEM       0x91 /* 4 bytes: op + stem_sym:u16 + tail_count:u8 */
+#define OP_PULL_FROM_QUEUE 0x92 /* 1 byte — push next queue line (WP-33b stub) */
 
 /* ================================================================== */
 /*  Per-opcode size in bytes (including the opcode byte itself)       */
@@ -277,6 +297,7 @@
      ((op) == OP_LOAD_STEM)       ? 4 :         \
      ((op) == OP_STORE_STEM)      ? 4 :         \
      ((op) == OP_DROP_STEM)       ? 4 :         \
+     ((op) == OP_PVAR_STEM)       ? 4 :         \
      1)
 /* clang-format on */
 

@@ -436,9 +436,11 @@ struct bc_parse_frame
     int source_len;
     int scan;
     int upper;
-    int cur_sym; /* sym_idx of pending PVAR, or -1 */
-    int cur_dot; /* 1 if pending PDOT */
-    int active;  /* 1 while inside a PARSE_BEGIN/PARSE_END pair */
+    int cur_sym;                      /* sym_idx of pending PVAR, or -1 */
+    int cur_dot;                      /* 1 if pending PDOT */
+    int active;                       /* 1 while inside PARSE_BEGIN/PARSE_END */
+    char cur_cmpd[IRXBC_STR_MAX + 1]; /* compound name for pending PVAR_STEM */
+    int cur_cmpd_len;                 /* 0 = no compound pending */
 };
 
 /*
@@ -507,6 +509,7 @@ static int pframe_assign(struct bc_parse_frame *pframe,
     {
         pframe->cur_dot = 0;
         pframe->cur_sym = -1;
+        pframe->cur_cmpd_len = 0;
         return IRXBC_OK;
     }
 
@@ -539,8 +542,33 @@ static int pframe_assign(struct bc_parse_frame *pframe,
             return IRXBC_ERR_STOR;
         }
     }
+    else if (pframe->cur_cmpd_len > 0)
+    {
+        /* Compound variable target set by OP_PVAR_STEM */
+        Lzeroinit(&val);
+        if (value_end > content_start)
+        {
+            size_t vlen = (size_t)(value_end - content_start);
+            if (Lfx(alloc, &val, vlen) != LSTR_OK)
+            {
+                pframe->cur_cmpd_len = 0;
+                return IRXBC_ERR_STOR;
+            }
+            memcpy(Lpstr(&val), src + content_start, vlen);
+            Llen(&val) = vlen;
+        }
+        vrc = vpool_set_buf(vpool, pframe->cur_cmpd, pframe->cur_cmpd_len,
+                            &val, 0, 0);
+        Lfree(alloc, &val);
+        if (vrc != VPOOL_OK)
+        {
+            pframe->cur_cmpd_len = 0;
+            return IRXBC_ERR_STOR;
+        }
+    }
     pframe->cur_sym = -1;
     pframe->cur_dot = 0;
+    pframe->cur_cmpd_len = 0;
     return IRXBC_OK;
 }
 
@@ -2089,13 +2117,82 @@ int irx_bc_execute(struct envblock *envblock,
                     pframe.active = 0;
                     pframe.source_len = 0;
                     pframe.scan = 0;
+                    pframe.cur_cmpd_len = 0;
                     break;
 
                 case OP_PVAR:
                     pframe.cur_sym = read_u16(pc);
                     pc += 2;
                     pframe.cur_dot = 0;
+                    pframe.cur_cmpd_len = 0;
                     break;
+
+                case OP_PVAR_STEM:
+                {
+                    int stem_idx = read_u16(pc);
+                    int tail_cnt = (int)pc[2];
+                    const char *stem_data;
+                    int stem_len;
+                    char name_buf[IRXBC_STR_MAX + 1];
+                    int name_pos;
+                    int k;
+
+                    pc += 3;
+
+                    if (sp < tail_cnt)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    stem_len =
+                        get_entry(sym_base, n_syms, stem_idx, &stem_data);
+                    if (stem_len < 0 || stem_len > IRXBC_STR_MAX)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    memcpy(name_buf, stem_data, (size_t)stem_len);
+                    name_pos = stem_len;
+                    for (k = 0; k < tail_cnt; k++)
+                    {
+                        const char *tv;
+                        int tl, m;
+                        tv = (const char *)Lpstr(
+                            stack[sp - tail_cnt + k].str);
+                        tl = (int)Llen(stack[sp - tail_cnt + k].str);
+                        if (k > 0)
+                        {
+                            if (name_pos >= IRXBC_STR_MAX)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            name_buf[name_pos++] = '.';
+                        }
+                        for (m = 0; m < tl; m++)
+                        {
+                            if (name_pos >= IRXBC_STR_MAX)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            name_buf[name_pos++] =
+                                (char)toupper((unsigned char)tv[m]);
+                        }
+                    }
+                    name_buf[name_pos] = '\0';
+                    sp -= tail_cnt;
+                    memcpy(pframe.cur_cmpd, name_buf, (size_t)name_pos);
+                    pframe.cur_cmpd_len = name_pos;
+                    pframe.cur_sym = -1;
+                    pframe.cur_dot = 0;
+                    break;
+                }
+
+                case OP_PULL_FROM_QUEUE:
+                    /* WP-33b: external data queue not yet implemented. */
+                    vm_rc = IRXBC_ERR_UNSUP;
+                    goto done;
 
                 case OP_PDOT:
                     pframe.cur_sym = -1;

@@ -442,16 +442,62 @@ static void test_parse_special(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Compound variable targets — must return compile error             */
+/*  Compound variable targets in PARSE templates (WP-BC-05 PR C)      */
 /* ------------------------------------------------------------------ */
 
-static void test_parse_compound_reject(struct envblock *env)
+static void test_parse_compound_target(struct envblock *env)
+{
+    printf("\n[PARSE compound-variable targets]\n");
+
+    /* Constant tail: PARSE ARG a.1 */
+    bc_only(env,
+            "CALL sub \"hello\"\nEXIT\n"
+            "sub:\n"
+            "PARSE ARG a.1\n"
+            "SAY a.1\n"
+            "RETURN\n",
+            "hello\n",
+            "PARSE ARG a.1 constant tail target");
+
+    /* Variable tail: PARSE ARG a.i where i=2 at call time */
+    bc_only(env,
+            "i = 2\n"
+            "CALL sub \"world\"\nEXIT\n"
+            "sub:\n"
+            "PARSE ARG a.i\n"
+            "SAY a.2\n"
+            "RETURN\n",
+            "world\n",
+            "PARSE ARG a.i variable tail target");
+
+    /* Two compound targets in one template */
+    bc_only(env,
+            "PARSE VALUE \"first second\" WITH a.1 b.1\n"
+            "SAY a.1\n"
+            "SAY b.1\n",
+            "first\nsecond\n",
+            "PARSE VALUE two compound targets in template");
+
+    /* Compound and simple targets mixed */
+    bc_only(env,
+            "PARSE VALUE \"one two\" WITH a.1 b\n"
+            "SAY a.1\n"
+            "SAY b\n",
+            "one\ntwo\n",
+            "PARSE VALUE compound and simple targets mixed");
+}
+
+/* ------------------------------------------------------------------ */
+/*  PARSE PULL — WP-33b stub (compiles; fails at runtime)             */
+/* ------------------------------------------------------------------ */
+
+static void test_parse_pull(struct envblock *env)
 {
     struct irx_wkblk_int *wk;
     int src_len, rc, exit_rc = 0;
-    const char *src = "PARSE ARG a.1\nSAY a.1\n";
+    const char *src = "PARSE PULL x\nSAY x\n";
 
-    printf("\n[PARSE compound reject]\n");
+    printf("\n[PARSE PULL — WP-33b stub]\n");
 
     wk = (struct irx_wkblk_int *)env->envblock_userfield;
     if (wk == NULL)
@@ -468,8 +514,7 @@ static void test_parse_compound_reject(struct envblock *env)
     rc = irx_exec_run(src, src_len, NULL, 0, &exit_rc, env);
     wk->wkbi_use_bytecode = 0;
 
-    /* Expect a non-zero rc (compile error IRXBC_ERR_PARSE_COMPOUND) */
-    CHECK(rc != 0, "compound target rejected by bytecode compiler");
+    CHECK(rc != 0, "PARSE PULL returns error at runtime (WP-33b not implemented)");
 }
 
 /* ------------------------------------------------------------------ */
@@ -482,7 +527,7 @@ int main(void)
     struct irxexte *exte;
     int rc;
 
-    printf("=== WP-BC-05 PR A: PARSE sub-VM Tests ===\n");
+    printf("=== WP-BC-05 PR A + PR C: PARSE sub-VM Tests ===\n");
 
     rc = irxinit(NULL, &env);
     if (rc != 0 || env == NULL)
@@ -505,7 +550,8 @@ int main(void)
     test_parse_abs(env);
     test_parse_value(env);
     test_parse_special(env);
-    test_parse_compound_reject(env);
+    test_parse_compound_target(env);
+    test_parse_pull(env);
 
     irxterm(env);
 
