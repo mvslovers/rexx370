@@ -684,6 +684,19 @@ The bytecode phase replaces the token-walk interpreter with a compile-then-execu
 pipeline. Expected throughput gain: 5–6× on top of the Phase 3 optimisations
 (2.86× REXXCPS speedup achieved by WP-PERF-02..05A).
 
+**Work package status (as of WP-BC-06):**
+
+| WP | Scope | Status |
+|----|-------|--------|
+| WP-BC-01 | EXECBLK container, skeleton compiler + VM | done |
+| WP-BC-02 | Stack, variable pool, arithmetic/compare/string opcodes | done |
+| WP-BC-03 | Control flow (JMP/JF/JT), SAY, DO loops | done |
+| WP-BC-04 | CALL/RETURN, BIF dispatch, label table, proxy parser | done |
+| WP-BC-05 PR A | PARSE sub-VM (all template types) | done |
+| WP-BC-05 PR B | PROCEDURE EXPOSE | done |
+| WP-BC-05 PR C | Compound variables + PARSE PULL stub | done |
+| WP-BC-06 | OC-07: constant type-cache pre-computation | done |
+
 ## 15.1 EXECBLK container format
 
 ```
@@ -696,11 +709,14 @@ Offset  Size  Field
   16      4   code_length bytecode length in bytes
   20      4   entry_offset offset within bytecode of entry point
   24      4   trace_map_offset offset to trace map (0 = absent)
- [28]    ... Constants Table  (count × length-prefixed Lstring)
-         ... Symbol Table     (count × length-prefixed uppercased name)
-         ... Bytecode          (code_length bytes)
-         ... Trace Map         (optional, absent in Phase 1)
+ [28]    ... Constants Table  (const_count × IRXBC_ENTRY_SIZE bytes each)
+         ... Symbol Table     (symbol_count × IRXBC_ENTRY_SIZE bytes each)
+         ... Bytecode         (code_length bytes)
+         ... Trace Map        (optional, absent currently)
 ```
+
+Each Constants Table and Symbol Table entry is exactly `IRXBC_ENTRY_SIZE` (64)
+bytes: a 1-byte length followed by up to 63 bytes of data (`IRXBC_STR_MAX = 63`).
 
 All operands in the bytecode are indices or relative offsets — no
 absolute pointers. The container is position-independent and will be
@@ -710,43 +726,172 @@ The C definition is in `include/irxexbl.h` as `struct irx_bc_execblk`.
 Note: this is **distinct** from the IBM-defined `struct execblk` in
 `include/irx.h`, which is the IRXEXEC parameter block.
 
-## 15.2 Opcode encoding
+Access macros (`include/irxexbl.h`):
 
-All opcodes are defined in `include/irxbops.h`.
+| Macro | Returns |
+|-------|---------|
+| `IRXBC_CONST_TBL(bc)` | `char *` pointer to start of Constants Table |
+| `IRXBC_SYM_TBL(bc)` | `char *` pointer to start of Symbol Table |
+| `IRXBC_CODE(bc)` | `unsigned char *` pointer to start of bytecode |
+| `IRXBC_ENTRY(bc)` | `unsigned char *` pointer to bytecode entry point |
+| `IRXBC_TOTAL(n_consts, n_syms, code_len)` | total allocation size |
 
-Phase 1 opcodes (1 byte each, no operands):
+## 15.2 Opcode table
 
-| Opcode | Byte | Description |
-|--------|------|-------------|
-| `OP_NOP` | 0x00 | No operation, advance PC |
-| `OP_EXIT` | 0x01 | Terminate execution, RC=0 |
-| `OP_NEWCLAUSE` | 0x02 | Clause boundary (TRACE hook, no-op in Phase 1) |
+All opcodes are defined in `include/irxbops.h`.  Error codes are
+`IRXBC_OK=0` through `IRXBC_ERR_PARSE_COMPOUND=31`.
 
-Future work packages extend the opcode table with operand-bearing
-instructions for literals, variable access, arithmetic, control flow, etc.
+### Phase 1 — basics
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_NOP` | 0x00 | 1 | No operation |
+| `OP_EXIT` | 0x01 | 1 | Terminate, RC=0 |
+| `OP_EXIT_RC` | 0x03 | 1 | Terminate, pop RC from stack |
+| `OP_NEWCLAUSE` | 0x02 | 1 | Clause boundary (TRACE hook) |
+| `OP_LABEL` | 0x04 | 3 | Internal label definition (`sym_idx:u16`) |
+
+### Phase 2 — stack and variables
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_PUSH_LIT` | 0x10 | 3 | Push constant by index (`const_idx:u16`) |
+| `OP_POP` | 0x11 | 2 | Pop N slots (`n:u8`) |
+| `OP_DUP` | 0x12 | 1 | Duplicate top slot |
+| `OP_LOAD` | 0x20 | 3 | Load variable (`sym_idx:u16`) |
+| `OP_STORE` | 0x21 | 3 | Store variable (`sym_idx:u16`) |
+| `OP_DROP` | 0x22 | 3 | DROP variable (`sym_idx:u16`) |
+
+### Phase 2 — arithmetic and comparison
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_ADD` | 0x30 | 1 | `b = pop; a = pop; push a+b` |
+| `OP_SUB` | 0x31 | 1 | `push a-b` |
+| `OP_MUL` | 0x32 | 1 | `push a*b` |
+| `OP_DIV` | 0x33 | 1 | `push a/b` |
+| `OP_IDIV` | 0x34 | 1 | `push a%/%b` (integer divide) |
+| `OP_MOD` | 0x35 | 1 | `push a//b` (remainder) |
+| `OP_POW` | 0x36 | 1 | `push a**b` |
+| `OP_NEG` | 0x37 | 1 | Unary minus |
+| `OP_EQ` | 0x40 | 1 | `push (a=b)` |
+| `OP_NE` | 0x41 | 1 | `push (a\=b)` |
+| `OP_LT` | 0x42 | 1 | `push (a<b)` |
+| `OP_LE` | 0x43 | 1 | `push (a<=b)` |
+| `OP_GT` | 0x44 | 1 | `push (a>b)` |
+| `OP_GE` | 0x45 | 1 | `push (a>=b)` |
+| `OP_SEQ` | 0x46 | 1 | `push (a==b)` (strict equal) |
+| `OP_SNE` | 0x47 | 1 | `push (a\==b)` |
+| `OP_SLT` | 0x48 | 1 | `push (a<<b)` |
+| `OP_SLE` | 0x49 | 1 | `push (a<<=b)` |
+| `OP_SGT` | 0x4A | 1 | `push (a>>b)` |
+| `OP_SGE` | 0x4B | 1 | `push (a>>=b)` |
+| `OP_AND` | 0x50 | 1 | Logical AND |
+| `OP_OR` | 0x51 | 1 | Logical OR |
+| `OP_XOR` | 0x52 | 1 | Logical XOR |
+| `OP_NOT` | 0x53 | 1 | Logical NOT |
+| `OP_CONCAT` | 0x60 | 1 | String concatenate (`\|\|`) |
+| `OP_BCONCAT` | 0x61 | 1 | Concatenate with one blank |
+| `OP_SAY` | 0x70 | 1 | Output top of stack via IRXINOUT |
+
+### Phase 3 — control flow (WP-BC-03)
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_JMP` | 0x71 | 3 | Unconditional jump (`off:i16`) |
+| `OP_JF` | 0x72 | 3 | Jump if top-of-stack false (`off:i16`) |
+| `OP_JT` | 0x73 | 3 | Jump if top-of-stack true (`off:i16`) |
+| `OP_FORINIT` | 0x74 | 1 | Initialize DO-count frame |
+| `OP_BYINIT` | 0x75 | 3 | Initialize DO-TO-BY frame (`sym_idx:u16`) |
+| `OP_DECFOR` | 0x76 | 3 | Decrement/test DO-count frame |
+| `OP_DECINC` | 0x77 | 3 | Step/test DO-TO-BY frame |
+| `OP_FOREND` | 0x78 | 1 | Destroy top DO frame |
+| `OP_NOVALUE` | 0x7F | 3 | Push variable name for NOVALUE signal |
+
+### Phase 4 — CALL/RETURN (WP-BC-04)
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_CALL` | 0x80 | 4 | Internal CALL (`sym_idx:u16`, `nargs:u8`) |
+| `OP_RETURN` | 0x81 | 1 | RETURN (no value) |
+| `OP_RETURNV` | 0x82 | 1 | RETURN value (pop stack) |
+| `OP_CALL_BIF` | 0x83 | 4 | BIF call (`bif_id:u16`, `nargs:u8`) |
+| `OP_PROC` | 0x7D | 1 | PROCEDURE (isolate scope) |
+| `OP_EXPOSE` | 0x7E | 3 | EXPOSE one variable (`sym_idx:u16`) |
+| `OP_EXPOSE_INDIRECT` | 0x7B | 3 | EXPOSE via name-variable (`sym_idx:u16`) |
+
+### Phase 5 — PARSE sub-VM (WP-BC-05 PR A)
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_PARSE_BEGIN` | 0x90 | 3 | Start PARSE block (`src_sym_idx:u16`) |
+| `OP_PARSE_BEGIN_UPPER` | 0x91 | 3 | PARSE UPPER (uppercases source) |
+| `OP_PARSE_BEGIN_ARG` | 0x92 | 1 | PARSE ARG (uses ARG(1)) |
+| `OP_PARSE_BEGIN_ARG_UPPER` | 0x93 | 1 | PARSE UPPER ARG |
+| `OP_PARSE_BEGIN_VALUE` | 0x94 | 1 | PARSE VALUE (pops source from stack) |
+| `OP_PARSE_BEGIN_VALUE_UPPER` | 0x95 | 1 | PARSE UPPER VALUE |
+| `OP_PARSE_PULL_STUB` | 0x96 | 1 | PARSE PULL (stub — raises UNSUP at runtime) |
+| `OP_PARSE_END` | 0x97 | 1 | End PARSE block |
+| `OP_PVAR` | 0xA0 | 3 | Assign next word/segment to variable (`sym_idx:u16`) |
+| `OP_PDOT` | 0xA1 | 1 | Placeholder (`.`) — discard segment |
+| `OP_PVAR_STEM` | 0xA2 | 3 | Assign to compound variable target (`const_idx:u16` = resolved name) |
+| `OP_TR_LIT` | 0x85 | 3 | Trigger: literal delimiter (`const_idx:u16`) |
+| `OP_TR_ABS` | 0x86 | 3 | Trigger: absolute column (`col:u16`, 1-based) |
+| `OP_TR_REL` | 0x87 | 3 | Trigger: relative offset (`off:i16`) |
+| `OP_TR_END` | 0x88 | 1 | Trigger: rest of string |
+| `OP_TR_SPACE` | 0x84 | 1 | Trigger: one word (leading blank stripped) |
+
+### Phase 5 — compound variables (WP-BC-05 PR C)
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_LOAD_CMPD` | 0xB0 | 3 | Load compound variable (`n_tails:u8` tails on stack, `stem_idx:u16`) |
+| `OP_STORE_CMPD` | 0xB1 | 3 | Store compound variable |
+| `OP_DROP_CMPD` | 0xB2 | 3 | DROP compound variable |
+| `OP_NOVALUE_CMPD` | 0xB3 | 3 | Push compound name for NOVALUE |
+| `OP_DROP_STEM` | 0xB4 | 3 | DROP entire stem (`stem_idx:u16`) |
 
 ## 15.3 Evaluation stack
 
 The evaluation stack type is `struct bc_stack_slot` (defined in
-`include/irxbvm.h`), 24 bytes per slot:
+`include/irxbvm.h`):
 
 ```c
 struct bc_stack_slot {
     PLstr   str;        /* canonical string form; always valid */
-    int32_t type_cache; /* 0=none, LINTEGER_TY, etc.          */
-    int64_t int_cache;  /* integer fast-path value             */
+    int32_t type_cache; /* 0=none, IRXBC_STACK_LINTEGER=1     */
+    int32_t int_cache;  /* integer fast-path value             */
 };
 ```
 
-`type_cache` enables an arithmetic fast path: when a value was recently
-computed as an integer, subsequent operations can skip the string→integer
-parse. On `OP_STORE`, `type_cache` is written to the variable pool so
-that `OP_LOAD` can repopulate the cache slot.
+`type_cache == IRXBC_STACK_LINTEGER` means `int_cache` holds the integer
+value of `str`, allowing arithmetic and comparison operations to bypass
+string parsing. On `OP_STORE`, the cache is written to the variable pool
+(`vpool_set_buf`), and `OP_LOAD` reads it back via `vpool_get_buf`.
 
-Phase 1 does not allocate a stack — no opcode pushes or pops yet.
-WP-BC-02 introduces the first stack-consuming opcode.
+The stack is 256 slots deep (`IRXBC_STACK_DEPTH`). SP points to the next
+free slot; push writes to `stack[sp++]`, pop reads from `stack[--sp]`.
 
-## 15.4 Compiler entry point
+## 15.4 OC-07: constant type-cache pre-computation (WP-BC-06)
+
+At VM init time, after the label pre-scan, `irx_bc_execute()` allocates
+two parallel `int32_t` arrays indexed by constant-pool index:
+
+```
+const_type_cache[n_consts]   — IRXBC_STACK_LINTEGER or 0
+const_int_cache[n_consts]    — pre-parsed integer value
+```
+
+Each constant is parsed once with the same logic as `try_parse_int_cache()`.
+On `OP_PUSH_LIT`, instead of calling `try_parse_int_cache()`, the VM copies
+the pre-computed values from these arrays — one array lookup instead of a
+full digit loop per push.
+
+This eliminates the per-execution parse cost for constants such as `1`, `0`,
+`14`, `100` that appear in loop bounds, comparisons, and stem indices. The
+gain is proportional to how often numeric constants appear in the inner loop.
+
+## 15.5 Compiler entry point
 
 ```
 irx_bc_compile(envblock, source, source_len, &bc_out)
@@ -754,12 +899,21 @@ irx_bc_compile(envblock, source, source_len, &bc_out)
 
 Located in `src/irx#bcom.c` (PDS member `IRX#BCOM`).
 
-Phase 1: tokenises the source, walks the token stream, emits opcodes
-into a local buffer, then allocates an EXECBLK container via `irxstor`
-and copies the bytecode in. The caller must free the returned container
-with `irxstor(RXSMFRE, 0, &p, envblock)`.
+Tokenises the source, walks the token stream clause by clause, and emits
+bytecode into a local growable buffer. When done, allocates an EXECBLK
+container via `irxstor` and copies the bytecode in. The caller frees the
+returned container with `irxstor(RXSMFRE, 0, &p, envblock)`.
 
-## 15.5 VM loop
+**Compiler limitations (currently returns `IRXBC_ERR_UNSUP` for):**
+
+- `SIGNAL ON condition` / `SIGNAL OFF condition`
+- `TRACE value_expression` (trace is a no-op; `TRACE OFF` is accepted)
+- `ADDRESS environment expression`
+- `PARSE LINEIN` / `PARSE PULL` (stub emits `OP_PARSE_PULL_STUB`)
+- Semicolons as clause separators on the same source line
+- Variable delimiters `(varname)` in PARSE templates
+
+## 15.6 VM loop
 
 ```
 irx_bc_execute(envblock, bc, &rc_out)
@@ -771,13 +925,18 @@ Uses a big-switch dispatch on an unsigned char opcode byte. c2asm370
 generates an optimised branch table from this pattern. The PC starts
 at `IRXBC_ENTRY(bc)` (= start of bytecode + `entry_offset`).
 
-## 15.6 Integration
+VM limits: stack depth 256, DO nesting 16, CALL depth 16.
+
+## 15.7 Integration
 
 `irx_exec_run()` in `src/irx#exec.c` checks `wkbi_use_bytecode` on
 the work block before invoking the token-walk pipeline. When the flag
 is set, it routes to `irx_bc_compile` + `irx_bc_execute` instead.
 The flag defaults to 0 (token-walk path). Setting it to 1 enables A/B
 benchmarking while both paths coexist.
+
+The default remains 0 until MVS REXXCPS measurement confirms the
+expected speedup and all remaining compiler limitations are resolved.
 
 ---
 

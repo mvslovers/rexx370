@@ -597,6 +597,9 @@ int irx_bc_execute(struct envblock *envblock,
     void *call_frame_mem = NULL;
     void *proxy_parser_mem = NULL;
     void *label_pc_mem = NULL;
+    int32_t *const_type_cache = NULL;
+    int32_t *const_int_cache = NULL;
+    void *const_cache_mem = NULL;
     int sp = 0; /* next free slot */
     int call_sp = 0;
     int n_consts;
@@ -725,6 +728,36 @@ int irx_bc_execute(struct envblock *envblock,
         }
     }
 
+    /* --- OC-07: pre-compute integer cache for all constants (WP-BC-06) */
+    if (n_consts > 0)
+    {
+        if (irxstor(RXSMGET, 2 * n_consts * (int)sizeof(int32_t),
+                    &const_cache_mem, envblock) != 0)
+        {
+            vm_rc = IRXBC_ERR_STOR;
+            goto done;
+        }
+        memset(const_cache_mem, 0,
+               (size_t)(2 * n_consts) * sizeof(int32_t));
+        const_type_cache = (int32_t *)const_cache_mem;
+        const_int_cache = const_type_cache + n_consts;
+        for (i = 0; i < n_consts; i++)
+        {
+            const char *cdata;
+            int clen = get_entry(const_base, n_consts, i, &cdata);
+            if (clen > 0)
+            {
+                struct bc_stack_slot s;
+                s.str = NULL;
+                s.type_cache = 0;
+                s.int_cache = 0;
+                try_parse_int_cache(&s, cdata, clen);
+                const_type_cache[i] = s.type_cache;
+                const_int_cache[i] = s.int_cache;
+            }
+        }
+    }
+
     /* --- Proxy parser for BIF dispatch (WP-BC-04) -------------------- */
     if (irxstor(RXSMGET, (int)sizeof(struct irx_parser),
                 &proxy_parser_mem, envblock) != 0)
@@ -834,7 +867,15 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_STOR;
                         goto done;
                     }
-                    try_parse_int_cache(&stack[sp], data, len);
+                    if (const_type_cache != NULL)
+                    {
+                        stack[sp].type_cache = const_type_cache[idx];
+                        stack[sp].int_cache = const_int_cache[idx];
+                    }
+                    else
+                    {
+                        try_parse_int_cache(&stack[sp], data, len);
+                    }
                     sp++;
                     break;
                 }
@@ -2624,6 +2665,11 @@ done:
     }
 
     /* Free heap arrays */
+    if (const_cache_mem != NULL)
+    {
+        void *p = const_cache_mem;
+        irxstor(RXSMFRE, 0, &p, envblock);
+    }
     if (label_pc_mem != NULL)
     {
         void *p = label_pc_mem;
