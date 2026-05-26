@@ -150,4 +150,11 @@ int vpool_drop_buf(struct irx_vpool *pool,
                    const char *name_data,
                    int name_len) asm("VPOOLDRB");
 
+/* Drop ALL pool entries whose name begins with stem_data (which must
+ * include the trailing dot, e.g. "STEM.").  Used by DROP STEM.
+ * Returns VPOOL_OK on success, VPOOL_BADARG on invalid arguments. */
+int vpool_drop_stem_all(struct irx_vpool *pool,
+                        const char *stem_data,
+                        int stem_len) asm("VPOOLDSA");
+
 #endif /* IRXVPOOL_H */

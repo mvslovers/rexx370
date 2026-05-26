@@ -1377,6 +1377,108 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
 }
 
 /* ================================================================== */
+/*  Compound variable helpers (WP-BC-05 PR C)                         */
+/* ================================================================== */
+
+/* Emit bytecode to push each tail segment of a compound variable onto
+ * the eval stack and register the stem in the symbol table.
+ *
+ * txt       — full uppercased compound name, e.g. "A.B.C"
+ * tlen      — length of txt
+ * dot_pos   — offset of the first '.' in txt
+ * stem_si_out — receives the sym-table index for the stem (e.g. "A.")
+ *
+ * Returns the tail count (>= 0), or -1 if an error was recorded in ctx.
+ * A bare stem like "A." (dot is the last char) returns 0 tails; the
+ * caller then emits OP_LOAD_STEM / OP_STORE_STEM / OP_DROP_STEM with
+ * tail_count = 0. */
+static int bc_compound_tails(struct bcom_ctx *ctx,
+                             const char *txt, int tlen, int dot_pos,
+                             int *stem_si_out)
+{
+    char stem_buf[IRXBC_STR_MAX + 2];
+    int stem_len = dot_pos + 1; /* includes trailing dot */
+    int si;
+    int i;
+    int tail_count = 0;
+
+    if (stem_len > IRXBC_STR_MAX)
+    {
+        ctx->rc = IRXBC_ERR_STRTOOLONG;
+        return -1;
+    }
+    memcpy(stem_buf, txt, (size_t)stem_len);
+    stem_buf[stem_len] = '\0';
+    si = add_sym(ctx, stem_buf);
+    if (si < 0)
+    {
+        return -1;
+    }
+    *stem_si_out = si;
+
+    /* Emit each tail segment after the first dot. */
+    i = stem_len;
+    while (i < tlen)
+    {
+        int seg_start = i;
+        int seg_len;
+        char seg_buf[IRXBC_STR_MAX + 1];
+
+        while (i < tlen && txt[i] != '.')
+        {
+            i++;
+        }
+        seg_len = i - seg_start;
+        if (i < tlen) /* skip the dot separator */
+        {
+            i++;
+        }
+
+        if (tail_count == 255)
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return -1;
+        }
+
+        if (seg_len == 0 || isdigit((unsigned char)txt[seg_start]))
+        {
+            /* Constant tail: push as a literal string. */
+            int ci = add_const(ctx, txt + seg_start, seg_len);
+            if (ci < 0)
+            {
+                return -1;
+            }
+            emit_byte(ctx, OP_PUSH_LIT);
+            emit_u16(ctx, ci);
+        }
+        else
+        {
+            /* Variable tail: load the variable's value. */
+            if (seg_len > IRXBC_STR_MAX)
+            {
+                ctx->rc = IRXBC_ERR_STRTOOLONG;
+                return -1;
+            }
+            memcpy(seg_buf, txt + seg_start, (size_t)seg_len);
+            seg_buf[seg_len] = '\0';
+            si = add_sym(ctx, seg_buf);
+            if (si < 0)
+            {
+                return -1;
+            }
+            emit_byte(ctx, OP_LOAD);
+            emit_u16(ctx, si);
+        }
+        if (ctx->rc != IRXBC_OK)
+        {
+            return -1;
+        }
+        tail_count++;
+    }
+    return tail_count;
+}
+
+/* ================================================================== */
 /*  Expression compiler (bc_exp0 .. bc_exp8)                          */
 /* ================================================================== */
 
@@ -1445,6 +1547,33 @@ static void bc_exp8(struct bcom_ctx *ctx)
             ctx->pos++;
             emit_byte(ctx, OP_PUSH_LIT);
             emit_u16(ctx, ci);
+        }
+        else if (t->tok_flags & TOKF_COMPOUND)
+        {
+            /* Compound variable: A.B, A.B.C, A.1, A. etc. */
+            const char *txt =
+                (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+            int tlen = (int)t->tok_length;
+            int dot_pos;
+            int stem_si;
+            int tail_count;
+
+            for (dot_pos = 0; dot_pos < tlen; dot_pos++)
+            {
+                if (txt[dot_pos] == '.')
+                {
+                    break;
+                }
+            }
+            ctx->pos++;
+            tail_count = bc_compound_tails(ctx, txt, tlen, dot_pos, &stem_si);
+            if (tail_count < 0 || ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_byte(ctx, OP_LOAD_STEM);
+            emit_u16(ctx, stem_si);
+            emit_byte(ctx, (unsigned char)tail_count);
         }
         else
         {
@@ -1675,7 +1804,7 @@ static const char *const bc_kw_barriers[] = {
     "TO", "BY", "FOR", "WHILE", "UNTIL", "FOREVER",
     "IF", "DO", "SAY", "SELECT", "EXIT",
     "ITERATE", "LEAVE", "NOP",
-    "CALL", "RETURN", "PROCEDURE", "PARSE",
+    "CALL", "RETURN", "PROCEDURE", "PARSE", "DROP",
     NULL};
 
 static int is_kw_barrier(const struct bcom_ctx *ctx, int offset)
@@ -2810,26 +2939,123 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
-    /* Assignment: simple-symbol = expr */
+    if (tok_kw(ctx, 0, "DROP"))
+    {
+        ctx->pos++; /* consume DROP */
+        for (;;)
+        {
+            const struct irx_token *td = tok_at(ctx, 0);
+            if (td == NULL || td->tok_type == TOK_EOC ||
+                td->tok_type == TOK_EOF)
+            {
+                break;
+            }
+            if (td->tok_type != TOK_SYMBOL ||
+                (td->tok_flags & TOKF_CONSTANT))
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            if (td->tok_flags & TOKF_COMPOUND)
+            {
+                const char *txt =
+                    (td->tok_upper != NULL) ? td->tok_upper : td->tok_text;
+                int tlen = (int)td->tok_length;
+                int dot_pos;
+                int stem_si;
+                int tail_count;
+
+                for (dot_pos = 0; dot_pos < tlen; dot_pos++)
+                {
+                    if (txt[dot_pos] == '.')
+                    {
+                        break;
+                    }
+                }
+                tail_count =
+                    bc_compound_tails(ctx, txt, tlen, dot_pos, &stem_si);
+                if (tail_count < 0 || ctx->rc != IRXBC_OK)
+                {
+                    return;
+                }
+                ctx->pos++;
+                emit_byte(ctx, OP_DROP_STEM);
+                emit_u16(ctx, stem_si);
+                emit_byte(ctx, (unsigned char)tail_count);
+            }
+            else
+            {
+                const char *name =
+                    (td->tok_upper != NULL) ? td->tok_upper : td->tok_text;
+                int si = add_sym(ctx, name);
+                if (si < 0)
+                {
+                    return;
+                }
+                ctx->pos++;
+                emit_byte(ctx, OP_DROP);
+                emit_u16(ctx, si);
+            }
+        }
+        return;
+    }
+
+    /* Assignment: symbol = expr (simple or compound LHS) */
     if (t0->tok_type == TOK_SYMBOL && !(t0->tok_flags & TOKF_CONSTANT) &&
         t1 != NULL && t1->tok_type == TOK_COMPARISON &&
         t1->tok_length > 0 && t1->tok_text[0] == '=' &&
         !(tok_type_at(ctx, 2, TOK_COMPARISON) && tok_ch(ctx, 2) == '='))
     {
-        const char *name =
-            (t0->tok_upper != NULL) ? t0->tok_upper : t0->tok_text;
-        int si = add_sym(ctx, name);
-        if (si < 0)
+        if (t0->tok_flags & TOKF_COMPOUND)
         {
-            return;
+            const char *txt =
+                (t0->tok_upper != NULL) ? t0->tok_upper : t0->tok_text;
+            int tlen = (int)t0->tok_length;
+            int dot_pos;
+            int stem_si;
+            int tail_count;
+
+            for (dot_pos = 0; dot_pos < tlen; dot_pos++)
+            {
+                if (txt[dot_pos] == '.')
+                {
+                    break;
+                }
+            }
+            /* Push tails BEFORE consuming '=' so positions are correct. */
+            tail_count =
+                bc_compound_tails(ctx, txt, tlen, dot_pos, &stem_si);
+            if (tail_count < 0 || ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            ctx->pos += 2; /* consume compound-symbol + '=' */
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_byte(ctx, OP_STORE_STEM);
+            emit_u16(ctx, stem_si);
+            emit_byte(ctx, (unsigned char)tail_count);
         }
-        ctx->pos += 2;
-        bc_exp0(ctx);
-        if (ctx->rc != IRXBC_OK)
+        else
         {
-            return;
+            const char *name =
+                (t0->tok_upper != NULL) ? t0->tok_upper : t0->tok_text;
+            int si = add_sym(ctx, name);
+            if (si < 0)
+            {
+                return;
+            }
+            ctx->pos += 2;
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+            emit_store(ctx, si);
         }
-        emit_store(ctx, si);
         return;
     }
 
