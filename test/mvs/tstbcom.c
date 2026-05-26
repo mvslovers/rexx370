@@ -480,35 +480,74 @@ static void test_compound_call(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
-/*  PARSE compound-target — must still be rejected (deferred to PR D) */
+/*  Compound variable targets in PARSE templates (WP-BC-05 PR C)      */
 /* ------------------------------------------------------------------ */
 
-static void test_parse_compound_still_rejected(struct envblock *env)
+static void test_parse_compound_in_parse(struct envblock *env)
 {
-    struct irx_wkblk_int *wk;
-    int src_len;
-    int rc;
-    int exit_rc = 0;
-    const char *src = "PARSE ARG a.1\nSAY a.1\n";
+    printf("\n[Compound variable targets in PARSE templates]\n");
 
-    printf("\n[PARSE compound-target — still rejected (deferred)]\n");
+    /* Constant tail target: PARSE ARG a.1 */
+    bc_only(env,
+            "CALL sub \"hello\"\nEXIT\n"
+            "sub:\n"
+            "PARSE ARG a.1\n"
+            "SAY a.1\n"
+            "RETURN\n",
+            "hello\n",
+            "PARSE ARG constant compound target a.1");
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
-    if (wk == NULL)
-    {
-        printf("  FAIL: no work block\n");
-        tests_run++;
-        tests_failed++;
-        return;
-    }
+    /* Variable tail target: PARSE ARG a.i (i=3 at call time) */
+    bc_only(env,
+            "i = 3\n"
+            "CALL sub \"value\"\nEXIT\n"
+            "sub:\n"
+            "PARSE ARG a.i\n"
+            "SAY a.3\n"
+            "RETURN\n",
+            "value\n",
+            "PARSE ARG variable tail compound target a.i");
 
-    src_len = (int)strlen(src);
-    cap_reset();
-    wk->wkbi_use_bytecode = 1;
-    rc = irx_exec_run(src, src_len, NULL, 0, &exit_rc, env);
-    wk->wkbi_use_bytecode = 0;
+    /* Two compound targets in one template */
+    bc_only(env,
+            "PARSE VALUE \"first second\" WITH a.1 b.1\n"
+            "SAY a.1\n"
+            "SAY b.1\n",
+            "first\nsecond\n",
+            "PARSE VALUE two compound targets in template");
 
-    CHECK(rc != 0, "PARSE compound target still rejected (IRXBC_ERR_PARSE_COMPOUND)");
+    /* Multi-template PARSE with compound targets */
+    bc_only(env,
+            "CALL sub \"x\", \"y\"\nEXIT\n"
+            "sub:\n"
+            "PARSE ARG a.1, b.1\n"
+            "SAY a.1\n"
+            "SAY b.1\n"
+            "RETURN\n",
+            "x\ny\n",
+            "PARSE ARG compound targets in multi-template");
+
+    /* Multi-level compound target: a.1.2 */
+    bc_only(env,
+            "PARSE VALUE \"deep\" WITH a.1.2\n"
+            "SAY a.1.2\n",
+            "deep\n",
+            "PARSE VALUE multi-level compound target a.1.2");
+
+    /* PARSE UPPER compound target: value uppercased */
+    bc_only(env,
+            "PARSE UPPER VALUE \"hello\" WITH a.1\n"
+            "SAY a.1\n",
+            "HELLO\n",
+            "PARSE UPPER compound target value uppercased");
+
+    /* Variable tail resolves at runtime (i=1 → a.1) */
+    bc_only(env,
+            "i = 1\n"
+            "PARSE VALUE \"result\" WITH a.i\n"
+            "SAY a.1\n",
+            "result\n",
+            "PARSE VALUE compound target a.i resolves i=1 to a.1");
 }
 
 /* ------------------------------------------------------------------ */
@@ -543,7 +582,7 @@ int main(void)
     test_compound_expr(env);
     test_compound_do(env);
     test_compound_call(env);
-    test_parse_compound_still_rejected(env);
+    test_parse_compound_in_parse(env);
 
     irxterm(env);
 

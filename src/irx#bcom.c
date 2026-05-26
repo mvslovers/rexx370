@@ -690,12 +690,61 @@ static void bc_return_stmt(struct bcom_ctx *ctx)
  * and intentionally absent from the test suite.
  */
 #define BPSE_MAX_ITEMS 16
+#define BPSE_MAX_TAILS 8
+
+struct bpse_tail
+{
+    int is_const; /* 1 = constant (push lit), 0 = variable (load sym) */
+    int idx;      /* const_table or sym_table index */
+};
 
 struct bpse_item
 {
     int is_dot;
     int sym_idx;
+    int is_compound; /* 1 if compound variable target */
+    int stem_idx;    /* sym index for stem (e.g. "A.") */
+    int tail_count;
+    struct bpse_tail tails[BPSE_MAX_TAILS];
 };
+
+/* Emit the bytecode for a single parse-template item (no trigger). */
+static void bpse_emit_item(struct bcom_ctx *ctx, const struct bpse_item *it)
+{
+    if (it->is_dot)
+    {
+        emit_byte(ctx, OP_PDOT);
+    }
+    else if (it->is_compound)
+    {
+        int j;
+        for (j = 0; j < it->tail_count; j++)
+        {
+            if (it->tails[j].is_const)
+            {
+                emit_byte(ctx, OP_PUSH_LIT);
+                emit_u16(ctx, it->tails[j].idx);
+            }
+            else
+            {
+                emit_byte(ctx, OP_LOAD);
+                emit_u16(ctx, it->tails[j].idx);
+            }
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
+        }
+        emit_byte(ctx, OP_PVAR_STEM);
+        emit_u16(ctx, it->stem_idx);
+        emit_byte(ctx, (unsigned char)it->tail_count);
+    }
+    else
+    {
+        emit_byte(ctx, OP_PVAR);
+        emit_u16(ctx, it->sym_idx);
+    }
+}
 
 static void bpse_flush(struct bcom_ctx *ctx,
                        const struct bpse_item *items, int n_items,
@@ -709,15 +758,7 @@ static void bpse_flush(struct bcom_ctx *ctx,
 
     for (i = 0; i < n_items - 1; i++)
     {
-        if (items[i].is_dot)
-        {
-            emit_byte(ctx, OP_PDOT);
-        }
-        else
-        {
-            emit_byte(ctx, OP_PVAR);
-            emit_u16(ctx, items[i].sym_idx);
-        }
+        bpse_emit_item(ctx, &items[i]);
         emit_byte(ctx, OP_TR_SPACE);
         if (ctx->rc != IRXBC_OK)
         {
@@ -731,16 +772,7 @@ static void bpse_flush(struct bcom_ctx *ctx,
     }
     else
     {
-        int last = n_items - 1;
-        if (items[last].is_dot)
-        {
-            emit_byte(ctx, OP_PDOT);
-        }
-        else
-        {
-            emit_byte(ctx, OP_PVAR);
-            emit_u16(ctx, items[last].sym_idx);
-        }
+        bpse_emit_item(ctx, &items[n_items - 1]);
     }
     if (ctx->rc != IRXBC_OK)
     {
@@ -951,11 +983,13 @@ static void bc_parse_template(struct bcom_ctx *ctx)
             continue;
         }
 
-        /* Symbol: variable name, dot placeholder, or compound (reject) */
+        /* Symbol: variable name, dot placeholder, or compound variable */
         if (t->tok_type == TOK_SYMBOL)
         {
             const char *txt = t->tok_text;
-            int tlen = (int)t->tok_length, j;
+            int tlen = (int)t->tok_length;
+            int dot_pos = -1;
+            int j;
 
             /* Standalone dot */
             if (tlen == 1 && txt[0] == '.')
@@ -964,20 +998,111 @@ static void bc_parse_template(struct bcom_ctx *ctx)
                 {
                     items[n_items].is_dot = 1;
                     items[n_items].sym_idx = -1;
+                    items[n_items].is_compound = 0;
                     n_items++;
                 }
                 ctx->pos++;
                 continue;
             }
 
-            /* Compound variable → reject in PR A */
+            /* Find first dot to detect compound variable */
             for (j = 0; j < tlen; j++)
             {
                 if (txt[j] == '.')
                 {
-                    ctx->rc = IRXBC_ERR_PARSE_COMPOUND;
+                    dot_pos = j;
+                    break;
+                }
+            }
+
+            if (dot_pos >= 0)
+            {
+                /* Compound variable target (e.g. a.1, a.i, a.i.j) */
+                const char *up = (t->tok_upper != NULL) ? t->tok_upper : txt;
+                char stem_buf[IRXBC_STR_MAX + 2];
+                int stem_len = dot_pos + 1; /* includes trailing dot */
+                int stem_si;
+                int k;
+
+                if (stem_len > IRXBC_STR_MAX)
+                {
+                    ctx->rc = IRXBC_ERR_STRTOOLONG;
                     return;
                 }
+                memcpy(stem_buf, up, (size_t)stem_len);
+                stem_buf[stem_len] = '\0';
+                stem_si = add_sym(ctx, stem_buf);
+                if (stem_si < 0)
+                {
+                    return;
+                }
+                if (n_items < BPSE_MAX_ITEMS)
+                {
+                    struct bpse_item *it = &items[n_items];
+                    it->is_dot = 0;
+                    it->sym_idx = -1;
+                    it->is_compound = 1;
+                    it->stem_idx = stem_si;
+                    it->tail_count = 0;
+
+                    k = stem_len;
+                    while (k < tlen)
+                    {
+                        int seg_start = k;
+                        int seg_len;
+                        int is_const_tail;
+
+                        while (k < tlen && up[k] != '.')
+                        {
+                            k++;
+                        }
+                        seg_len = k - seg_start;
+                        if (k < tlen)
+                        {
+                            k++;
+                        }
+                        if (it->tail_count >= BPSE_MAX_TAILS)
+                        {
+                            ctx->rc = IRXBC_ERR_UNSUP;
+                            return;
+                        }
+                        is_const_tail = (seg_len == 0 ||
+                                         isdigit((unsigned char)up[seg_start]));
+                        if (is_const_tail)
+                        {
+                            int ci = add_const(ctx, up + seg_start, seg_len);
+                            if (ci < 0)
+                            {
+                                return;
+                            }
+                            it->tails[it->tail_count].is_const = 1;
+                            it->tails[it->tail_count].idx = ci;
+                        }
+                        else
+                        {
+                            char seg_buf[IRXBC_STR_MAX + 1];
+                            int si2;
+                            if (seg_len > IRXBC_STR_MAX)
+                            {
+                                ctx->rc = IRXBC_ERR_STRTOOLONG;
+                                return;
+                            }
+                            memcpy(seg_buf, up + seg_start, (size_t)seg_len);
+                            seg_buf[seg_len] = '\0';
+                            si2 = add_sym(ctx, seg_buf);
+                            if (si2 < 0)
+                            {
+                                return;
+                            }
+                            it->tails[it->tail_count].is_const = 0;
+                            it->tails[it->tail_count].idx = si2;
+                        }
+                        it->tail_count++;
+                    }
+                    n_items++;
+                }
+                ctx->pos++;
+                continue;
             }
 
             /* Regular variable */
@@ -994,6 +1119,7 @@ static void bc_parse_template(struct bcom_ctx *ctx)
                 {
                     items[n_items].is_dot = 0;
                     items[n_items].sym_idx = si;
+                    items[n_items].is_compound = 0;
                     n_items++;
                 }
             }
@@ -1208,6 +1334,18 @@ static void bc_parse_stmt(struct bcom_ctx *ctx)
         ctx->pos++;
         n = bc_count_parse_templates(ctx);
         emit_byte(ctx, OP_PUSH_NUMERIC);
+        for (i = 1; i < n; i++)
+        {
+            emit_byte(ctx, OP_DUP);
+        }
+    }
+    else if (tok_kw(ctx, 0, "PULL"))
+    {
+        /* WP-33b: external data queue — compiled but unsupported at runtime. */
+        int n, i;
+        ctx->pos++;
+        n = bc_count_parse_templates(ctx);
+        emit_byte(ctx, OP_PULL_FROM_QUEUE);
         for (i = 1; i < n; i++)
         {
             emit_byte(ctx, OP_DUP);

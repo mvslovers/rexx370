@@ -90,6 +90,8 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_LOAD_STEM,        "LOAD_STEM"        },
     { OP_STORE_STEM,       "STORE_STEM"       },
     { OP_DROP_STEM,        "DROP_STEM"        },
+    { OP_PVAR_STEM,        "PVAR_STEM"        },
+    { OP_PULL_FROM_QUEUE,  "PULL_FROM_QUEUE"  },
 };
 
 /* clang-format on */
@@ -222,7 +224,7 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
             app_int(buf, bufsz, &pos, nargs);
         }
         else if (sz == 4 && (op == OP_LOAD_STEM || op == OP_STORE_STEM ||
-                             op == OP_DROP_STEM))
+                             op == OP_DROP_STEM || op == OP_PVAR_STEM))
         {
             /* stem_sym:u16 + tail_count:u8 */
             int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
