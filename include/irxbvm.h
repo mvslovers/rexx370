@@ -69,6 +69,8 @@ int irx_bc_compile(struct envblock *envblock,
 /*  Parameters:                                                       */
 /*    envblock — owning environment                                  */
 /*    bc       — container produced by irx_bc_compile               */
+/*    args     — top-level argument string (may be NULL)             */
+/*    args_len — length of args in bytes (0 if args is NULL)         */
 /*    rc_out   — receives the program RC on success; may be NULL     */
 /*                                                                    */
 /*  Returns: IRXBC_OK (0) on success, IRXBC_ERR_* on failure.       */
@@ -76,6 +78,7 @@ int irx_bc_compile(struct envblock *envblock,
 
 int irx_bc_execute(struct envblock *envblock,
                    struct irx_bc_execblk *bc,
+                   const char *args, int args_len,
                    int *rc_out) asm("IRXBEXEC");
 
 #endif /* IRXBVM_H */

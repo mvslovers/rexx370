@@ -578,6 +578,7 @@ static int pframe_assign(struct bc_parse_frame *pframe,
 
 int irx_bc_execute(struct envblock *envblock,
                    struct irx_bc_execblk *bc,
+                   const char *args, int args_len,
                    int *rc_out)
 {
     const unsigned char *pc;
@@ -770,7 +771,50 @@ int irx_bc_execute(struct envblock *envblock,
     proxy_parser->alloc = alloc;
     proxy_parser->envblock = envblock;
     proxy_parser->vpool = vpool;
-    /* call_args / call_argc updated per call */
+
+    /* Top-level argument string for PARSE ARG / ARG() at program entry. */
+    if (args != NULL && args_len > 0)
+    {
+        Lstr *la;
+        int *le;
+        la = (Lstr *)alloc->alloc(
+            (size_t)IRX_MAX_ARGS * sizeof(Lstr), alloc->ctx);
+        le = (int *)alloc->alloc(
+            (size_t)IRX_MAX_ARGS * sizeof(int), alloc->ctx);
+        if (la == NULL || le == NULL)
+        {
+            if (la != NULL)
+            {
+                alloc->dealloc(la, (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                               alloc->ctx);
+            }
+            if (le != NULL)
+            {
+                alloc->dealloc(le, (size_t)IRX_MAX_ARGS * sizeof(int),
+                               alloc->ctx);
+            }
+            vm_rc = IRXBC_ERR_STOR;
+            goto done;
+        }
+        memset(la, 0, (size_t)IRX_MAX_ARGS * sizeof(Lstr));
+        memset(le, 0, (size_t)IRX_MAX_ARGS * sizeof(int));
+        if (Lfx(alloc, &la[0], (size_t)args_len) != LSTR_OK)
+        {
+            alloc->dealloc(la, (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                           alloc->ctx);
+            alloc->dealloc(le, (size_t)IRX_MAX_ARGS * sizeof(int),
+                           alloc->ctx);
+            vm_rc = IRXBC_ERR_STOR;
+            goto done;
+        }
+        memcpy(la[0].pstr, args, (size_t)args_len);
+        la[0].len = (size_t)args_len;
+        la[0].type = LSTRING_TY;
+        le[0] = 1;
+        proxy_parser->call_args = la;
+        proxy_parser->call_arg_exists = le;
+        proxy_parser->call_argc = 1;
+    }
 
     {
         pc = IRXBC_ENTRY(bc);
@@ -2625,10 +2669,27 @@ done:
         }
     }
 
-    /* Free proxy parser result Lstr and proxy parser itself */
+    /* Free proxy parser result Lstr and any top-level call_args */
     if (proxy_parser != NULL)
     {
         Lfree(alloc, &proxy_parser->result);
+        if (proxy_parser->call_args != NULL)
+        {
+            int ci;
+            for (ci = 0; ci < proxy_parser->call_argc; ci++)
+            {
+                Lfree(alloc, &proxy_parser->call_args[ci]);
+            }
+            alloc->dealloc(proxy_parser->call_args,
+                           (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                           alloc->ctx);
+        }
+        if (proxy_parser->call_arg_exists != NULL)
+        {
+            alloc->dealloc(proxy_parser->call_arg_exists,
+                           (size_t)IRX_MAX_ARGS * sizeof(int),
+                           alloc->ctx);
+        }
     }
 
     /* Free Lstr buffers */

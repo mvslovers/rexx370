@@ -24,8 +24,10 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */
 
+#include <ctype.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "irx.h"
@@ -198,6 +200,25 @@ cleanup:
 }
 
 /* ================================================================== */
+/*  Shared helper: env_eq_ci                                          */
+/* ================================================================== */
+
+/* Case-insensitive string equality without strcasecmp (not in crent370). */
+static int env_eq_ci(const char *a, const char *b)
+{
+    while (*a && *b)
+    {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
+        {
+            return 0;
+        }
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+/* ================================================================== */
 /*  Shared helper: init_wkblk_int                                     */
 /* ================================================================== */
 
@@ -235,6 +256,29 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
         else
         {
             memcpy(wk->wkbi_address, DEFAULT_HOSTENV_MVS, 8);
+        }
+    }
+
+    /* Bytecode VM on by default. REXX370_BYTECODE env-var can override
+     * before any test helper sets the flag explicitly — explicit test
+     * setters (wk->wkbi_use_bytecode = 0/1) always win because they
+     * run after irxinit() returns. */
+    wk->wkbi_use_bytecode = 1;
+    {
+        const char *e = getenv("REXX370_BYTECODE");
+        if (e != NULL)
+        {
+            if (e[0] == '0' || env_eq_ci(e, "false") ||
+                env_eq_ci(e, "no") || env_eq_ci(e, "off"))
+            {
+                wk->wkbi_use_bytecode = 0;
+            }
+            else if (e[0] == '1' || env_eq_ci(e, "true") ||
+                     env_eq_ci(e, "yes") || env_eq_ci(e, "on"))
+            {
+                wk->wkbi_use_bytecode = 1;
+            }
+            /* other values: ignored, default stays */
         }
     }
 
