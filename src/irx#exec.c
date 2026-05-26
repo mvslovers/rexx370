@@ -340,7 +340,7 @@ int irx_exec_run(const char *source, int source_len,
         }
     }
 
-    /* 3. Bytecode path (opt-in via wkbi_use_bytecode) -------------- */
+    /* 3. Bytecode path (default-on; opt-out via REXX370_BYTECODE=0) - */
     {
         struct irx_wkblk_int *wk =
             (struct irx_wkblk_int *)envblock->envblock_userfield;
@@ -350,20 +350,33 @@ int irx_exec_run(const char *source, int source_len,
             int bc_rc = 0;
 
             rc = irx_bc_compile(envblock, source, source_len, &bc);
-            if (rc == IRXBC_OK)
+            if (rc == IRXBC_ERR_UNSUP)
             {
-                rc = irx_bc_execute(envblock, bc, &bc_rc);
+                /* Unsupported construct — release bc and fall through
+                 * to the token-walk path below. */
+                if (bc != NULL)
+                {
+                    void *p = bc;
+                    irxstor(RXSMFRE, 0, &p, envblock);
+                }
             }
-            if (rc_out != NULL)
+            else
             {
-                *rc_out = bc_rc;
+                if (rc == IRXBC_OK)
+                {
+                    rc = irx_bc_execute(envblock, bc, args, args_len, &bc_rc);
+                }
+                if (rc_out != NULL)
+                {
+                    *rc_out = bc_rc;
+                }
+                if (bc != NULL)
+                {
+                    void *p = bc;
+                    irxstor(RXSMFRE, 0, &p, envblock);
+                }
+                goto cleanup;
             }
-            if (bc != NULL)
-            {
-                void *p = bc;
-                irxstor(RXSMFRE, 0, &p, envblock);
-            }
-            goto cleanup;
         }
     }
 
