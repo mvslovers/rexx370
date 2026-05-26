@@ -741,115 +741,114 @@ Access macros (`include/irxexbl.h`):
 All opcodes are defined in `include/irxbops.h`.  Error codes are
 `IRXBC_OK=0` through `IRXBC_ERR_PARSE_COMPOUND=31`.
 
-### Phase 1 — basics
+### Phase 1 + 2 — basics, stack, variables
 
 | Opcode | Byte | Size | Description |
 |--------|------|------|-------------|
 | `OP_NOP` | 0x00 | 1 | No operation |
 | `OP_EXIT` | 0x01 | 1 | Terminate, RC=0 |
-| `OP_EXIT_RC` | 0x03 | 1 | Terminate, pop RC from stack |
 | `OP_NEWCLAUSE` | 0x02 | 1 | Clause boundary (TRACE hook) |
-| `OP_LABEL` | 0x04 | 3 | Internal label definition (`sym_idx:u16`) |
-
-### Phase 2 — stack and variables
-
-| Opcode | Byte | Size | Description |
-|--------|------|------|-------------|
+| `OP_EXIT_RC` | 0x03 | 1 | Pop TOS, terminate with RC |
+| `OP_JMP` | 0x04 | 3 | Unconditional jump (`off:i16`) |
+| `OP_JF` | 0x05 | 3 | Jump if top-of-stack false, pop (`off:i16`) |
+| `OP_JT` | 0x06 | 3 | Jump if top-of-stack true, pop (`off:i16`) |
 | `OP_PUSH_LIT` | 0x10 | 3 | Push constant by index (`const_idx:u16`) |
-| `OP_POP` | 0x11 | 2 | Pop N slots (`n:u8`) |
-| `OP_DUP` | 0x12 | 1 | Duplicate top slot |
-| `OP_LOAD` | 0x20 | 3 | Load variable (`sym_idx:u16`) |
-| `OP_STORE` | 0x21 | 3 | Store variable (`sym_idx:u16`) |
+| `OP_PUSH_TMP` | 0x11 | 1 | Reserved |
+| `OP_POP` | 0x12 | 2 | Discard N slots (`n:u8`) |
+| `OP_DUP` | 0x13 | 1 | Duplicate top slot |
+| `OP_LOAD` | 0x20 | 3 | Load variable into slot (`sym_idx:u16`) |
+| `OP_STORE` | 0x21 | 3 | Pop TOS, store into variable (`sym_idx:u16`) |
 | `OP_DROP` | 0x22 | 3 | DROP variable (`sym_idx:u16`) |
 
-### Phase 2 — arithmetic and comparison
+### Phase 2 — arithmetic, comparison, logical, string
+
+All 1 byte.  Binary ops pop two slots and push one result; unary pop one.
+
+| Opcode | Byte | REXX |
+|--------|------|------|
+| `OP_ADD` | 0x30 | `a + b` |
+| `OP_SUB` | 0x31 | `a - b` |
+| `OP_MUL` | 0x32 | `a * b` |
+| `OP_DIV` | 0x33 | `a / b` |
+| `OP_IDIV` | 0x34 | `a % b` (integer divide) |
+| `OP_MOD` | 0x35 | `a // b` (remainder) |
+| `OP_POW` | 0x36 | `a ** b` |
+| `OP_NEG` | 0x37 | `-a` (unary) |
+| `OP_EQ` | 0x40 | `a = b` |
+| `OP_NE` | 0x41 | `a \= b` |
+| `OP_LT` | 0x42 | `a < b` |
+| `OP_LE` | 0x43 | `a <= b` |
+| `OP_GT` | 0x44 | `a > b` |
+| `OP_GE` | 0x45 | `a >= b` |
+| `OP_DEQ` | 0x46 | `a == b` (strict equal) |
+| `OP_DNE` | 0x47 | `a \== b` |
+| `OP_DLT` | 0x48 | `a << b` |
+| `OP_DLE` | 0x49 | `a <<= b` |
+| `OP_DGT` | 0x4A | `a >> b` |
+| `OP_DGE` | 0x4B | `a >>= b` |
+| `OP_AND` | 0x50 | `a & b` |
+| `OP_OR` | 0x51 | `a \| b` |
+| `OP_XOR` | 0x52 | `a && b` |
+| `OP_NOT` | 0x53 | `\a` (unary) |
+| `OP_CONCAT` | 0x60 | `a \|\| b` |
+| `OP_BCONCAT` | 0x61 | `a b` (with blank) |
+
+### Phase 3 — I/O, DO loops, iteration (WP-BC-03)
 
 | Opcode | Byte | Size | Description |
 |--------|------|------|-------------|
-| `OP_ADD` | 0x30 | 1 | `b = pop; a = pop; push a+b` |
-| `OP_SUB` | 0x31 | 1 | `push a-b` |
-| `OP_MUL` | 0x32 | 1 | `push a*b` |
-| `OP_DIV` | 0x33 | 1 | `push a/b` |
-| `OP_IDIV` | 0x34 | 1 | `push a%/%b` (integer divide) |
-| `OP_MOD` | 0x35 | 1 | `push a//b` (remainder) |
-| `OP_POW` | 0x36 | 1 | `push a**b` |
-| `OP_NEG` | 0x37 | 1 | Unary minus |
-| `OP_EQ` | 0x40 | 1 | `push (a=b)` |
-| `OP_NE` | 0x41 | 1 | `push (a\=b)` |
-| `OP_LT` | 0x42 | 1 | `push (a<b)` |
-| `OP_LE` | 0x43 | 1 | `push (a<=b)` |
-| `OP_GT` | 0x44 | 1 | `push (a>b)` |
-| `OP_GE` | 0x45 | 1 | `push (a>=b)` |
-| `OP_SEQ` | 0x46 | 1 | `push (a==b)` (strict equal) |
-| `OP_SNE` | 0x47 | 1 | `push (a\==b)` |
-| `OP_SLT` | 0x48 | 1 | `push (a<<b)` |
-| `OP_SLE` | 0x49 | 1 | `push (a<<=b)` |
-| `OP_SGT` | 0x4A | 1 | `push (a>>b)` |
-| `OP_SGE` | 0x4B | 1 | `push (a>>=b)` |
-| `OP_AND` | 0x50 | 1 | Logical AND |
-| `OP_OR` | 0x51 | 1 | Logical OR |
-| `OP_XOR` | 0x52 | 1 | Logical XOR |
-| `OP_NOT` | 0x53 | 1 | Logical NOT |
-| `OP_CONCAT` | 0x60 | 1 | String concatenate (`\|\|`) |
-| `OP_BCONCAT` | 0x61 | 1 | Concatenate with one blank |
-| `OP_SAY` | 0x70 | 1 | Output top of stack via IRXINOUT |
-
-### Phase 3 — control flow (WP-BC-03)
-
-| Opcode | Byte | Size | Description |
-|--------|------|------|-------------|
-| `OP_JMP` | 0x71 | 3 | Unconditional jump (`off:i16`) |
-| `OP_JF` | 0x72 | 3 | Jump if top-of-stack false (`off:i16`) |
-| `OP_JT` | 0x73 | 3 | Jump if top-of-stack true (`off:i16`) |
-| `OP_FORINIT` | 0x74 | 1 | Initialize DO-count frame |
-| `OP_BYINIT` | 0x75 | 3 | Initialize DO-TO-BY frame (`sym_idx:u16`) |
-| `OP_DECFOR` | 0x76 | 3 | Decrement/test DO-count frame |
-| `OP_DECINC` | 0x77 | 3 | Step/test DO-TO-BY frame |
-| `OP_FOREND` | 0x78 | 1 | Destroy top DO frame |
-| `OP_NOVALUE` | 0x7F | 3 | Push variable name for NOVALUE signal |
+| `OP_SAY` | 0x70 | 1 | Pop TOS, write via IRXINOUT |
+| `OP_TOINT` | 0x71 | 1 | Coerce TOS to integer string |
+| `OP_FORINIT` | 0x72 | 2 | Pop count → frame[`n:u8`]; push bool (count>0) |
+| `OP_BYINIT` | 0x73 | 2 | Reserved (`n:u8`) |
+| `OP_DECFOR` | 0x74 | 4 | Decrement frame[`n:u8`]; jump-if-done (`off:i16`) |
+| `OP_DOTEST` | 0x75 | 1 | Reserved (WHILE/UNTIL via JF) |
+| `OP_ITERATE` | 0x76 | 3 | Jump to iterate point (`off:i16`) |
+| `OP_LEAVE` | 0x77 | 3 | Jump to loop end (`off:i16`) |
 
 ### Phase 4 — CALL/RETURN (WP-BC-04)
 
 | Opcode | Byte | Size | Description |
 |--------|------|------|-------------|
-| `OP_CALL` | 0x80 | 4 | Internal CALL (`sym_idx:u16`, `nargs:u8`) |
-| `OP_RETURN` | 0x81 | 1 | RETURN (no value) |
-| `OP_RETURNV` | 0x82 | 1 | RETURN value (pop stack) |
-| `OP_CALL_BIF` | 0x83 | 4 | BIF call (`bif_id:u16`, `nargs:u8`) |
-| `OP_PROC` | 0x7D | 1 | PROCEDURE (isolate scope) |
-| `OP_EXPOSE` | 0x7E | 3 | EXPOSE one variable (`sym_idx:u16`) |
-| `OP_EXPOSE_INDIRECT` | 0x7B | 3 | EXPOSE via name-variable (`sym_idx:u16`) |
+| `OP_LABEL` | 0x78 | 3 | Call target definition (`sym_idx:u16`) |
+| `OP_CALL` | 0x79 | 4 | CALL statement (`sym_idx:u16`, `nargs:u8`) |
+| `OP_CALL_BIF` | 0x7A | 4 | Expression BIF call (`sym_idx:u16`, `nargs:u8`) |
+| `OP_RETURN` | 0x7B | 1 | Return, no value |
+| `OP_RETURNV` | 0x7C | 1 | Pop TOS, return as RESULT |
 
-### Phase 5 — PARSE sub-VM (WP-BC-05 PR A)
+### Phase 5 — PARSE sub-VM (WP-BC-05 PR A + PR C)
 
 | Opcode | Byte | Size | Description |
 |--------|------|------|-------------|
-| `OP_PARSE_BEGIN` | 0x90 | 3 | Start PARSE block (`src_sym_idx:u16`) |
-| `OP_PARSE_BEGIN_UPPER` | 0x91 | 3 | PARSE UPPER (uppercases source) |
-| `OP_PARSE_BEGIN_ARG` | 0x92 | 1 | PARSE ARG (uses ARG(1)) |
-| `OP_PARSE_BEGIN_ARG_UPPER` | 0x93 | 1 | PARSE UPPER ARG |
-| `OP_PARSE_BEGIN_VALUE` | 0x94 | 1 | PARSE VALUE (pops source from stack) |
-| `OP_PARSE_BEGIN_VALUE_UPPER` | 0x95 | 1 | PARSE UPPER VALUE |
-| `OP_PARSE_PULL_STUB` | 0x96 | 1 | PARSE PULL (stub — raises UNSUP at runtime) |
-| `OP_PARSE_END` | 0x97 | 1 | End PARSE block |
-| `OP_PVAR` | 0xA0 | 3 | Assign next word/segment to variable (`sym_idx:u16`) |
-| `OP_PDOT` | 0xA1 | 1 | Placeholder (`.`) — discard segment |
-| `OP_PVAR_STEM` | 0xA2 | 3 | Assign to compound variable target (`const_idx:u16` = resolved name) |
-| `OP_TR_LIT` | 0x85 | 3 | Trigger: literal delimiter (`const_idx:u16`) |
+| `OP_PARSE_BEGIN` | 0x80 | 2 | Start PARSE block (`flags:u8`, bit0=UPPER); pops source |
+| `OP_PARSE_END` | 0x81 | 1 | End PARSE block |
+| `OP_PVAR` | 0x82 | 3 | Assign segment to variable (`sym_idx:u16`) |
+| `OP_PDOT` | 0x83 | 1 | Dot placeholder — discard segment |
+| `OP_TR_SPACE` | 0x84 | 1 | Trigger: one word |
+| `OP_TR_LIT` | 0x85 | 3 | Trigger: literal delimiter (`lit_idx:u16`) |
 | `OP_TR_ABS` | 0x86 | 3 | Trigger: absolute column (`col:u16`, 1-based) |
 | `OP_TR_REL` | 0x87 | 3 | Trigger: relative offset (`off:i16`) |
 | `OP_TR_END` | 0x88 | 1 | Trigger: rest of string |
-| `OP_TR_SPACE` | 0x84 | 1 | Trigger: one word (leading blank stripped) |
+| `OP_PUSH_SOURCE` | 0x89 | 1 | Push PARSE SOURCE string |
+| `OP_PUSH_NUMERIC` | 0x8A | 1 | Push PARSE NUMERIC string |
+
+### Phase 5 — PROCEDURE EXPOSE (WP-BC-05 PR B)
+
+| Opcode | Byte | Size | Description |
+|--------|------|------|-------------|
+| `OP_PROC` | 0x8B | 2 | PROCEDURE — isolate scope (`nexposed:u8`) |
+| `OP_EXPOSE` | 0x8C | 3 | EXPOSE one variable (`sym_idx:u16`) |
+| `OP_EXPOSE_INDIRECT` | 0x8D | 3 | EXPOSE via name-variable (`sym_idx:u16`) |
 
 ### Phase 5 — compound variables (WP-BC-05 PR C)
 
 | Opcode | Byte | Size | Description |
 |--------|------|------|-------------|
-| `OP_LOAD_CMPD` | 0xB0 | 3 | Load compound variable (`n_tails:u8` tails on stack, `stem_idx:u16`) |
-| `OP_STORE_CMPD` | 0xB1 | 3 | Store compound variable |
-| `OP_DROP_CMPD` | 0xB2 | 3 | DROP compound variable |
-| `OP_NOVALUE_CMPD` | 0xB3 | 3 | Push compound name for NOVALUE |
-| `OP_DROP_STEM` | 0xB4 | 3 | DROP entire stem (`stem_idx:u16`) |
+| `OP_LOAD_STEM` | 0x8E | 4 | Load compound var (`stem_sym:u16`, `tail_count:u8`) |
+| `OP_STORE_STEM` | 0x8F | 4 | Store compound var |
+| `OP_DROP_STEM` | 0x90 | 4 | DROP compound or entire stem (`tail_count=0` → all) |
+| `OP_PVAR_STEM` | 0x91 | 4 | PARSE target: compound var (`stem_sym:u16`, `tail_count:u8`) |
+| `OP_PULL_FROM_QUEUE` | 0x92 | 1 | Push next queue line (WP-33b stub; raises UNSUP) |
 
 ## 15.3 Evaluation stack
 
@@ -909,7 +908,7 @@ returned container with `irxstor(RXSMFRE, 0, &p, envblock)`.
 - `SIGNAL ON condition` / `SIGNAL OFF condition`
 - `TRACE value_expression` (trace is a no-op; `TRACE OFF` is accepted)
 - `ADDRESS environment expression`
-- `PARSE LINEIN` / `PARSE PULL` (stub emits `OP_PARSE_PULL_STUB`)
+- `PARSE LINEIN` / `PARSE PULL` (`OP_PULL_FROM_QUEUE` stub raises `IRXBC_ERR_UNSUP` at runtime)
 - Semicolons as clause separators on the same source line
 - Variable delimiters `(varname)` in PARSE templates
 

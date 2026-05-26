@@ -226,12 +226,10 @@ int main(int argc, char *argv[])
         irxterm(env);
         return 1;
     }
+    struct irxexte *exte = (struct irxexte *)env->envblock_irxexte;
+    if (exte != NULL)
     {
-        struct irxexte *exte = (struct irxexte *)env->envblock_irxexte;
-        if (exte != NULL)
-        {
-            exte->io_routine = (void *)capture_io;
-        }
+        exte->io_routine = (void *)capture_io;
     }
 
     /* ---- Token-walk run ------------------------------------------- */
