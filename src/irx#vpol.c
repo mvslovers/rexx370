@@ -991,3 +991,62 @@ int vpool_drop_buf(struct irx_vpool *pool, const char *name_data, int name_len)
 
     return vpool_drop(pool, &name);
 }
+
+int vpool_drop_stem_all(struct irx_vpool *pool,
+                        const char *stem_data, int stem_len)
+{
+    Lstr stem_lstr;
+    int b;
+    struct vpool_entry *e, *prev, *next;
+
+    if (pool == NULL || stem_data == NULL || stem_len <= 0)
+    {
+        return VPOOL_BADARG;
+    }
+
+    stem_lstr.pstr = (unsigned char *)stem_data;
+    stem_lstr.len = (size_t)stem_len;
+    stem_lstr.maxlen = (size_t)stem_len;
+    stem_lstr.type = LSTRING_TY;
+
+    /* If this stem is exposed to a parent pool, delegate there. */
+    if (matches_exposed_stem(pool, &stem_lstr) && pool->parent != NULL)
+    {
+        return vpool_drop_stem_all(pool->parent, stem_data, stem_len);
+    }
+
+    for (b = 0; b < pool->bucket_count; b++)
+    {
+        prev = NULL;
+        e = pool->buckets[b];
+        while (e != NULL)
+        {
+            next = e->next;
+            if (name_matches_stem(&e->name, &stem_lstr))
+            {
+                /* For exposed refs, also remove the backing entry in parent. */
+                if ((e->flags & VPOOL_EXPOSED_REF) && pool->parent != NULL)
+                {
+                    vpool_drop(pool->parent, &e->name);
+                }
+                /* Unlink from bucket chain. */
+                if (prev != NULL)
+                {
+                    prev->next = next;
+                }
+                else
+                {
+                    pool->buckets[b] = next;
+                }
+                pool->entry_count--;
+                vp_entry_free(pool->alloc, e);
+            }
+            else
+            {
+                prev = e;
+            }
+            e = next;
+        }
+    }
+    return VPOOL_OK;
+}

@@ -184,6 +184,29 @@
 #define OP_EXPOSE_INDIRECT 0x8D /* 3 bytes: op + sym_idx:u16          */
 
 /* ================================================================== */
+/*  Compound variable opcodes (WP-BC-05 PR C)                         */
+/*                                                                    */
+/*  OP_LOAD_STEM pops tail_count values (leftmost first), builds the  */
+/*  compound name STEM.tail0.tail1...tailN-1 (tails uppercased), then */
+/*  looks up the result in the vpool.  NOVALUE → compound name itself. */
+/*                                                                    */
+/*  OP_STORE_STEM pops the value (TOS), then pops tail_count tails,  */
+/*  builds the compound name, and stores the value in the vpool.      */
+/*                                                                    */
+/*  OP_DROP_STEM with tail_count=0 drops the entire stem (all entries */
+/*  whose name begins with the stem prefix including its trailing dot).*/
+/*  With tail_count>0 it pops tails, builds the compound name, and    */
+/*  drops only that one entry.                                         */
+/*                                                                    */
+/*  The stem symbol in the sym-table includes the trailing dot        */
+/*  (e.g. "A." for a compound variable A.something).                  */
+/* ================================================================== */
+
+#define OP_LOAD_STEM  0x8E /* 4 bytes: op + stem_sym:u16 + tail_count:u8 */
+#define OP_STORE_STEM 0x8F /* 4 bytes: op + stem_sym:u16 + tail_count:u8 */
+#define OP_DROP_STEM  0x90 /* 4 bytes: op + stem_sym:u16 + tail_count:u8 */
+
+/* ================================================================== */
 /*  PARSE sub-VM opcodes (WP-BC-05 PR A)                             */
 /*                                                                    */
 /*  PARSE [UPPER] source template [, template ...]                    */
@@ -251,6 +274,9 @@
      ((op) == OP_PROC)            ? 2 :         \
      ((op) == OP_EXPOSE)          ? 3 :         \
      ((op) == OP_EXPOSE_INDIRECT) ? 3 :         \
+     ((op) == OP_LOAD_STEM)       ? 4 :         \
+     ((op) == OP_STORE_STEM)      ? 4 :         \
+     ((op) == OP_DROP_STEM)       ? 4 :         \
      1)
 /* clang-format on */
 

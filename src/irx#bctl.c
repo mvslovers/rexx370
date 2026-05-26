@@ -87,6 +87,9 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_PROC,             "PROC"             },
     { OP_EXPOSE,           "EXPOSE"           },
     { OP_EXPOSE_INDIRECT,  "EXPOSE_INDIRECT"  },
+    { OP_LOAD_STEM,        "LOAD_STEM"        },
+    { OP_STORE_STEM,       "STORE_STEM"       },
+    { OP_DROP_STEM,        "DROP_STEM"        },
 };
 
 /* clang-format on */
@@ -217,6 +220,25 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
             }
             app_cstr(buf, bufsz, &pos, " nargs=");
             app_int(buf, bufsz, &pos, nargs);
+        }
+        else if (sz == 4 && (op == OP_LOAD_STEM || op == OP_STORE_STEM ||
+                             op == OP_DROP_STEM))
+        {
+            /* stem_sym:u16 + tail_count:u8 */
+            int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
+            int tail_cnt = (int)code[pc + 3];
+            app_cstr(buf, bufsz, &pos, " [");
+            app_int(buf, bufsz, &pos, idx);
+            app_cstr(buf, bufsz, &pos, "]");
+            if (idx >= 0 && idx < n_syms)
+            {
+                const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;
+                int slen = (int)(unsigned char)entry[0];
+                app_cstr(buf, bufsz, &pos, " = ");
+                app_str(buf, bufsz, &pos, entry + 1, slen);
+            }
+            app_cstr(buf, bufsz, &pos, " tails=");
+            app_int(buf, bufsz, &pos, tail_cnt);
         }
         else if (sz == 4 && op == OP_DECFOR)
         {

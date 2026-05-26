@@ -937,6 +937,235 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                /* ---- Compound variable ops (WP-BC-05 PR C) --------- */
+                case OP_LOAD_STEM:
+                {
+                    int stem_idx = read_u16(pc);
+                    int tail_cnt = (int)pc[2];
+                    const char *stem_data;
+                    int stem_len;
+                    char name_buf[IRXBC_STR_MAX + 1];
+                    int name_pos;
+                    int i;
+                    int vrc;
+
+                    pc += 3;
+
+                    if (sp < tail_cnt || sp >= IRXBC_STACK_DEPTH)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    stem_len =
+                        get_entry(sym_base, n_syms, stem_idx, &stem_data);
+                    if (stem_len < 0 || stem_len > IRXBC_STR_MAX)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    /* Build compound name: stem + tails (uppercased). */
+                    memcpy(name_buf, stem_data, (size_t)stem_len);
+                    name_pos = stem_len;
+                    for (i = 0; i < tail_cnt; i++)
+                    {
+                        const char *tv;
+                        int tl;
+                        int j;
+
+                        tv = (const char *)Lpstr(stack[sp - tail_cnt + i].str);
+                        tl = (int)Llen(stack[sp - tail_cnt + i].str);
+                        if (i > 0)
+                        {
+                            if (name_pos >= IRXBC_STR_MAX)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            name_buf[name_pos++] = '.';
+                        }
+                        for (j = 0; j < tl; j++)
+                        {
+                            if (name_pos >= IRXBC_STR_MAX)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            name_buf[name_pos++] =
+                                (char)toupper((unsigned char)tv[j]);
+                        }
+                    }
+                    name_buf[name_pos] = '\0';
+                    /* Pop tails, then push result. */
+                    sp -= tail_cnt;
+                    stack[sp].type_cache = 0;
+                    stack[sp].int_cache = 0;
+                    vrc = vpool_get_buf(vpool, name_buf, name_pos,
+                                        stack[sp].str,
+                                        &stack[sp].type_cache,
+                                        &stack[sp].int_cache);
+                    if (vrc == VPOOL_NOT_FOUND)
+                    {
+                        /* NOVALUE: value is the compound name itself. */
+                        if (slot_set_buf(&stack[sp], alloc,
+                                         name_buf, name_pos) != LSTR_OK)
+                        {
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
+                    }
+                    else if (vrc != VPOOL_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    sp++;
+                    break;
+                }
+
+                case OP_STORE_STEM:
+                {
+                    int stem_idx = read_u16(pc);
+                    int tail_cnt = (int)pc[2];
+                    const char *stem_data;
+                    int stem_len;
+                    char name_buf[IRXBC_STR_MAX + 1];
+                    int name_pos;
+                    int i;
+                    int vrc;
+
+                    pc += 3;
+
+                    if (sp < tail_cnt + 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    stem_len =
+                        get_entry(sym_base, n_syms, stem_idx, &stem_data);
+                    if (stem_len < 0 || stem_len > IRXBC_STR_MAX)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    /* Stack: ..., tail[0], ..., tail[n-1], value
+                     * Value is at sp-1; tails at sp-tail_cnt-1..sp-2. */
+                    memcpy(name_buf, stem_data, (size_t)stem_len);
+                    name_pos = stem_len;
+                    for (i = 0; i < tail_cnt; i++)
+                    {
+                        const char *tv;
+                        int tl;
+                        int j;
+
+                        tv = (const char *)Lpstr(
+                            stack[sp - tail_cnt - 1 + i].str);
+                        tl = (int)Llen(stack[sp - tail_cnt - 1 + i].str);
+                        if (i > 0)
+                        {
+                            if (name_pos >= IRXBC_STR_MAX)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            name_buf[name_pos++] = '.';
+                        }
+                        for (j = 0; j < tl; j++)
+                        {
+                            if (name_pos >= IRXBC_STR_MAX)
+                            {
+                                vm_rc = IRXBC_ERR_STOR;
+                                goto done;
+                            }
+                            name_buf[name_pos++] =
+                                (char)toupper((unsigned char)tv[j]);
+                        }
+                    }
+                    name_buf[name_pos] = '\0';
+                    /* Pop value (now at stack[sp-1]). */
+                    sp--;
+                    vrc = vpool_set_buf(vpool, name_buf, name_pos,
+                                        stack[sp].str,
+                                        stack[sp].type_cache,
+                                        stack[sp].int_cache);
+                    sp -= tail_cnt; /* pop tails */
+                    if (vrc != VPOOL_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    break;
+                }
+
+                case OP_DROP_STEM:
+                {
+                    int stem_idx = read_u16(pc);
+                    int tail_cnt = (int)pc[2];
+                    const char *stem_data;
+                    int stem_len;
+
+                    pc += 3;
+
+                    stem_len =
+                        get_entry(sym_base, n_syms, stem_idx, &stem_data);
+                    if (stem_len < 0 || stem_len > IRXBC_STR_MAX)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    if (tail_cnt == 0)
+                    {
+                        /* DROP STEM. — remove all entries with this prefix. */
+                        vpool_drop_stem_all(vpool, stem_data, stem_len);
+                    }
+                    else
+                    {
+                        char name_buf[IRXBC_STR_MAX + 1];
+                        int name_pos;
+                        int i;
+
+                        if (sp < tail_cnt)
+                        {
+                            vm_rc = IRXBC_ERR_STACK;
+                            goto done;
+                        }
+                        memcpy(name_buf, stem_data, (size_t)stem_len);
+                        name_pos = stem_len;
+                        for (i = 0; i < tail_cnt; i++)
+                        {
+                            const char *tv;
+                            int tl;
+                            int j;
+
+                            tv = (const char *)Lpstr(
+                                stack[sp - tail_cnt + i].str);
+                            tl = (int)Llen(stack[sp - tail_cnt + i].str);
+                            if (i > 0)
+                            {
+                                if (name_pos >= IRXBC_STR_MAX)
+                                {
+                                    vm_rc = IRXBC_ERR_STOR;
+                                    goto done;
+                                }
+                                name_buf[name_pos++] = '.';
+                            }
+                            for (j = 0; j < tl; j++)
+                            {
+                                if (name_pos >= IRXBC_STR_MAX)
+                                {
+                                    vm_rc = IRXBC_ERR_STOR;
+                                    goto done;
+                                }
+                                name_buf[name_pos++] =
+                                    (char)toupper((unsigned char)tv[j]);
+                            }
+                        }
+                        name_buf[name_pos] = '\0';
+                        sp -= tail_cnt;
+                        vpool_drop_buf(vpool, name_buf, name_pos);
+                    }
+                    break;
+                }
+
                 /* ---- Arithmetic ------------------------------------ */
                 case OP_ADD:
                 case OP_SUB:
