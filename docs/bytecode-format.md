@@ -297,18 +297,46 @@ This eliminates repeated digit-parsing of constants such as loop bounds
 
 ---
 
+### 3.11 SIGNAL (WP-BC-07 PR A)
+
+Unconditional `SIGNAL label` and `SIGNAL VALUE expr`.  Both opcodes clear the
+eval stack, unwind all active call frames (restoring isolated variable scopes
+created by `OP_PROC`), close any active PARSE frame, set `SIGL=0` in the work
+block, and jump to the target label.
+
+Labels must be defined somewhere in the bytecode stream via `OP_LABEL`.  The
+VM pre-scans for `OP_LABEL` at startup (same scan as for `OP_CALL` targets)
+and builds `label_pc[sym_idx]`.  No change to the EXECBLK header is required.
+
+SIGL line-number tracking is not yet implemented (requires trace-map support in
+a later WP); `wkbi_sigl` is set to 0.
+
+| Opcode | Hex | Size | Description |
+|--------|-----|------|-------------|
+| `OP_SIGNAL` | 0x93 | 3 | `sym_idx:u16` — jump to label (compile-time name) |
+| `OP_SIGNAL_VALUE` | 0x94 | 1 | Pop label-name string, uppercase, resolve, jump |
+| `OP_SIGNAL_ON` | 0x95 | 4 | `cond:u8`, `sym_idx:u16` — enable condition trap (WP-BC-07 PR B) |
+| `OP_SIGNAL_OFF` | 0x96 | 2 | `cond:u8` — disable condition trap (WP-BC-07 PR B) |
+
+`OP_SIGNAL_ON` and `OP_SIGNAL_OFF` are defined and the compiler parses `SIGNAL
+ON`/`SIGNAL OFF` syntax, but the compiler returns `IRXBC_ERR_UNSUP` for these
+forms in PR A, falling back to the token-walk interpreter.  VM handlers for
+these opcodes are deferred to WP-BC-07 PR B.
+
+---
+
 ## 7. Compiler Limitations (current)
 
 The following constructs cause `IRXBC_ERR_UNSUP` from the compiler:
 
-- `SIGNAL ON condition` / `SIGNAL OFF`
+- `SIGNAL ON condition` / `SIGNAL OFF condition` (deferred to WP-BC-07 PR B)
 - `TRACE value_expression`
 - `ADDRESS environment expression`
 - `PARSE PULL` / `PARSE LINEIN` (`OP_PULL_FROM_QUEUE` stub raises `IRXBC_ERR_UNSUP` at runtime)
 - Semicolons as clause separators within a source line
 - Variable delimiter `(varname)` in PARSE templates
 
-These limitations are tracked as follow-up items for WP-BC-07+.
+These limitations are tracked as follow-up items for WP-BC-07 PR B and WP-BC-08+.
 
 ---
 

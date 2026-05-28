@@ -92,6 +92,10 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_DROP_STEM,        "DROP_STEM"        },
     { OP_PVAR_STEM,        "PVAR_STEM"        },
     { OP_PULL_FROM_QUEUE,  "PULL_FROM_QUEUE"  },
+    { OP_SIGNAL,           "SIGNAL"           },
+    { OP_SIGNAL_VALUE,     "SIGNAL_VALUE"     },
+    { OP_SIGNAL_ON,        "SIGNAL_ON"        },
+    { OP_SIGNAL_OFF,       "SIGNAL_OFF"       },
 };
 
 /* clang-format on */
@@ -205,7 +209,25 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
         app_cstr(buf, bufsz, &pos, op_name(op));
 
         /* Operands */
-        if (sz == 4 && (op == OP_CALL || op == OP_CALL_BIF))
+        if (sz == 4 && op == OP_SIGNAL_ON)
+        {
+            /* cond:u8 + sym_idx:u16 */
+            int cond = (int)code[pc + 1];
+            int idx = (int)code[pc + 2] | ((int)code[pc + 3] << 8);
+            app_cstr(buf, bufsz, &pos, " cond=");
+            app_int(buf, bufsz, &pos, cond);
+            app_cstr(buf, bufsz, &pos, " [");
+            app_int(buf, bufsz, &pos, idx);
+            app_cstr(buf, bufsz, &pos, "]");
+            if (idx >= 0 && idx < n_syms)
+            {
+                const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;
+                int slen = (int)(unsigned char)entry[0];
+                app_cstr(buf, bufsz, &pos, " = ");
+                app_str(buf, bufsz, &pos, entry + 1, slen);
+            }
+        }
+        else if (sz == 4 && (op == OP_CALL || op == OP_CALL_BIF))
         {
             /* sym_idx:u16 + nargs:u8 */
             int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
@@ -261,7 +283,8 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                              op == OP_STORE || op == OP_DROP ||
                              op == OP_LABEL || op == OP_PVAR ||
                              op == OP_TR_LIT || op == OP_TR_ABS ||
-                             op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT))
+                             op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT ||
+                             op == OP_SIGNAL))
         {
             /* u16 table index */
             int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
@@ -279,10 +302,11 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                 app_str(buf, bufsz, &pos, entry + 1, slen);
                 app_cstr(buf, bufsz, &pos, "\"");
             }
-            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR/EXPOSE */
+            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR/EXPOSE/SIGNAL */
             else if ((op == OP_LOAD || op == OP_STORE || op == OP_DROP ||
                       op == OP_LABEL || op == OP_PVAR ||
-                      op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT) &&
+                      op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT ||
+                      op == OP_SIGNAL) &&
                      idx >= 0 && idx < n_syms)
             {
                 const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;
