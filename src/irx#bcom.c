@@ -1942,7 +1942,7 @@ static const char *const bc_kw_barriers[] = {
     "TO", "BY", "FOR", "WHILE", "UNTIL", "FOREVER",
     "IF", "DO", "SAY", "SELECT", "EXIT",
     "ITERATE", "LEAVE", "NOP",
-    "CALL", "RETURN", "PROCEDURE", "PARSE", "DROP",
+    "CALL", "RETURN", "PROCEDURE", "PARSE", "DROP", "SIGNAL",
     NULL};
 
 static int is_kw_barrier(const struct bcom_ctx *ctx, int offset)
@@ -2880,6 +2880,63 @@ static void C_leave_bc(struct bcom_ctx *ctx)
 }
 
 /* ================================================================== */
+/*  SIGNAL statement (WP-BC-07 PR A)                                  */
+/* ================================================================== */
+
+static void bc_signal_stmt(struct bcom_ctx *ctx)
+{
+    const struct irx_token *t;
+
+    ctx->pos++; /* consume SIGNAL */
+
+    /* SIGNAL ON condition [NAME label] — deferred to PR B */
+    if (tok_kw(ctx, 0, "ON"))
+    {
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
+    /* SIGNAL OFF condition — deferred to PR B */
+    if (tok_kw(ctx, 0, "OFF"))
+    {
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+
+    /* SIGNAL VALUE expr — evaluate expression, jump to named label */
+    if (tok_kw(ctx, 0, "VALUE"))
+    {
+        ctx->pos++; /* consume VALUE */
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_byte(ctx, OP_SIGNAL_VALUE);
+        return;
+    }
+
+    /* SIGNAL label — compile-time-known target */
+    t = tok_at(ctx, 0);
+    if (t == NULL || t->tok_type != TOK_SYMBOL)
+    {
+        ctx->rc = IRXBC_ERR_UNSUP;
+        return;
+    }
+    {
+        const char *name = (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
+        int si = add_sym(ctx, name);
+        if (si < 0)
+        {
+            return;
+        }
+        ctx->pos++;
+        emit_byte(ctx, OP_SIGNAL);
+        emit_u16(ctx, si);
+    }
+}
+
+/* ================================================================== */
 /*  bc_stmts_until                                                    */
 /* ================================================================== */
 
@@ -3074,6 +3131,12 @@ static void bc_stmt(struct bcom_ctx *ctx)
     if (tok_kw(ctx, 0, "PROCEDURE"))
     {
         bc_procedure_stmt(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "SIGNAL"))
+    {
+        bc_signal_stmt(ctx);
         return;
     }
 

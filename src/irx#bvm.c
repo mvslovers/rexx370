@@ -2158,6 +2158,173 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                    /* ---- SIGNAL (WP-BC-07 PR A) ------------------------- */
+
+                case OP_SIGNAL:
+                {
+                    int lsi = read_u16(pc);
+                    int target;
+                    int fi, ci;
+                    struct irx_wkblk_int *wk;
+
+                    pc += 2;
+
+                    if (label_pc == NULL || lsi < 0 || lsi >= n_syms ||
+                        label_pc[lsi] < 0)
+                    {
+                        vm_rc = IRXBC_ERR_UNSUP;
+                        goto done;
+                    }
+                    target = label_pc[lsi];
+
+                    /* Close active parse frame */
+                    if (pframe.active)
+                    {
+                        Lfree(alloc, &pframe.source);
+                        Lzeroinit(&pframe.source);
+                        pframe.active = 0;
+                    }
+
+                    /* Unwind call frames innermost-first */
+                    for (fi = call_sp - 1; fi >= 0; fi--)
+                    {
+                        struct bc_call_frame *cf = &call_frames[fi];
+                        for (ci = 0; ci < IRX_MAX_ARGS; ci++)
+                        {
+                            Lfree(alloc, &cf->args[ci]);
+                        }
+                        if (cf->has_isolated_scope && cf->prev_vpool != NULL)
+                        {
+                            vpool_destroy(vpool);
+                            vpool = cf->prev_vpool;
+                            proxy_parser->vpool = vpool;
+                        }
+                    }
+                    call_sp = 0;
+                    proxy_parser->call_args = NULL;
+                    proxy_parser->call_arg_exists = NULL;
+                    proxy_parser->call_argc = 0;
+
+                    /* Clear eval stack */
+                    sp = 0;
+
+                    /* SIGL — line tracking not yet available; set to 0 */
+                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        wk->wkbi_sigl = 0;
+                    }
+
+                    pc = code_base + target;
+                    break;
+                }
+
+                case OP_SIGNAL_VALUE:
+                {
+                    int lsi = -1;
+                    int target;
+                    int fi, ci, k;
+                    struct irx_wkblk_int *wk;
+                    char name_upper[IRXBC_STR_MAX + 1];
+                    int nlen;
+
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    sp--;
+
+                    /* Uppercase the popped label name */
+                    {
+                        PLstr s = stack[sp].str;
+                        nlen = (int)Llen(s);
+                        if (nlen > IRXBC_STR_MAX)
+                        {
+                            vm_rc = IRXBC_ERR_UNSUP;
+                            goto done;
+                        }
+                        for (k = 0; k < nlen; k++)
+                        {
+                            name_upper[k] =
+                                (char)toupper((unsigned char)Lpstr(s)[k]);
+                        }
+                    }
+
+                    /* Search symbol table for matching label name */
+                    for (k = 0; k < n_syms; k++)
+                    {
+                        const char *sdata;
+                        int slen = get_entry(sym_base, n_syms, k, &sdata);
+                        if (slen == nlen &&
+                            memcmp(sdata, name_upper, (size_t)nlen) == 0)
+                        {
+                            lsi = k;
+                            break;
+                        }
+                    }
+
+                    if (lsi < 0 || label_pc == NULL || label_pc[lsi] < 0)
+                    {
+                        vm_rc = IRXBC_ERR_UNSUP;
+                        goto done;
+                    }
+                    target = label_pc[lsi];
+
+                    /* Close active parse frame */
+                    if (pframe.active)
+                    {
+                        Lfree(alloc, &pframe.source);
+                        Lzeroinit(&pframe.source);
+                        pframe.active = 0;
+                    }
+
+                    /* Unwind call frames innermost-first */
+                    for (fi = call_sp - 1; fi >= 0; fi--)
+                    {
+                        struct bc_call_frame *cf = &call_frames[fi];
+                        for (ci = 0; ci < IRX_MAX_ARGS; ci++)
+                        {
+                            Lfree(alloc, &cf->args[ci]);
+                        }
+                        if (cf->has_isolated_scope && cf->prev_vpool != NULL)
+                        {
+                            vpool_destroy(vpool);
+                            vpool = cf->prev_vpool;
+                            proxy_parser->vpool = vpool;
+                        }
+                    }
+                    call_sp = 0;
+                    proxy_parser->call_args = NULL;
+                    proxy_parser->call_arg_exists = NULL;
+                    proxy_parser->call_argc = 0;
+
+                    /* Clear eval stack */
+                    sp = 0;
+
+                    /* SIGL — line tracking not yet available; set to 0 */
+                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        wk->wkbi_sigl = 0;
+                    }
+
+                    pc = code_base + target;
+                    break;
+                }
+
+                case OP_SIGNAL_ON:
+                    /* Condition-trap mechanics deferred to WP-BC-07 PR B */
+                    pc += 3; /* skip cond:u8 + sym_idx:u16 */
+                    vm_rc = IRXBC_ERR_UNSUP;
+                    goto done;
+
+                case OP_SIGNAL_OFF:
+                    /* Condition-trap mechanics deferred to WP-BC-07 PR B */
+                    pc += 1; /* skip cond:u8 */
+                    vm_rc = IRXBC_ERR_UNSUP;
+                    goto done;
+
                     /* ---- PARSE sub-VM (WP-BC-05 PR A) ------------------- */
 
                 case OP_PARSE_BEGIN:

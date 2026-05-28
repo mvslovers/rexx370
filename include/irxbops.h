@@ -265,6 +265,26 @@
 #define OP_PULL_FROM_QUEUE 0x92 /* 1 byte — push next queue line (WP-33b stub) */
 
 /* ================================================================== */
+/*  SIGNAL opcodes (WP-BC-07)                                          */
+/*                                                                    */
+/*  OP_SIGNAL:       unconditional jump to a compile-time-known label. */
+/*  OP_SIGNAL_VALUE: pop label-name string, resolve at runtime, jump.  */
+/*  OP_SIGNAL_ON:    enable condition trap with given handler label.    */
+/*  OP_SIGNAL_OFF:   disable condition trap.                           */
+/*                                                                    */
+/*  Both SIGNAL opcodes clear the eval stack, unwind all call frames,  */
+/*  and set SIGL.  They are equivalent to a non-local goto.            */
+/*                                                                    */
+/*  OP_SIGNAL_ON / OP_SIGNAL_OFF: compiled but VM handling deferred   */
+/*  to WP-BC-07 PR B (condition-trap mechanics).                      */
+/* ================================================================== */
+
+#define OP_SIGNAL       0x93 /* 3 bytes: op + sym_idx:u16               */
+#define OP_SIGNAL_VALUE 0x94 /* 1 byte  — pop label name, jump          */
+#define OP_SIGNAL_ON    0x95 /* 4 bytes: op + cond:u8 + sym_idx:u16     */
+#define OP_SIGNAL_OFF   0x96 /* 2 bytes: op + cond:u8                   */
+
+/* ================================================================== */
 /*  Per-opcode size in bytes (including the opcode byte itself)       */
 /* ================================================================== */
 
@@ -298,6 +318,9 @@
      ((op) == OP_STORE_STEM)      ? 4 :         \
      ((op) == OP_DROP_STEM)       ? 4 :         \
      ((op) == OP_PVAR_STEM)       ? 4 :         \
+     ((op) == OP_SIGNAL)       ? 3 :         \
+     ((op) == OP_SIGNAL_ON)    ? 4 :         \
+     ((op) == OP_SIGNAL_OFF)   ? 2 :         \
      1)
 /* clang-format on */
 
