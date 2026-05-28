@@ -2889,17 +2889,127 @@ static void bc_signal_stmt(struct bcom_ctx *ctx)
 
     ctx->pos++; /* consume SIGNAL */
 
-    /* SIGNAL ON condition [NAME label] — deferred to PR B */
+    /* SIGNAL ON condition [NAME label] (WP-BC-07 PR B) */
     if (tok_kw(ctx, 0, "ON"))
     {
-        ctx->rc = IRXBC_ERR_UNSUP;
+        unsigned char cond;
+        const char *cond_name;
+        int lsi;
+
+        ctx->pos++; /* consume ON */
+
+        if (tok_kw(ctx, 0, "ERROR"))
+        {
+            cond = COND_ERROR;
+            cond_name = "ERROR";
+        }
+        else if (tok_kw(ctx, 0, "FAILURE"))
+        {
+            cond = COND_FAILURE;
+            cond_name = "FAILURE";
+        }
+        else if (tok_kw(ctx, 0, "HALT"))
+        {
+            cond = COND_HALT;
+            cond_name = "HALT";
+        }
+        else if (tok_kw(ctx, 0, "NOVALUE"))
+        {
+            cond = COND_NOVALUE;
+            cond_name = "NOVALUE";
+        }
+        else if (tok_kw(ctx, 0, "NOTREADY"))
+        {
+            cond = COND_NOTREADY;
+            cond_name = "NOTREADY";
+        }
+        else if (tok_kw(ctx, 0, "SYNTAX"))
+        {
+            cond = COND_SYNTAX;
+            cond_name = "SYNTAX";
+        }
+        else
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        ctx->pos++; /* consume condition name */
+
+        if (tok_kw(ctx, 0, "NAME"))
+        {
+            const struct irx_token *nt;
+            const char *lname;
+            ctx->pos++; /* consume NAME */
+            nt = tok_at(ctx, 0);
+            if (nt == NULL || nt->tok_type != TOK_SYMBOL)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            lname = (nt->tok_upper != NULL) ? nt->tok_upper : nt->tok_text;
+            lsi = add_sym(ctx, lname);
+            if (lsi < 0)
+            {
+                return;
+            }
+            ctx->pos++; /* consume label name */
+        }
+        else
+        {
+            /* Default: handler label = condition name (uppercase) */
+            lsi = add_sym(ctx, cond_name);
+            if (lsi < 0)
+            {
+                return;
+            }
+        }
+
+        emit_byte(ctx, OP_SIGNAL_ON);
+        emit_byte(ctx, cond);
+        emit_u16(ctx, lsi);
         return;
     }
 
-    /* SIGNAL OFF condition — deferred to PR B */
+    /* SIGNAL OFF condition (WP-BC-07 PR B) */
     if (tok_kw(ctx, 0, "OFF"))
     {
-        ctx->rc = IRXBC_ERR_UNSUP;
+        unsigned char cond;
+
+        ctx->pos++; /* consume OFF */
+
+        if (tok_kw(ctx, 0, "ERROR"))
+        {
+            cond = COND_ERROR;
+        }
+        else if (tok_kw(ctx, 0, "FAILURE"))
+        {
+            cond = COND_FAILURE;
+        }
+        else if (tok_kw(ctx, 0, "HALT"))
+        {
+            cond = COND_HALT;
+        }
+        else if (tok_kw(ctx, 0, "NOVALUE"))
+        {
+            cond = COND_NOVALUE;
+        }
+        else if (tok_kw(ctx, 0, "NOTREADY"))
+        {
+            cond = COND_NOTREADY;
+        }
+        else if (tok_kw(ctx, 0, "SYNTAX"))
+        {
+            cond = COND_SYNTAX;
+        }
+        else
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        ctx->pos++; /* consume condition name */
+
+        emit_byte(ctx, OP_SIGNAL_OFF);
+        emit_byte(ctx, cond);
         return;
     }
 

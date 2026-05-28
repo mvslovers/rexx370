@@ -60,13 +60,15 @@ struct envblock; /* forward decl to avoid circular include */
 /* ================================================================== */
 
 #define IRX_COND_DESC_LEN 80
+#define IRX_COND_NAME_LEN 9 /* max "NOTREADY\0" */
 
 struct irx_condition_info
 {
-    int valid;                    /* non-zero if this block contains a raised condition */
-    int code;                     /* primary REXX error number (e.g. 24)                */
-    int subcode;                  /* secondary error code (0 if none)                   */
-    char desc[IRX_COND_DESC_LEN]; /* human-readable description (null-terminated) */
+    int valid;                         /* non-zero if this block contains a raised condition */
+    int code;                          /* primary REXX error number (e.g. 24)                */
+    int subcode;                       /* secondary error code (0 if none)                   */
+    char cond_name[IRX_COND_NAME_LEN]; /* condition name: "NOVALUE", "SYNTAX", etc.   */
+    char desc[IRX_COND_DESC_LEN];      /* human-readable description (null-terminated) */
 };
 
 /* ================================================================== */

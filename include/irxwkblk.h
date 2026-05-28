@@ -77,6 +77,9 @@
 #define COND_SYNTAX   0x10
 #define COND_FAILURE  0x20
 
+/* Number of distinct REXX conditions (used to size per-env tables). */
+#define COND_COUNT 6
+
 /* ================================================================== */
 /*  Lstring allocator pool (WP-PERF-04)                              */
 /*                                                                    */
