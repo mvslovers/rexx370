@@ -1297,7 +1297,7 @@ include = [
 #
 # Expected: CC=0
 #
-# WP-BC-07 / GitHub mvslovers/rexx370.
+# WP-BC-07 / GitHub mvslovers/rexx370#160.
 # ---------------------------------------------------------------
 [[link.module]]
 name = "TSTBSIG"

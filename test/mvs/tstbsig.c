@@ -399,6 +399,72 @@ static void test_signal_do_frame_cleanup(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  test_signal_callframe_unwind: SIGNAL when call_sp > 0             */
+/*                                                                    */
+/*  These tests exercise the call-frame unwind loop inside OP_SIGNAL  */
+/*  which was not covered by the top-level-only tests above.          */
+/* ------------------------------------------------------------------ */
+
+static void test_signal_callframe_unwind(struct envblock *env)
+{
+    printf("\n--- call frame unwind on SIGNAL ---\n");
+
+    /*
+     * Simple: SIGNAL from inside a CALL subroutine (no PROCEDURE).
+     * call_sp == 1 when OP_SIGNAL executes; the single call frame is
+     * unwound (args freed), call_sp resets to 0, then jumps to done:.
+     */
+    bc_only(env,
+            "CALL sub\n"
+            "SAY \"unreachable\"\n"
+            "done:\n"
+            "SAY \"after_signal\"\n"
+            "EXIT\n"
+            "sub:\n"
+            "SIGNAL done\n"
+            "RETURN\n",
+            "after_signal\n",
+            "signal from call subroutine");
+
+    /*
+     * Two nested PROCEDURE scopes (top -> A -> B, both with PROCEDURE).
+     * call_sp == 2 when OP_SIGNAL executes; the unwind loop must run
+     * two iterations, destroying B's isolated vpool then A's, restoring
+     * the top-level vpool in which x = "top" was set.
+     *
+     * Trace:
+     *   top-level: vpool V0, x = "top"
+     *   CALL A: call_sp=1
+     *   A PROCEDURE: V1 created, cf[0].prev_vpool=V0, x="in_A" in V1
+     *   CALL B: call_sp=2
+     *   B PROCEDURE: V2 created, cf[1].prev_vpool=V1, x="in_B" in V2
+     *   SIGNAL done:
+     *     fi=1 (B): destroy V2, vpool=V1
+     *     fi=0 (A): destroy V1, vpool=V0
+     *     call_sp=0, sp=0, pc=done
+     *   done: SAY x  ->  V0.x = "top"
+     */
+    bc_only(env,
+            "x = \"top\"\n"
+            "CALL A\n"
+            "done:\n"
+            "SAY x\n"
+            "EXIT\n"
+            "A:\n"
+            "PROCEDURE\n"
+            "x = \"in_A\"\n"
+            "CALL B\n"
+            "RETURN\n"
+            "B:\n"
+            "PROCEDURE\n"
+            "x = \"in_B\"\n"
+            "SIGNAL done\n"
+            "RETURN\n",
+            "top\n",
+            "signal unwinds two nested PROCEDURE scopes");
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -427,6 +493,7 @@ int main(void)
     test_signal_value(env);
     test_signal_sigl(env);
     test_signal_do_frame_cleanup(env);
+    test_signal_callframe_unwind(env);
 
     irxterm(env);
 
