@@ -96,6 +96,12 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_SIGNAL_VALUE,     "SIGNAL_VALUE"     },
     { OP_SIGNAL_ON,        "SIGNAL_ON"        },
     { OP_SIGNAL_OFF,       "SIGNAL_OFF"       },
+    { OP_TRACE_TOGGLE,     "TRACE_TOGGLE"     },
+    { OP_TRACE_SET,        "TRACE_SET"        },
+    { OP_TRACE_VALUE,      "TRACE_VALUE"      },
+    { OP_ADDRESS_TOGGLE,   "ADDRESS_TOGGLE"   },
+    { OP_ADDRESS_SET,      "ADDRESS_SET"      },
+    { OP_ADDRESS_VALUE,    "ADDRESS_VALUE"    },
 };
 
 /* clang-format on */
@@ -284,7 +290,7 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                              op == OP_LABEL || op == OP_PVAR ||
                              op == OP_TR_LIT || op == OP_TR_ABS ||
                              op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT ||
-                             op == OP_SIGNAL))
+                             op == OP_SIGNAL || op == OP_ADDRESS_SET))
         {
             /* u16 table index */
             int idx = (int)code[pc + 1] | ((int)code[pc + 2] << 8);
@@ -302,11 +308,11 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                 app_str(buf, bufsz, &pos, entry + 1, slen);
                 app_cstr(buf, bufsz, &pos, "\"");
             }
-            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR/EXPOSE/SIGNAL */
+            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR/EXPOSE/SIGNAL/ADDRESS_SET */
             else if ((op == OP_LOAD || op == OP_STORE || op == OP_DROP ||
                       op == OP_LABEL || op == OP_PVAR ||
                       op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT ||
-                      op == OP_SIGNAL) &&
+                      op == OP_SIGNAL || op == OP_ADDRESS_SET) &&
                      idx >= 0 && idx < n_syms)
             {
                 const char *entry = sym_base + idx * IRXBC_ENTRY_SIZE;

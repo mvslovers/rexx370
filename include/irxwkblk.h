@@ -193,12 +193,16 @@ struct irx_wkblk_int
     /* when a future WP needs another word.                           */
     unsigned int wkbi_random_seed;
 
-    /* --- ADDRESS state (WP-CPS-03) --------------------------------- */
+    /* --- ADDRESS state (WP-CPS-03 / WP-BC-08) ---------------------- */
     /* 8-byte space-padded host command environment name, consistent
      * with SUBCOMTB and PARMBLOCK conventions.  Seeded at env
      * creation from pb->tsofl ("TSO     " or "MVS     "); write path
-     * follows in WP-CPS-05 (ADDRESS keyword).                        */
+     * follows in WP-CPS-05 (ADDRESS keyword).
+     * wkbi_prev_address holds the previous environment to support
+     * bare ADDRESS toggle (SC28-1883-0 §6.1 two-slot discipline).
+     * Seeded to the same default as wkbi_address at env creation.   */
     char wkbi_address[8];
+    char wkbi_prev_address[8];
 
     /* --- Lstring allocator pool (WP-PERF-04) ----------------------- */
     /* Per-env free-list pool for small Lstring buffers. Organized into

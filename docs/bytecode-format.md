@@ -357,19 +357,61 @@ On trap fire `irx_cond_raise()` populates `wkbi_last_condition`:
 - SYNTAX: `code=SYNTAX_BAD_ARITH(41)`, `subcode=ERR41_NONNUMERIC(1)`,
   `cond_name="SYNTAX"`.
 
+### 3.12 TRACE + ADDRESS (WP-BC-08)
+
+`TRACE` and `ADDRESS` set interpreter-state fields in the work block (`wkbi_trace`,
+`wkbi_interactive`, `wkbi_address`, `wkbi_prev_address`).  Actual trace output
+and host-command routing are deferred to WP-33.
+
+#### TRACE
+
+| Opcode | Hex | Size | Operands / Semantics |
+|--------|-----|------|----------------------|
+| `OP_TRACE_TOGGLE` | 0x97 | 1 | Bare `TRACE`: toggle `wkbi_interactive`; letter unchanged |
+| `OP_TRACE_SET`    | 0x98 | 2 | `mode:u8` — letter in low 7 bits, bit 7 = interactive flag |
+| `OP_TRACE_VALUE`  | 0x99 | 1 | Pop string, call `parse_trace_option`, set both fields |
+
+**`OP_TRACE_SET` mode byte:** `mode = letter | (interactive ? 0x80 : 0)`.
+Valid letters: `N A I L R C F E O` (SC28-1883-0 §6.13).
+
+**Forms compiled:**
+- `TRACE` (bare) → `OP_TRACE_TOGGLE`
+- `TRACE Off` / `TRACE ?I` (constant) → `OP_TRACE_SET mode`
+- `TRACE VALUE expr` → `bc_exp0` + `OP_TRACE_VALUE`
+- `TRACE n` (number skip-form) → consumed as no-op, no opcode emitted
+
+#### ADDRESS
+
+| Opcode | Hex | Size | Operands / Semantics |
+|--------|-----|------|----------------------|
+| `OP_ADDRESS_TOGGLE` | 0x9A | 1 | Bare `ADDRESS`: swap `wkbi_address` ↔ `wkbi_prev_address` |
+| `OP_ADDRESS_SET`    | 0x9B | 3 | `sym_idx:u16` — save prev, set from sym table |
+| `OP_ADDRESS_VALUE`  | 0x9C | 1 | Pop string, save prev, set address (space-padded to 8 bytes) |
+
+**`wkbi_prev_address`** (new in WP-BC-08): 8-byte slot seeded to the same default
+as `wkbi_address` at env creation.  `OP_ADDRESS_SET` and `OP_ADDRESS_VALUE` copy
+current address to prev before writing the new value; `OP_ADDRESS_TOGGLE` swaps
+the two slots.  Token-Walk `kw_address` bare-form is a no-op (documented TODO in
+`irx#pars.c`); the toggle is bytecode-only.
+
+**Forms compiled:**
+- `ADDRESS` (bare) → `OP_ADDRESS_TOGGLE`
+- `ADDRESS TSO` / `ADDRESS 'MVS'` (constant env) → `OP_ADDRESS_SET sym_idx`
+- `ADDRESS VALUE expr` → `bc_exp0` + `OP_ADDRESS_VALUE`
+- `ADDRESS env command` (one-shot) → clause consumed, no opcode (WP-33 deferred)
+
 ---
 
 ## 7. Compiler Limitations (current)
 
 The following constructs cause `IRXBC_ERR_UNSUP` from the compiler:
 
-- `TRACE value_expression`
-- `ADDRESS environment expression`
 - `PARSE PULL` / `PARSE LINEIN` (`OP_PULL_FROM_QUEUE` stub raises `IRXBC_ERR_UNSUP` at runtime)
 - Semicolons as clause separators within a source line
 - Variable delimiter `(varname)` in PARSE templates
+- `ADDRESS env command` one-shot form: clause consumed as no-op (WP-33 deferred)
 
-These limitations are tracked as follow-up items for WP-BC-08+.
+These limitations are tracked as follow-up items for WP-BC-09+.
 
 ---
 

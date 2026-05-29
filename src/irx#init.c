@@ -257,6 +257,8 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
         {
             memcpy(wk->wkbi_address, DEFAULT_HOSTENV_MVS, 8);
         }
+        /* Seed prev_address to the same default (SC28-1883-0 §6.1). */
+        memcpy(wk->wkbi_prev_address, wk->wkbi_address, 8);
     }
 
     /* Bytecode VM on by default. REXX370_BYTECODE env-var can override
