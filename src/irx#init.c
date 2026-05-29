@@ -284,6 +284,22 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
         }
     }
 
+    /* Bytecode path diagnostic. REXX370_BCDEBUG=1 (or true/yes/on)
+     * causes irxterm() to emit "[bc] exec=N fallback=M" to stdout.
+     * Default off; no output, no overhead when not set. */
+    wk->wkbi_bc_debug = 0;
+    {
+        const char *e = getenv("REXX370_BCDEBUG");
+        if (e != NULL)
+        {
+            if (e[0] == '1' || env_eq_ci(e, "true") ||
+                env_eq_ci(e, "yes") || env_eq_ci(e, "on"))
+            {
+                wk->wkbi_bc_debug = 1;
+            }
+        }
+    }
+
     *wk_out = wk;
     return 0;
 

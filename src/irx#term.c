@@ -20,6 +20,7 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "irx.h"
@@ -159,6 +160,19 @@ int irxterm(struct envblock *envblk)
 
         /* Release all pooled lstring buffers before freeing wkbi. */
         irx_lstr_pool_teardown(envblk);
+
+        /* Bytecode path diagnostic (REXX370_BCDEBUG=1) — emit before
+         * wkbi is freed so the counters are still readable.  stdout
+         * on MVS/IRXJCL already points at SYSTSPRT at this point
+         * (irx_jcl_dispatch_main redirected it before exec; fclose
+         * happens after irxterm returns). */
+        if (wkbi->wkbi_bc_debug)
+        {
+            printf("[bc] exec=%d fallback=%d\n",
+                   wkbi->wkbi_bc_exec_count,
+                   wkbi->wkbi_bc_fallback_count);
+            fflush(stdout);
+        }
 
         /* Free the lstring370 allocator bridge if it was installed. */
         if (wkbi->wkbi_lstr_alloc != NULL)
