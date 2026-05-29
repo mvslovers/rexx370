@@ -2964,12 +2964,19 @@ static void bc_trace_stmt(struct bcom_ctx *ctx)
             return;
         }
         c = (char)toupper((unsigned char)text[idx]);
-        if (strchr(allowed, c) == NULL)
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
-            return;
+            const char *p = strchr(allowed, c);
+            if (p == NULL)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            /* Encode as letter-index (0-8) in bits 0-3, interactive in bit 4.
+             * Storing the raw character value is wrong on EBCDIC: trace letters
+             * have bit 7 set (e.g. 'O'=0xD6), which collides with any flag in
+             * that bit.  An index into "NAILRCFEO" is platform-neutral. */
+            mode = (unsigned char)((int)(p - allowed) | (toggle ? 0x10 : 0x00));
         }
-        mode = (unsigned char)((unsigned char)c | (toggle ? 0x80u : 0x00u));
         ctx->pos++;
         emit_byte(ctx, OP_TRACE_SET);
         emit_byte(ctx, mode);

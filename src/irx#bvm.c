@@ -2448,14 +2448,21 @@ int irx_bc_execute(struct envblock *envblock,
 
                 case OP_TRACE_SET:
                 {
-                    /* Constant mode: mode = letter | 0x80 if interactive. */
+                    /* mode byte: bits 0-3 = index into "NAILRCFEO", bit 4 = interactive.
+                     * The letter is stored as a platform-native char via the table so
+                     * the value is EBCDIC on MVS and ASCII on Linux — same as
+                     * parse_trace_option / kw_trace write into wkbi_trace. */
+                    static const char trace_letters[] = "NAILRCFEO";
                     unsigned char mode = *pc++;
+                    int letter_idx = (int)(mode & 0x0Fu);
                     struct irx_wkblk_int *wk =
                         (struct irx_wkblk_int *)envblock->envblock_userfield;
                     if (wk != NULL)
                     {
-                        wk->wkbi_trace = (int)(mode & 0x7Fu);
-                        wk->wkbi_interactive = (mode & 0x80u) ? 1 : 0;
+                        wk->wkbi_trace =
+                            (letter_idx < 9) ? (int)trace_letters[letter_idx]
+                                             : (int)trace_letters[0]; /* 'N' */
+                        wk->wkbi_interactive = (mode & 0x10u) ? 1 : 0;
                     }
                     break;
                 }

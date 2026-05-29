@@ -368,10 +368,14 @@ and host-command routing are deferred to WP-33.
 | Opcode | Hex | Size | Operands / Semantics |
 |--------|-----|------|----------------------|
 | `OP_TRACE_TOGGLE` | 0x97 | 1 | Bare `TRACE`: toggle `wkbi_interactive`; letter unchanged |
-| `OP_TRACE_SET`    | 0x98 | 2 | `mode:u8` — letter in low 7 bits, bit 7 = interactive flag |
+| `OP_TRACE_SET`    | 0x98 | 2 | `mode:u8` — letter index in bits 0-3, interactive in bit 4 |
 | `OP_TRACE_VALUE`  | 0x99 | 1 | Pop string, call `parse_trace_option`, set both fields |
 
-**`OP_TRACE_SET` mode byte:** `mode = letter | (interactive ? 0x80 : 0)`.
+**`OP_TRACE_SET` mode byte:** `mode = letter_idx | (interactive ? 0x10 : 0)`.
+`letter_idx` is the 0-based index into `"NAILRCFEO"` (0=N, 1=A, 2=I, …, 8=O).
+Using an index instead of the raw character value is required for EBCDIC safety:
+on MVS all trace letters have bit 7 set (e.g. `'O'`=0xD6), which would collide
+with any flag packed into bit 7.
 Valid letters: `N A I L R C F E O` (SC28-1883-0 §6.13).
 
 **Forms compiled:**
