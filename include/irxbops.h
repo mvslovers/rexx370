@@ -285,6 +285,31 @@
 #define OP_SIGNAL_OFF   0x96 /* 2 bytes: op + cond:u8                   */
 
 /* ================================================================== */
+/*  TRACE + ADDRESS opcodes (WP-BC-08)                                */
+/*                                                                    */
+/*  TRACE:                                                            */
+/*    OP_TRACE_TOGGLE — bare TRACE: toggle wkbi_interactive, keep     */
+/*                      wkbi_trace letter.                            */
+/*    OP_TRACE_SET    — constant option: mode byte = letter | 0x80    */
+/*                      if interactive.  Valid letters: NAILRCFEO.    */
+/*    OP_TRACE_VALUE  — dynamic option: pop string, parse first char, */
+/*                      set wkbi_trace + wkbi_interactive.            */
+/*                                                                    */
+/*  ADDRESS:                                                          */
+/*    OP_ADDRESS_TOGGLE — bare ADDRESS: swap wkbi_address and         */
+/*                        wkbi_prev_address (SC28-1883-0 §6.1).       */
+/*    OP_ADDRESS_SET    — constant env: save prev, set from sym table. */
+/*    OP_ADDRESS_VALUE  — dynamic env: pop string, save prev, set.    */
+/* ================================================================== */
+
+#define OP_TRACE_TOGGLE   0x97 /* 1 byte — toggle wkbi_interactive          */
+#define OP_TRACE_SET      0x98 /* 2 bytes: op + mode:u8                     */
+#define OP_TRACE_VALUE    0x99 /* 1 byte — pop string, parse, set fields    */
+#define OP_ADDRESS_TOGGLE 0x9A /* 1 byte — swap address + prev_address      */
+#define OP_ADDRESS_SET    0x9B /* 3 bytes: op + sym_idx:u16                 */
+#define OP_ADDRESS_VALUE  0x9C /* 1 byte — pop string, save prev, set addr  */
+
+/* ================================================================== */
 /*  Per-opcode size in bytes (including the opcode byte itself)       */
 /* ================================================================== */
 
@@ -321,6 +346,8 @@
      ((op) == OP_SIGNAL)       ? 3 :         \
      ((op) == OP_SIGNAL_ON)    ? 4 :         \
      ((op) == OP_SIGNAL_OFF)   ? 2 :         \
+     ((op) == OP_TRACE_SET)    ? 2 :         \
+     ((op) == OP_ADDRESS_SET)  ? 3 :         \
      1)
 /* clang-format on */
 

@@ -1943,6 +1943,7 @@ static const char *const bc_kw_barriers[] = {
     "IF", "DO", "SAY", "SELECT", "EXIT",
     "ITERATE", "LEAVE", "NOP",
     "CALL", "RETURN", "PROCEDURE", "PARSE", "DROP", "SIGNAL",
+    "TRACE", "ADDRESS",
     NULL};
 
 static int is_kw_barrier(const struct bcom_ctx *ctx, int offset)
@@ -2883,6 +2884,209 @@ static void C_leave_bc(struct bcom_ctx *ctx)
 /*  SIGNAL statement (WP-BC-07 PR A)                                  */
 /* ================================================================== */
 
+/* ================================================================== */
+/*  bc_trace_stmt — TRACE statement compiler (WP-BC-08)               */
+/*                                                                    */
+/*  Forms:                                                            */
+/*    TRACE             → OP_TRACE_TOGGLE                             */
+/*    TRACE VALUE expr  → bc_exp0 + OP_TRACE_VALUE                   */
+/*    TRACE number      → consume, no-op (skip-form)                  */
+/*    TRACE option      → OP_TRACE_SET mode:u8                        */
+/* ================================================================== */
+
+static void bc_trace_stmt(struct bcom_ctx *ctx)
+{
+    const struct irx_token *t;
+    static const char allowed[] = "NAILRCFEO";
+
+    ctx->pos++; /* consume TRACE */
+
+    /* Bare TRACE — toggle wkbi_interactive, keep wkbi_trace letter. */
+    if (tok_ends_clause(ctx))
+    {
+        emit_byte(ctx, OP_TRACE_TOGGLE);
+        return;
+    }
+
+    /* TRACE VALUE expr */
+    if (tok_kw(ctx, 0, "VALUE"))
+    {
+        ctx->pos++; /* consume VALUE */
+        if (tok_ends_clause(ctx))
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_byte(ctx, OP_TRACE_VALUE);
+        return;
+    }
+
+    t = tok_at(ctx, 0);
+
+    /* TRACE number — skip-form: consume, no-op. */
+    if (t != NULL && t->tok_type == TOK_NUMBER)
+    {
+        ctx->pos++;
+        return;
+    }
+    if (t != NULL && t->tok_type == TOK_OPERATOR &&
+        (tok_ch(ctx, 0) == '+' || tok_ch(ctx, 0) == '-') &&
+        tok_type_at(ctx, 1, TOK_NUMBER))
+    {
+        ctx->pos += 2; /* consume sign + number */
+        return;
+    }
+
+    /* TRACE option — symbol or string literal: constant mode. */
+    if (t != NULL && (t->tok_type == TOK_SYMBOL || t->tok_type == TOK_STRING))
+    {
+        const char *text = (t->tok_upper != NULL) ? t->tok_upper
+                                                  : (const char *)t->tok_text;
+        int n = (int)t->tok_length;
+        int idx = 0;
+        int toggle = 0;
+        char c;
+        unsigned char mode;
+
+        if (idx < n && text[idx] == '?')
+        {
+            toggle = 1;
+            idx++;
+        }
+        if (idx >= n)
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        c = (char)toupper((unsigned char)text[idx]);
+        {
+            const char *p = strchr(allowed, c);
+            if (p == NULL)
+            {
+                ctx->rc = IRXBC_ERR_UNSUP;
+                return;
+            }
+            /* Encode as letter-index (0-8) in bits 0-3, interactive in bit 4.
+             * Storing the raw character value is wrong on EBCDIC: trace letters
+             * have bit 7 set (e.g. 'O'=0xD6), which collides with any flag in
+             * that bit.  An index into "NAILRCFEO" is platform-neutral. */
+            mode = (unsigned char)((int)(p - allowed) | (toggle ? 0x10 : 0x00));
+        }
+        ctx->pos++;
+        emit_byte(ctx, OP_TRACE_SET);
+        emit_byte(ctx, mode);
+        return;
+    }
+
+    ctx->rc = IRXBC_ERR_UNSUP;
+}
+
+/* ================================================================== */
+/*  bc_address_stmt — ADDRESS statement compiler (WP-BC-08)           */
+/*                                                                    */
+/*  Forms:                                                            */
+/*    ADDRESS             → OP_ADDRESS_TOGGLE                         */
+/*    ADDRESS VALUE expr  → bc_exp0 + OP_ADDRESS_VALUE                */
+/*    ADDRESS env         → OP_ADDRESS_SET sym_idx:u16                */
+/*    ADDRESS env cmd     → consume clause, no-op (WP-33 stub)        */
+/* ================================================================== */
+
+static void bc_address_stmt(struct bcom_ctx *ctx)
+{
+    const struct irx_token *t;
+
+    ctx->pos++; /* consume ADDRESS */
+
+    /* Bare ADDRESS — toggle between current and previous environment. */
+    if (tok_ends_clause(ctx))
+    {
+        emit_byte(ctx, OP_ADDRESS_TOGGLE);
+        return;
+    }
+
+    /* ADDRESS VALUE expr */
+    if (tok_kw(ctx, 0, "VALUE"))
+    {
+        ctx->pos++; /* consume VALUE */
+        if (tok_ends_clause(ctx))
+        {
+            ctx->rc = IRXBC_ERR_UNSUP;
+            return;
+        }
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_byte(ctx, OP_ADDRESS_VALUE);
+        return;
+    }
+
+    t = tok_at(ctx, 0);
+
+    /* ADDRESS env — symbol or string token. */
+    if (t != NULL && (t->tok_type == TOK_SYMBOL || t->tok_type == TOK_STRING))
+    {
+        const struct irx_token *tnext = tok_at(ctx, 1);
+
+        /* One-shot form: ADDRESS env command — consume clause, no write.
+         * TODO(WP-33): route command to host environment. */
+        if (tnext != NULL && tnext->tok_type != TOK_EOC &&
+            tnext->tok_type != TOK_EOF)
+        {
+            while (!tok_ends_clause(ctx))
+            {
+                ctx->pos++;
+            }
+            return;
+        }
+
+        /* String form: write env-name to wkbi_address.
+         *
+         * For symbols, tok_upper is null-terminated → safe for add_sym.
+         * For string literals, tok_text is a pointer into the source
+         * buffer (not null-terminated).  Copy to a local buffer first. */
+        {
+            const char *name;
+            char name_buf[IRXBC_STR_MAX + 1];
+            int si;
+
+            if (t->tok_type == TOK_SYMBOL && t->tok_upper != NULL)
+            {
+                name = t->tok_upper;
+            }
+            else
+            {
+                int tlen = (int)t->tok_length;
+                if (tlen > IRXBC_STR_MAX)
+                {
+                    tlen = IRXBC_STR_MAX;
+                }
+                memcpy(name_buf, t->tok_text, (size_t)tlen);
+                name_buf[tlen] = '\0';
+                name = name_buf;
+            }
+
+            si = add_sym(ctx, name);
+            if (si < 0)
+            {
+                return;
+            }
+            ctx->pos++;
+            emit_byte(ctx, OP_ADDRESS_SET);
+            emit_u16(ctx, si);
+        }
+        return;
+    }
+
+    ctx->rc = IRXBC_ERR_UNSUP;
+}
+
 static void bc_signal_stmt(struct bcom_ctx *ctx)
 {
     const struct irx_token *t;
@@ -3247,6 +3451,18 @@ static void bc_stmt(struct bcom_ctx *ctx)
     if (tok_kw(ctx, 0, "SIGNAL"))
     {
         bc_signal_stmt(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "TRACE"))
+    {
+        bc_trace_stmt(ctx);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "ADDRESS"))
+    {
+        bc_address_stmt(ctx);
         return;
     }
 

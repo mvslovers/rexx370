@@ -23,6 +23,7 @@
 #include "irx.h"
 #include "irxarith.h"
 #include "irxbif.h"
+#include "irxbifs.h"
 #include "irxbops.h"
 #include "irxbvm.h"
 #include "irxexbl.h"
@@ -2427,6 +2428,148 @@ int irx_bc_execute(struct envblock *envblock,
                     {
                         cond_enabled &=
                             (unsigned char)(~(unsigned int)cond_byte);
+                    }
+                    break;
+                }
+
+                    /* ---- TRACE + ADDRESS (WP-BC-08) ---------------------- */
+
+                case OP_TRACE_TOGGLE:
+                {
+                    /* Bare TRACE: toggle wkbi_interactive, keep letter. */
+                    struct irx_wkblk_int *wk =
+                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        wk->wkbi_interactive ^= 1;
+                    }
+                    break;
+                }
+
+                case OP_TRACE_SET:
+                {
+                    /* mode byte: bits 0-3 = index into "NAILRCFEO", bit 4 = interactive.
+                     * The letter is stored as a platform-native char via the table so
+                     * the value is EBCDIC on MVS and ASCII on Linux — same as
+                     * parse_trace_option / kw_trace write into wkbi_trace. */
+                    static const char trace_letters[] = "NAILRCFEO";
+                    unsigned char mode = *pc++;
+                    int letter_idx = (int)(mode & 0x0Fu);
+                    struct irx_wkblk_int *wk =
+                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        wk->wkbi_trace =
+                            (letter_idx < 9) ? (int)trace_letters[letter_idx]
+                                             : (int)trace_letters[0]; /* 'N' */
+                        wk->wkbi_interactive = (mode & 0x10u) ? 1 : 0;
+                    }
+                    break;
+                }
+
+                case OP_TRACE_VALUE:
+                {
+                    /* Pop string, parse via parse_trace_option, set fields. */
+                    char new_letter = '\0';
+                    int new_toggle = 0;
+                    struct irx_wkblk_int *wk;
+                    int prc;
+
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    sp--;
+                    prc = parse_trace_option(proxy_parser, stack[sp].str,
+                                             &new_letter, &new_toggle);
+                    if (prc != 0)
+                    {
+                        vm_rc = IRXBC_ERR_UNSUP;
+                        goto done;
+                    }
+                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        wk->wkbi_trace = (int)new_letter;
+                        wk->wkbi_interactive = new_toggle;
+                    }
+                    break;
+                }
+
+                case OP_ADDRESS_TOGGLE:
+                {
+                    /* Bare ADDRESS: swap current and previous environment. */
+                    struct irx_wkblk_int *wk =
+                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        char tmp[8];
+                        memcpy(tmp, wk->wkbi_address, 8);
+                        memcpy(wk->wkbi_address, wk->wkbi_prev_address, 8);
+                        memcpy(wk->wkbi_prev_address, tmp, 8);
+                    }
+                    break;
+                }
+
+                case OP_ADDRESS_SET:
+                {
+                    /* Constant env name from sym table: save prev, set. */
+                    int idx = read_u16(pc);
+                    const char *env_data;
+                    int env_len;
+                    struct irx_wkblk_int *wk;
+                    int n;
+
+                    pc += 2;
+                    env_len = get_entry(sym_base, n_syms, idx, &env_data);
+                    if (env_len < 0)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        n = (env_len > 8) ? 8 : env_len;
+                        memcpy(wk->wkbi_prev_address, wk->wkbi_address, 8);
+                        memcpy(wk->wkbi_address, env_data, (size_t)n);
+                        if (n < 8)
+                        {
+                            memset(wk->wkbi_address + n, ' ',
+                                   (size_t)(8 - n));
+                        }
+                    }
+                    break;
+                }
+
+                case OP_ADDRESS_VALUE:
+                {
+                    /* Dynamic env from stack: pop string, save prev, set. */
+                    const char *src;
+                    int src_len;
+                    int n;
+                    struct irx_wkblk_int *wk;
+
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    sp--;
+                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    if (wk != NULL)
+                    {
+                        src = (const char *)Lpstr(stack[sp].str);
+                        src_len = (int)Llen(stack[sp].str);
+                        n = (src_len > 8) ? 8 : src_len;
+                        memcpy(wk->wkbi_prev_address, wk->wkbi_address, 8);
+                        memcpy(wk->wkbi_address, src, (size_t)n);
+                        if (n < 8)
+                        {
+                            memset(wk->wkbi_address + n, ' ',
+                                   (size_t)(8 - n));
+                        }
                     }
                     break;
                 }
