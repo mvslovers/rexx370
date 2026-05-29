@@ -586,6 +586,30 @@ static void test_parse_indirect(struct envblock *env)
               "indirect pattern: no UNSUP fallback");
     }
 
+    /* Compound indirect (a.x) is UNSUP — falls back, does not run wrong */
+    {
+        const char *src =
+            "x = 'b'\n"
+            "s = 'abc'\n"
+            "PARSE VAR s h (a.x) t\n"
+            "SAY h\n";
+        int src_len = (int)strlen(src);
+        int cmp_rc;
+        int cmp_exit_rc = 0;
+
+        wk->wkbi_bc_exec_count = 0;
+        wk->wkbi_bc_fallback_count = 0;
+        wk->wkbi_use_bytecode = 1;
+        cmp_rc = irx_exec_run(src, src_len, NULL, 0, &cmp_exit_rc, env);
+        (void)cmp_rc;
+        wk->wkbi_use_bytecode = 0;
+
+        CHECK(wk->wkbi_bc_fallback_count > 0,
+              "compound indirect (a.x): UNSUP fallback taken");
+        CHECK(wk->wkbi_bc_exec_count == 0,
+              "compound indirect (a.x): BC exec path NOT taken");
+    }
+
     /* Verify counter discriminates: INTERPRET is still UNSUP */
     {
         const char *src = "INTERPRET 'SAY 1'\n";

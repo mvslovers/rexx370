@@ -884,14 +884,19 @@ static void bc_parse_template(struct bcom_ctx *ctx)
         }
 
         /* Indirect pattern (var) — delimiter value taken from variable
-         * at runtime.  Only simple variable names (non-constant symbol)
-         * are accepted inside the parens; anything else is UNSUP.     */
+         * at runtime.  Only simple, non-compound variable names are
+         * accepted inside the parens; anything else is UNSUP.
+         * Compound variables (TOKF_COMPOUND) are rejected conservatively:
+         * variable-tail compounds (a.x) cannot be resolved at compile
+         * time and would silently look up the literal name "A.X" in the
+         * vpool, giving wrong results.  Unlock in a later WP if needed. */
         if (t->tok_type == TOK_LPAREN)
         {
             const struct irx_token *t1 = tok_at(ctx, 1);
             const struct irx_token *t2 = tok_at(ctx, 2);
             if (t1 != NULL && t1->tok_type == TOK_SYMBOL &&
                 !(t1->tok_flags & TOKF_CONSTANT) &&
+                !(t1->tok_flags & TOKF_COMPOUND) &&
                 t2 != NULL && t2->tok_type == TOK_RPAREN)
             {
                 const char *vname =
