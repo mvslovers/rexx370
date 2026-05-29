@@ -297,31 +297,65 @@ This eliminates repeated digit-parsing of constants such as loop bounds
 
 ---
 
-### 3.11 SIGNAL (WP-BC-07 PR A)
+### 3.11 SIGNAL (WP-BC-07 PR A + PR B)
 
-Unconditional `SIGNAL label` and `SIGNAL VALUE expr`.  Both opcodes clear the
-eval stack, unwind all active call frames (restoring isolated variable scopes
-created by `OP_PROC`), close any active PARSE frame, set `SIGL=0` in the work
-block, and jump to the target label.
+Unconditional `SIGNAL label` and `SIGNAL VALUE expr` (PR A); condition traps
+`SIGNAL ON condition [NAME label]` and `SIGNAL OFF condition` (PR B).
+
+All SIGNAL forms that transfer control clear the eval stack, unwind all active
+call frames (restoring isolated variable scopes created by `OP_PROC`), close
+any active PARSE frame, set `SIGL=0`, and jump to the handler label.
 
 Labels must be defined somewhere in the bytecode stream via `OP_LABEL`.  The
-VM pre-scans for `OP_LABEL` at startup (same scan as for `OP_CALL` targets)
-and builds `label_pc[sym_idx]`.  No change to the EXECBLK header is required.
+VM pre-scans for `OP_LABEL` at startup and builds `label_pc[sym_idx]`.
 
 SIGL line-number tracking is not yet implemented (requires trace-map support in
 a later WP); `wkbi_sigl` is set to 0.
 
 | Opcode | Hex | Size | Description |
 |--------|-----|------|-------------|
-| `OP_SIGNAL` | 0x93 | 3 | `sym_idx:u16` — jump to label (compile-time name) |
+| `OP_SIGNAL` | 0x93 | 3 | `sym_idx:u16` — unconditional jump to label |
 | `OP_SIGNAL_VALUE` | 0x94 | 1 | Pop label-name string, uppercase, resolve, jump |
-| `OP_SIGNAL_ON` | 0x95 | 4 | `cond:u8`, `sym_idx:u16` — enable condition trap (WP-BC-07 PR B) |
-| `OP_SIGNAL_OFF` | 0x96 | 2 | `cond:u8` — disable condition trap (WP-BC-07 PR B) |
+| `OP_SIGNAL_ON` | 0x95 | 4 | `cond:u8`, `sym_idx:u16` — enable condition trap |
+| `OP_SIGNAL_OFF` | 0x96 | 2 | `cond:u8` — disable condition trap |
 
-`OP_SIGNAL_ON` and `OP_SIGNAL_OFF` are defined and the compiler parses `SIGNAL
-ON`/`SIGNAL OFF` syntax, but the compiler returns `IRXBC_ERR_UNSUP` for these
-forms in PR A, falling back to the token-walk interpreter.  VM handlers for
-these opcodes are deferred to WP-BC-07 PR B.
+**`OP_SIGNAL_ON` operands:**
+- `cond:u8` — one of the `COND_*` bitmask constants (COND_ERROR=0x01,
+  COND_HALT=0x02, COND_NOVALUE=0x04, COND_NOTREADY=0x08, COND_SYNTAX=0x10,
+  COND_FAILURE=0x20).
+- `sym_idx:u16` — index into the symbol table for the handler label.  The
+  default (no `NAME` clause) is the condition name itself ("NOVALUE" etc.).
+
+**Condition-trap dispatch (PR B):**
+
+The VM maintains a per-execution trap table (`cond_enabled` bitmask +
+`cond_lsi[COND_COUNT]` handler index array).  When a condition fires, the VM
+performs the same unwind as explicit `SIGNAL` then jumps to the handler label.
+
+Per SC28-1883-0 §7: on trap fire the trap is **auto-disabled** (callers must
+re-enable inside the handler if repeated trapping is desired).  Trap state is
+snapshotted into each `bc_call_frame` at `OP_CALL` time and restored at
+`OP_RETURN`/`OP_RETURNV`, so callee changes to trap settings revert on return.
+
+**Conditions that fire immediately (PR B):**
+- `NOVALUE` — fires in `OP_LOAD` and `OP_LOAD_STEM` when the variable is
+  unset.  Without an active trap, the variable name is returned as its own
+  value (standard REXX NOVALUE behavior is preserved).
+- `SYNTAX` — fires when an arithmetic/boolean operation fails due to a
+  non-numeric or non-boolean value (`IRXBC_ERR_ARITH` → `check_syntax_trap`).
+
+**Conditions prepared as infrastructure (deferred trigger, PR B):**
+- `ERROR` / `FAILURE` — `ON`/`OFF` sets the enabled bit.  Trigger deferred to
+  WP-33 (command routing: ADDRESS statement, host command execution).
+- `HALT` — `ON`/`OFF` sets the enabled bit.  Trigger deferred to MVS Attention
+  Routine integration.
+- `NOTREADY` — `ON`/`OFF` sets the enabled bit.  Trigger deferred to WP-33 I/O.
+
+**Condition information (for future `CONDITION()` BIF):**
+On trap fire `irx_cond_raise()` populates `wkbi_last_condition`:
+- NOVALUE: `code=0`, `desc=variable_name`, `cond_name="NOVALUE"`.
+- SYNTAX: `code=SYNTAX_BAD_ARITH(41)`, `subcode=ERR41_NONNUMERIC(1)`,
+  `cond_name="SYNTAX"`.
 
 ---
 
@@ -329,14 +363,13 @@ these opcodes are deferred to WP-BC-07 PR B.
 
 The following constructs cause `IRXBC_ERR_UNSUP` from the compiler:
 
-- `SIGNAL ON condition` / `SIGNAL OFF condition` (deferred to WP-BC-07 PR B)
 - `TRACE value_expression`
 - `ADDRESS environment expression`
 - `PARSE PULL` / `PARSE LINEIN` (`OP_PULL_FROM_QUEUE` stub raises `IRXBC_ERR_UNSUP` at runtime)
 - Semicolons as clause separators within a source line
 - Variable delimiter `(varname)` in PARSE templates
 
-These limitations are tracked as follow-up items for WP-BC-07 PR B and WP-BC-08+.
+These limitations are tracked as follow-up items for WP-BC-08+.
 
 ---
 

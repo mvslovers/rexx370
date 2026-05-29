@@ -334,6 +334,7 @@
 #define IRXBC_ERR_UNSUP          22 /* unsupported construct                 */
 #define IRXBC_ERR_OPCODE         23 /* unknown opcode encountered by VM      */
 #define IRXBC_ERR_ARITH          24 /* arithmetic error (type, divzero etc.) */
+#define IRXBC_ERR_BOOL           32 /* logical value not 0 or 1 (OP_AND/OR/XOR/NOT/JF/JT) */
 #define IRXBC_ERR_STACK          25 /* stack underflow or overflow           */
 #define IRXBC_ERR_PATCH          26 /* too many forward-jump patches         */
 #define IRXBC_ERR_LOOP           27 /* DO nesting too deep                   */

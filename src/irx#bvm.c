@@ -67,6 +67,10 @@ struct bc_call_frame
     int arg_exists[IRX_MAX_ARGS];
     struct irx_vpool *prev_vpool; /* caller's vpool saved by OP_PROC */
     int has_isolated_scope;       /* 1 if OP_PROC created a child scope */
+    /* Condition-trap state snapshot (WP-BC-07 PR B): callee changes
+     * to SIGNAL ON/OFF are reverted on RETURN, per SC28-1883-0 §7.  */
+    unsigned char cond_enabled_save;
+    int cond_lsi_save[COND_COUNT];
 };
 
 /* ================================================================== */
@@ -104,6 +108,28 @@ static int read_i16(const unsigned char *pc)
         return (int)u - 0x10000;
     }
     return (int)u;
+}
+
+/* Map a COND_* bitmask constant to a 0-based index into cond_lsi[]. */
+static int cond_bit_index(unsigned int cond)
+{
+    switch (cond)
+    {
+        case COND_ERROR:
+            return 0;
+        case COND_HALT:
+            return 1;
+        case COND_NOVALUE:
+            return 2;
+        case COND_NOTREADY:
+            return 3;
+        case COND_SYNTAX:
+            return 4;
+        case COND_FAILURE:
+            return 5;
+        default:
+            return -1;
+    }
 }
 
 /* ================================================================== */
@@ -610,6 +636,11 @@ int irx_bc_execute(struct envblock *envblock,
     struct bc_parse_frame pframe;
     int vm_rc = IRXBC_OK;
     int i;
+    /* Condition-trap state (WP-BC-07 PR B) */
+    unsigned char cond_enabled = 0; /* active COND_* bitmask */
+    int cond_lsi[COND_COUNT];       /* handler sym_idx per cond; -1 = none */
+    int trap_target = -1;           /* target pc offset; set before goto trap_jump */
+    int fired_cond = 0;             /* COND_* bit of the firing condition */
 
     memset(&pframe, 0, sizeof(pframe));
     pframe.cur_sym = -1;
@@ -816,6 +847,12 @@ int irx_bc_execute(struct envblock *envblock,
         proxy_parser->call_argc = 1;
     }
 
+    /* --- Init condition-trap handler table (WP-BC-07 PR B) ------------ */
+    for (i = 0; i < COND_COUNT; i++)
+    {
+        cond_lsi[i] = -1;
+    }
+
     {
         pc = IRXBC_ENTRY(bc);
 
@@ -982,7 +1019,27 @@ int irx_bc_execute(struct envblock *envblock,
                                         &stack[sp].int_cache);
                     if (vrc == VPOOL_NOT_FOUND)
                     {
-                        /* NOVALUE: value is the variable name itself */
+                        /* NOVALUE trap: fire if SIGNAL ON NOVALUE is active */
+                        if (cond_enabled & COND_NOVALUE)
+                        {
+                            int ci_nv = cond_bit_index(COND_NOVALUE);
+                            if (ci_nv >= 0 && cond_lsi[ci_nv] >= 0 &&
+                                label_pc != NULL &&
+                                label_pc[cond_lsi[ci_nv]] >= 0)
+                            {
+                                char nv_desc[IRXBC_STR_MAX + 1];
+                                int nd = name_len < IRXBC_STR_MAX
+                                             ? name_len
+                                             : IRXBC_STR_MAX;
+                                memcpy(nv_desc, name_data, (size_t)nd);
+                                nv_desc[nd] = '\0';
+                                irx_cond_raise(envblock, 0, 0, nv_desc);
+                                fired_cond = COND_NOVALUE;
+                                trap_target = label_pc[cond_lsi[ci_nv]];
+                                goto trap_jump;
+                            }
+                        }
+                        /* Normal NOVALUE: value is the variable name itself */
                         if (slot_set_buf(&stack[sp], alloc,
                                          name_data, name_len) != LSTR_OK)
                         {
@@ -1118,7 +1175,22 @@ int irx_bc_execute(struct envblock *envblock,
                                         &stack[sp].int_cache);
                     if (vrc == VPOOL_NOT_FOUND)
                     {
-                        /* NOVALUE: value is the compound name itself. */
+                        /* NOVALUE trap: fire if SIGNAL ON NOVALUE is active */
+                        if (cond_enabled & COND_NOVALUE)
+                        {
+                            int ci_nv = cond_bit_index(COND_NOVALUE);
+                            if (ci_nv >= 0 && cond_lsi[ci_nv] >= 0 &&
+                                label_pc != NULL &&
+                                label_pc[cond_lsi[ci_nv]] >= 0)
+                            {
+                                /* name_buf is null-terminated at name_pos */
+                                irx_cond_raise(envblock, 0, 0, name_buf);
+                                fired_cond = COND_NOVALUE;
+                                trap_target = label_pc[cond_lsi[ci_nv]];
+                                goto trap_jump;
+                            }
+                        }
+                        /* Normal NOVALUE: value is the compound name itself. */
                         if (slot_set_buf(&stack[sp], alloc,
                                          name_buf, name_pos) != LSTR_OK)
                         {
@@ -1324,7 +1396,7 @@ int irx_bc_execute(struct envblock *envblock,
                     if (arc != IRXPARS_OK)
                     {
                         vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        goto check_syntax_trap;
                     }
                     stack[sp - 1].type_cache = 0;
                     break;
@@ -1346,7 +1418,7 @@ int irx_bc_execute(struct envblock *envblock,
                     if (arc != IRXPARS_OK)
                     {
                         vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        goto check_syntax_trap;
                     }
                     stack[sp - 1].type_cache = 0;
                     break;
@@ -1511,8 +1583,8 @@ int irx_bc_execute(struct envblock *envblock,
                     b = slot_to_bool(&stack[sp - 1]);
                     if (a < 0 || b < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        vm_rc = IRXBC_ERR_BOOL;
+                        goto check_syntax_trap;
                     }
                     sp--;
                     if (slot_set_bool(&stack[sp - 1], alloc,
@@ -1537,8 +1609,8 @@ int irx_bc_execute(struct envblock *envblock,
                     b = slot_to_bool(&stack[sp - 1]);
                     if (a < 0 || b < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        vm_rc = IRXBC_ERR_BOOL;
+                        goto check_syntax_trap;
                     }
                     sp--;
                     if (slot_set_bool(&stack[sp - 1], alloc,
@@ -1563,8 +1635,8 @@ int irx_bc_execute(struct envblock *envblock,
                     b = slot_to_bool(&stack[sp - 1]);
                     if (a < 0 || b < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        vm_rc = IRXBC_ERR_BOOL;
+                        goto check_syntax_trap;
                     }
                     sp--;
                     if (slot_set_bool(&stack[sp - 1], alloc,
@@ -1588,8 +1660,8 @@ int irx_bc_execute(struct envblock *envblock,
                     a = slot_to_bool(&stack[sp - 1]);
                     if (a < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        vm_rc = IRXBC_ERR_BOOL;
+                        goto check_syntax_trap;
                     }
                     if (slot_set_bool(&stack[sp - 1], alloc,
                                       !a) != LSTR_OK)
@@ -1664,8 +1736,8 @@ int irx_bc_execute(struct envblock *envblock,
                     bval = slot_to_bool(&stack[--sp]);
                     if (bval < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        vm_rc = IRXBC_ERR_BOOL;
+                        goto check_syntax_trap;
                     }
                     if (!bval)
                     {
@@ -1687,8 +1759,8 @@ int irx_bc_execute(struct envblock *envblock,
                     bval = slot_to_bool(&stack[--sp]);
                     if (bval < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
-                        goto done;
+                        vm_rc = IRXBC_ERR_BOOL;
+                        goto check_syntax_trap;
                     }
                     if (bval)
                     {
@@ -1821,6 +1893,10 @@ int irx_bc_execute(struct envblock *envblock,
                         cf->return_pc = pc;
                         cf->argc = nargs;
                         cf->push_result = 0;
+                        /* Snapshot trap state so callee changes revert on RETURN */
+                        cf->cond_enabled_save = cond_enabled;
+                        memcpy(cf->cond_lsi_save, cond_lsi,
+                               COND_COUNT * (int)sizeof(int));
                         for (ci = 0; ci < nargs; ci++)
                         {
                             PLstr src = stack[sp - nargs + ci].str;
@@ -1883,7 +1959,7 @@ int irx_bc_execute(struct envblock *envblock,
                         if (brc != IRXPARS_OK)
                         {
                             vm_rc = IRXBC_ERR_ARITH;
-                            goto done;
+                            goto check_syntax_trap;
                         }
                         /* Store result as RESULT variable (CALL stmt) */
                         if (vpool_set_buf(vpool, "RESULT", 6,
@@ -1933,6 +2009,10 @@ int irx_bc_execute(struct envblock *envblock,
                         cf->return_pc = pc;
                         cf->argc = nargs;
                         cf->push_result = 1;
+                        /* Snapshot trap state so callee changes revert on RETURN */
+                        cf->cond_enabled_save = cond_enabled;
+                        memcpy(cf->cond_lsi_save, cond_lsi,
+                               COND_COUNT * (int)sizeof(int));
                         for (ci = 0; ci < nargs; ci++)
                         {
                             PLstr src = stack[sp - nargs + ci].str;
@@ -1998,7 +2078,7 @@ int irx_bc_execute(struct envblock *envblock,
                         if (brc != IRXPARS_OK)
                         {
                             vm_rc = IRXBC_ERR_ARITH;
-                            goto done;
+                            goto check_syntax_trap;
                         }
                         if (slot_set_buf(
                                 &stack[sp], alloc,
@@ -2022,6 +2102,11 @@ int irx_bc_execute(struct envblock *envblock,
 
                         call_sp--;
                         cf = &call_frames[call_sp];
+
+                        /* Restore trap state (callee changes revert per §7) */
+                        cond_enabled = cf->cond_enabled_save;
+                        memcpy(cond_lsi, cf->cond_lsi_save,
+                               COND_COUNT * (int)sizeof(int));
 
                         /* Scope teardown (PROCEDURE EXPOSE) */
                         if (cf->has_isolated_scope)
@@ -2091,6 +2176,11 @@ int irx_bc_execute(struct envblock *envblock,
                         call_sp--;
                         cf = &call_frames[call_sp];
                         push_r = cf->push_result;
+
+                        /* Restore trap state (callee changes revert per §7) */
+                        cond_enabled = cf->cond_enabled_save;
+                        memcpy(cond_lsi, cf->cond_lsi_save,
+                               COND_COUNT * (int)sizeof(int));
 
                         /* Scope teardown before storing RESULT in
                          * caller's pool (PROCEDURE EXPOSE). */
@@ -2314,16 +2404,32 @@ int irx_bc_execute(struct envblock *envblock,
                 }
 
                 case OP_SIGNAL_ON:
-                    /* Condition-trap mechanics deferred to WP-BC-07 PR B */
-                    pc += 3; /* skip cond:u8 + sym_idx:u16 */
-                    vm_rc = IRXBC_ERR_UNSUP;
-                    goto done;
+                {
+                    /* WP-BC-07 PR B: enable condition trap */
+                    int cond_byte = (int)*pc++; /* cond:u8 */
+                    int lsi = read_u16(pc);
+                    pc += 2; /* sym_idx:u16 */
+                    int ci = cond_bit_index((unsigned int)cond_byte);
+                    if (ci >= 0)
+                    {
+                        cond_enabled |= (unsigned char)cond_byte;
+                        cond_lsi[ci] = lsi;
+                    }
+                    break;
+                }
 
                 case OP_SIGNAL_OFF:
-                    /* Condition-trap mechanics deferred to WP-BC-07 PR B */
-                    pc += 1; /* skip cond:u8 */
-                    vm_rc = IRXBC_ERR_UNSUP;
-                    goto done;
+                {
+                    /* WP-BC-07 PR B: disable condition trap */
+                    int cond_byte = (int)*pc++; /* cond:u8 */
+                    int ci = cond_bit_index((unsigned int)cond_byte);
+                    if (ci >= 0)
+                    {
+                        cond_enabled &=
+                            (unsigned char)(~(unsigned int)cond_byte);
+                    }
+                    break;
+                }
 
                     /* ---- PARSE sub-VM (WP-BC-05 PR A) ------------------- */
 
@@ -2813,6 +2919,124 @@ int irx_bc_execute(struct envblock *envblock,
                     vm_rc = IRXBC_ERR_OPCODE;
                     goto done;
             }
+            goto dispatch_next; /* normal dispatch: restart loop */
+
+        check_syntax_trap:
+            /* Intercept IRXBC_ERR_ARITH / IRXBC_ERR_BOOL for SIGNAL ON SYNTAX.
+             * IRXBC_ERR_BOOL (OP_AND/OR/XOR/NOT/JF/JT) → SYNTAX 34.
+             * IRXBC_ERR_ARITH (arithmetic, BIF errors)  → SYNTAX 41.
+             * ERROR/HALT/FAILURE/NOTREADY: deferred to WP-33 / Attention. */
+            if ((cond_enabled & COND_SYNTAX) != 0 &&
+                (vm_rc == IRXBC_ERR_ARITH || vm_rc == IRXBC_ERR_BOOL))
+            {
+                int ci_sx = cond_bit_index(COND_SYNTAX);
+                if (ci_sx >= 0 && cond_lsi[ci_sx] >= 0 &&
+                    label_pc != NULL &&
+                    label_pc[cond_lsi[ci_sx]] >= 0)
+                {
+                    if (vm_rc == IRXBC_ERR_BOOL)
+                    {
+                        irx_cond_raise(envblock, SYNTAX_BAD_BOOL, 0,
+                                       "logical value not 0 or 1");
+                    }
+                    else
+                    {
+                        irx_cond_raise(envblock, SYNTAX_BAD_ARITH,
+                                       ERR41_NONNUMERIC,
+                                       "arithmetic/conversion error");
+                    }
+                    fired_cond = COND_SYNTAX;
+                    trap_target = label_pc[cond_lsi[ci_sx]];
+                    vm_rc = IRXBC_OK;
+                    goto trap_jump;
+                }
+            }
+            goto done;
+
+        trap_jump:
+        {
+            int fi_t, ci_t;
+            struct irx_wkblk_int *wk_t;
+            const char *fn;
+            size_t fnl;
+
+            if (pframe.active)
+            {
+                Lfree(alloc, &pframe.source);
+                Lzeroinit(&pframe.source);
+                pframe.active = 0;
+            }
+            for (fi_t = call_sp - 1; fi_t >= 0; fi_t--)
+            {
+                struct bc_call_frame *cf_t = &call_frames[fi_t];
+                for (ci_t = 0; ci_t < IRX_MAX_ARGS; ci_t++)
+                {
+                    Lfree(alloc, &cf_t->args[ci_t]);
+                }
+                if (cf_t->has_isolated_scope &&
+                    cf_t->prev_vpool != NULL)
+                {
+                    vpool_destroy(vpool);
+                    vpool = cf_t->prev_vpool;
+                    proxy_parser->vpool = vpool;
+                }
+            }
+            call_sp = 0;
+            proxy_parser->call_args = NULL;
+            proxy_parser->call_arg_exists = NULL;
+            proxy_parser->call_argc = 0;
+            sp = 0;
+
+            wk_t = (struct irx_wkblk_int *)envblock->envblock_userfield;
+            if (wk_t != NULL)
+            {
+                /* SIGL: line tracking deferred (no trace-map yet) */
+                wk_t->wkbi_sigl = 0;
+                /* Auto-disable fired condition (SC28-1883-0 §7) */
+                cond_enabled &= (unsigned char)(~(unsigned int)fired_cond);
+                /* Record condition name for future CONDITION() BIF */
+                if (wk_t->wkbi_last_condition != NULL)
+                {
+                    switch ((unsigned int)fired_cond)
+                    {
+                        case COND_NOVALUE:
+                            fn = "NOVALUE";
+                            break;
+                        case COND_SYNTAX:
+                            fn = "SYNTAX";
+                            break;
+                        case COND_ERROR:
+                            fn = "ERROR";
+                            break;
+                        case COND_HALT:
+                            fn = "HALT";
+                            break;
+                        case COND_NOTREADY:
+                            fn = "NOTREADY";
+                            break;
+                        case COND_FAILURE:
+                            fn = "FAILURE";
+                            break;
+                        default:
+                            fn = "";
+                            break;
+                    }
+                    fnl = strlen(fn);
+                    if (fnl >= IRX_COND_NAME_LEN)
+                    {
+                        fnl = IRX_COND_NAME_LEN - 1;
+                    }
+                    memcpy(wk_t->wkbi_last_condition->cond_name,
+                           fn, fnl);
+                    wk_t->wkbi_last_condition->cond_name[fnl] = '\0';
+                }
+            }
+            fired_cond = 0;
+            pc = code_base + trap_target;
+            trap_target = -1;
+        }
+
+        dispatch_next:; /* null statement; VM loop restarts here */
         }
     }
 
