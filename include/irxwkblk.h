@@ -140,7 +140,6 @@ struct irx_wkblk_int
     void *wkbi_execstack; /* -> internal exec stack         */
 
     /* --- Condition Information --- */
-    int wkbi_condflags;  /* Active SIGNAL ON conditions    */
     void *wkbi_condinfo; /* -> condition information block */
 
     /* --- Time BIF stamps (WP-CPS-01) --------------------------------- */

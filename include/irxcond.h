@@ -20,6 +20,7 @@ struct envblock; /* forward decl to avoid circular include */
 
 #define SYNTAX_BAD_OPERAND 24 /* arithmetic operand not a number  */
 #define SYNTAX_OVERFLOW    26 /* overflow / underflow             */
+#define SYNTAX_BAD_BOOL    34 /* logical value not 0 or 1         */
 #define SYNTAX_BAD_CALL    40 /* incorrect call to routine        */
 #define SYNTAX_BAD_ARITH   41 /* bad arithmetic conversion         */
 #define SYNTAX_DIVZERO     42 /* divide by zero                   */

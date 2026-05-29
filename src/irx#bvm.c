@@ -1583,7 +1583,7 @@ int irx_bc_execute(struct envblock *envblock,
                     b = slot_to_bool(&stack[sp - 1]);
                     if (a < 0 || b < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
+                        vm_rc = IRXBC_ERR_BOOL;
                         goto check_syntax_trap;
                     }
                     sp--;
@@ -1609,7 +1609,7 @@ int irx_bc_execute(struct envblock *envblock,
                     b = slot_to_bool(&stack[sp - 1]);
                     if (a < 0 || b < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
+                        vm_rc = IRXBC_ERR_BOOL;
                         goto check_syntax_trap;
                     }
                     sp--;
@@ -1635,7 +1635,7 @@ int irx_bc_execute(struct envblock *envblock,
                     b = slot_to_bool(&stack[sp - 1]);
                     if (a < 0 || b < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
+                        vm_rc = IRXBC_ERR_BOOL;
                         goto check_syntax_trap;
                     }
                     sp--;
@@ -1660,7 +1660,7 @@ int irx_bc_execute(struct envblock *envblock,
                     a = slot_to_bool(&stack[sp - 1]);
                     if (a < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
+                        vm_rc = IRXBC_ERR_BOOL;
                         goto check_syntax_trap;
                     }
                     if (slot_set_bool(&stack[sp - 1], alloc,
@@ -1736,7 +1736,7 @@ int irx_bc_execute(struct envblock *envblock,
                     bval = slot_to_bool(&stack[--sp]);
                     if (bval < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
+                        vm_rc = IRXBC_ERR_BOOL;
                         goto check_syntax_trap;
                     }
                     if (!bval)
@@ -1759,7 +1759,7 @@ int irx_bc_execute(struct envblock *envblock,
                     bval = slot_to_bool(&stack[--sp]);
                     if (bval < 0)
                     {
-                        vm_rc = IRXBC_ERR_ARITH;
+                        vm_rc = IRXBC_ERR_BOOL;
                         goto check_syntax_trap;
                     }
                     if (bval)
@@ -2414,15 +2414,6 @@ int irx_bc_execute(struct envblock *envblock,
                     {
                         cond_enabled |= (unsigned char)cond_byte;
                         cond_lsi[ci] = lsi;
-                        {
-                            struct irx_wkblk_int *wk =
-                                (struct irx_wkblk_int *)
-                                    envblock->envblock_userfield;
-                            if (wk != NULL)
-                            {
-                                wk->wkbi_condflags |= cond_byte;
-                            }
-                        }
                     }
                     break;
                 }
@@ -2436,15 +2427,6 @@ int irx_bc_execute(struct envblock *envblock,
                     {
                         cond_enabled &=
                             (unsigned char)(~(unsigned int)cond_byte);
-                        {
-                            struct irx_wkblk_int *wk =
-                                (struct irx_wkblk_int *)
-                                    envblock->envblock_userfield;
-                            if (wk != NULL)
-                            {
-                                wk->wkbi_condflags &= ~cond_byte;
-                            }
-                        }
                     }
                     break;
                 }
@@ -2940,20 +2922,29 @@ int irx_bc_execute(struct envblock *envblock,
             goto dispatch_next; /* normal dispatch: restart loop */
 
         check_syntax_trap:
-            /* Intercept IRXBC_ERR_ARITH for SIGNAL ON SYNTAX (WP-BC-07 PR B).
-             * ERROR/HALT/FAILURE/NOTREADY: trap infrastructure prepared (ON/OFF
-             * sets enabled bit) but trigger deferred to WP-33 / Attention. */
+            /* Intercept IRXBC_ERR_ARITH / IRXBC_ERR_BOOL for SIGNAL ON SYNTAX.
+             * IRXBC_ERR_BOOL (OP_AND/OR/XOR/NOT/JF/JT) → SYNTAX 34.
+             * IRXBC_ERR_ARITH (arithmetic, BIF errors)  → SYNTAX 41.
+             * ERROR/HALT/FAILURE/NOTREADY: deferred to WP-33 / Attention. */
             if ((cond_enabled & COND_SYNTAX) != 0 &&
-                vm_rc == IRXBC_ERR_ARITH)
+                (vm_rc == IRXBC_ERR_ARITH || vm_rc == IRXBC_ERR_BOOL))
             {
                 int ci_sx = cond_bit_index(COND_SYNTAX);
                 if (ci_sx >= 0 && cond_lsi[ci_sx] >= 0 &&
                     label_pc != NULL &&
                     label_pc[cond_lsi[ci_sx]] >= 0)
                 {
-                    irx_cond_raise(envblock, SYNTAX_BAD_ARITH,
-                                   ERR41_NONNUMERIC,
-                                   "arithmetic/conversion error");
+                    if (vm_rc == IRXBC_ERR_BOOL)
+                    {
+                        irx_cond_raise(envblock, SYNTAX_BAD_BOOL, 0,
+                                       "logical value not 0 or 1");
+                    }
+                    else
+                    {
+                        irx_cond_raise(envblock, SYNTAX_BAD_ARITH,
+                                       ERR41_NONNUMERIC,
+                                       "arithmetic/conversion error");
+                    }
                     fired_cond = COND_SYNTAX;
                     trap_target = label_pc[cond_lsi[ci_sx]];
                     vm_rc = IRXBC_OK;
@@ -3002,9 +2993,7 @@ int irx_bc_execute(struct envblock *envblock,
                 /* SIGL: line tracking deferred (no trace-map yet) */
                 wk_t->wkbi_sigl = 0;
                 /* Auto-disable fired condition (SC28-1883-0 §7) */
-                cond_enabled &=
-                    (unsigned char)(~(unsigned int)fired_cond);
-                wk_t->wkbi_condflags &= ~fired_cond;
+                cond_enabled &= (unsigned char)(~(unsigned int)fired_cond);
                 /* Record condition name for future CONDITION() BIF */
                 if (wk_t->wkbi_last_condition != NULL)
                 {

@@ -37,9 +37,6 @@
 #include <string.h>
 
 #include "irx.h"
-#include "irxbops.h"
-#include "irxbvm.h"
-#include "irxcond.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxwkblk.h"
@@ -502,72 +499,32 @@ static void test_trap_scope_call(struct envblock *env)
 
 static void test_infra_only_conditions(struct envblock *env)
 {
-    struct irx_wkblk_int *wk;
-    struct irx_bc_execblk *bc = NULL;
-    int rc;
-    int exit_rc = 0;
-
     printf("\n--- ERROR/HALT/FAILURE/NOTREADY infrastructure ---\n");
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
-    if (wk == NULL)
-    {
-        CHECK(0, "no work block");
-        return;
-    }
+    /* SIGNAL ON for all four infra-only conditions: must compile + run
+     * without UNSUP, and SAY output must be correct (no spurious trap). */
+    bc_only(env,
+            "SIGNAL ON ERROR\n"
+            "SIGNAL ON HALT\n"
+            "SIGNAL ON FAILURE\n"
+            "SIGNAL ON NOTREADY\n"
+            "SAY \"ok\"\n",
+            "ok\n",
+            "SIGNAL ON ERROR/HALT/FAILURE/NOTREADY: compiles, runs, no trap");
 
-    /* Compile and run SIGNAL ON ERROR: no UNSUP, condflags bit set */
-    wk->wkbi_condflags = 0;
-    {
-        const char *src = "SIGNAL ON ERROR\nSIGNAL ON HALT\n"
-                          "SIGNAL ON FAILURE\nSIGNAL ON NOTREADY\n"
-                          "SAY \"ok\"\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
-        CHECK(rc == IRXBC_OK, "SIGNAL ON ERROR/HALT/FAILURE/NOTREADY compiles");
-        if (rc == IRXBC_OK && bc != NULL)
-        {
-            cap_reset();
-            wk->wkbi_use_bytecode = 1;
-            rc = irx_bc_execute(env, bc, NULL, 0, &exit_rc);
-            wk->wkbi_use_bytecode = 0;
-            CHECK(rc == IRXBC_OK, "ON ERROR/HALT/FAILURE/NOTREADY runs without UNSUP");
-            CHECK(strcmp(g_cap, "ok\n") == 0, "ON ERROR/HALT/FAILURE/NOTREADY SAY ok");
-            CHECK((wk->wkbi_condflags & COND_ERROR) != 0, "COND_ERROR bit set");
-            CHECK((wk->wkbi_condflags & COND_HALT) != 0, "COND_HALT bit set");
-            CHECK((wk->wkbi_condflags & COND_FAILURE) != 0, "COND_FAILURE bit set");
-            CHECK((wk->wkbi_condflags & COND_NOTREADY) != 0, "COND_NOTREADY bit set");
-            {
-                void *p = bc;
-                irxstor(RXSMFRE, 0, &p, env);
-                bc = NULL;
-            }
-        }
-    }
-
-    /* SIGNAL OFF clears the bits */
-    {
-        const char *src = "SIGNAL ON ERROR\nSIGNAL OFF ERROR\n"
-                          "SIGNAL ON HALT\nSIGNAL OFF HALT\n"
-                          "SAY \"off ok\"\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
-        if (rc == IRXBC_OK && bc != NULL)
-        {
-            cap_reset();
-            wk->wkbi_use_bytecode = 1;
-            rc = irx_bc_execute(env, bc, NULL, 0, &exit_rc);
-            wk->wkbi_use_bytecode = 0;
-            CHECK(rc == IRXBC_OK, "SIGNAL OFF ERROR/HALT runs without UNSUP");
-            CHECK((wk->wkbi_condflags & COND_ERROR) == 0, "COND_ERROR bit cleared");
-            CHECK((wk->wkbi_condflags & COND_HALT) == 0, "COND_HALT bit cleared");
-            {
-                void *p = bc;
-                irxstor(RXSMFRE, 0, &p, env);
-                bc = NULL;
-            }
-        }
-    }
-
-    wk->wkbi_condflags = 0;
+    /* SIGNAL OFF must also compile + run cleanly */
+    bc_only(env,
+            "SIGNAL ON ERROR\n"
+            "SIGNAL OFF ERROR\n"
+            "SIGNAL ON HALT\n"
+            "SIGNAL OFF HALT\n"
+            "SIGNAL ON FAILURE\n"
+            "SIGNAL OFF FAILURE\n"
+            "SIGNAL ON NOTREADY\n"
+            "SIGNAL OFF NOTREADY\n"
+            "SAY \"off ok\"\n",
+            "off ok\n",
+            "SIGNAL ON/OFF ERROR/HALT/FAILURE/NOTREADY: no UNSUP");
 }
 
 /* ------------------------------------------------------------------ */
