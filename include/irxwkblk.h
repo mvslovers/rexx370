@@ -228,6 +228,13 @@ struct irx_wkblk_int
      * Reset them in tests before an assertion window.                 */
     int wkbi_bc_exec_count;
     int wkbi_bc_fallback_count;
+
+    /* --- Bytecode path diagnostic (WP-BC-DBG) ----------------------- */
+    /* When non-zero, irxterm() emits one line to stdout:
+     *   [bc] exec=N fallback=M
+     * Activated by setting REXX370_BCDEBUG=1 (or true/yes/on)
+     * in the environment before IRXINIT.  No effect otherwise.        */
+    int wkbi_bc_debug;
 };
 
 #define WKBLK_INT_ID "WKBI"
