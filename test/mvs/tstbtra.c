@@ -417,9 +417,10 @@ static void test_address(struct envblock *env)
             "TSO\n",
             "ADDRESS one-shot stub: address unchanged");
 
-    printf("\n--- Default ADDRESS init (bc_only, fresh env) ---\n");
-    /* On Linux (no parmblock): default is MVS. Use a fresh env so
-     * the test is independent of the state accumulated above. */
+    printf("\n--- Default ADDRESS init (fresh env) ---\n");
+    /* Verify that bytecode and Token-Walk agree on the default ADDRESS.
+     * The default depends on the environment: TSO foreground → "TSO",
+     * batch / Linux → "MVS".  equiv() handles all platforms correctly. */
     {
         struct envblock *fresh_env = NULL;
         int frc = irxinit(NULL, &fresh_env);
@@ -431,10 +432,9 @@ static void test_address(struct envblock *env)
             {
                 exte->io_routine = (void *)capture_io;
             }
-            bc_only(fresh_env,
-                    "say address()\n",
-                    "MVS\n",
-                    "Default address is MVS on Linux (no parmblock)");
+            equiv(fresh_env,
+                  "say address()\n",
+                  "Default address: bytecode matches Token-Walk");
             irxterm(fresh_env);
         }
     }
