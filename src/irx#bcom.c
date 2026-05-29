@@ -809,6 +809,12 @@ static void bpse_flush(struct bcom_ctx *ctx,
             emit_byte(ctx, OP_TR_END);
             break;
         }
+        case OP_TR_VAR:
+        {
+            emit_byte(ctx, OP_TR_VAR);
+            emit_u16(ctx, targ); /* targ = sym_idx */
+            break;
+        }
         default:
         {
             break;
@@ -877,9 +883,29 @@ static void bc_parse_template(struct bcom_ctx *ctx)
             break;
         }
 
-        /* Indirect pattern (var) — reject (unlocked in PR C) */
+        /* Indirect pattern (var) — delimiter value taken from variable
+         * at runtime.  Only simple variable names (non-constant symbol)
+         * are accepted inside the parens; anything else is UNSUP.     */
         if (t->tok_type == TOK_LPAREN)
         {
+            const struct irx_token *t1 = tok_at(ctx, 1);
+            const struct irx_token *t2 = tok_at(ctx, 2);
+            if (t1 != NULL && t1->tok_type == TOK_SYMBOL &&
+                !(t1->tok_flags & TOKF_CONSTANT) &&
+                t2 != NULL && t2->tok_type == TOK_RPAREN)
+            {
+                const char *vname =
+                    (t1->tok_upper != NULL) ? t1->tok_upper : t1->tok_text;
+                int si = add_sym(ctx, vname);
+                if (si < 0)
+                {
+                    return;
+                }
+                ctx->pos += 3; /* consume '(' sym ')' */
+                bpse_flush(ctx, items, n_items, OP_TR_VAR, si);
+                n_items = 0;
+                continue;
+            }
             ctx->rc = IRXBC_ERR_UNSUP;
             return;
         }

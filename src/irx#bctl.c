@@ -82,6 +82,7 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_TR_ABS,        "TR_ABS"        },
     { OP_TR_REL,        "TR_REL"        },
     { OP_TR_END,        "TR_END"        },
+    { OP_TR_VAR,        "TR_VAR"        },
     { OP_PUSH_SOURCE,   "PUSH_SOURCE"   },
     { OP_PUSH_NUMERIC,  "PUSH_NUMERIC"  },
     { OP_PROC,             "PROC"             },
@@ -289,6 +290,7 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                              op == OP_STORE || op == OP_DROP ||
                              op == OP_LABEL || op == OP_PVAR ||
                              op == OP_TR_LIT || op == OP_TR_ABS ||
+                             op == OP_TR_VAR ||
                              op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT ||
                              op == OP_SIGNAL || op == OP_ADDRESS_SET))
         {
@@ -308,9 +310,10 @@ int irx_bc_disasm(const struct irx_bc_execblk *bc, char *buf, int bufsz)
                 app_str(buf, bufsz, &pos, entry + 1, slen);
                 app_cstr(buf, bufsz, &pos, "\"");
             }
-            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR/EXPOSE/SIGNAL/ADDRESS_SET */
+            /* Print symbol name for LOAD/STORE/DROP/LABEL/PVAR/EXPOSE/SIGNAL/
+             * ADDRESS_SET/TR_VAR — all index the symbol table */
             else if ((op == OP_LOAD || op == OP_STORE || op == OP_DROP ||
-                      op == OP_LABEL || op == OP_PVAR ||
+                      op == OP_LABEL || op == OP_PVAR || op == OP_TR_VAR ||
                       op == OP_EXPOSE || op == OP_EXPOSE_INDIRECT ||
                       op == OP_SIGNAL || op == OP_ADDRESS_SET) &&
                      idx >= 0 && idx < n_syms)
