@@ -1241,6 +1241,50 @@ include = [
 "mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
+# TSTBCOM - WP-BC-05 PR C: Compound Variable bytecode tests.
+# Verifies OP_LOAD_STEM / OP_STORE_STEM / OP_DROP_STEM in the
+# bytecode compiler and VM.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTBCOM)'
+#   Batch  :  EXEC PGM=TSTBCOM
+#
+# Expected: CC=0
+#
+# WP-BC-05 / GitHub mvslovers/rexx370#154.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTBCOM"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTBCOM",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
 # TSTBCRXC - WP-BC-06 REXXCPS-derived bytecode correctness driver.
 # Runs a stripped REXXCPS inner kernel via token-walk and bytecode,
 # verifies both paths produce identical output.  On MVS, increase
