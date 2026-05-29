@@ -2825,6 +2825,103 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                case OP_TR_VAR:
+                {
+                    /* Indirect pattern (var): read variable's value and
+                     * use it as a literal delimiter — same search logic
+                     * as OP_TR_LIT but the string comes from vpool.   */
+                    int sym_idx_v = read_u16(pc);
+                    const char *var_name;
+                    int var_name_len;
+                    Lstr var_val;
+                    int var_val_len;
+                    const char *var_val_ptr;
+                    int found, si2, seg_end_v, new_scan_v, prc;
+                    int32_t tc2 = 0, ic2 = 0;
+                    pc += 2;
+
+                    Lzeroinit(&var_val);
+                    var_name_len =
+                        get_entry(sym_base, n_syms, sym_idx_v, &var_name);
+                    if (var_name_len < 0)
+                    {
+                        vm_rc = IRXBC_ERR_OPCODE;
+                        goto done;
+                    }
+
+                    /* Fetch variable value; VPOOL_NOT_FOUND → empty. */
+                    if (vpool_get_buf(vpool, var_name, var_name_len,
+                                      &var_val, &tc2, &ic2) != VPOOL_OK)
+                    {
+                        /* Unset variable: null delimiter — split at current
+                         * scan position, do not advance.  Matches the
+                         * token-walk interpreter behaviour.                */
+                        prc = pframe_assign(&pframe, vpool, alloc,
+                                            sym_base, n_syms,
+                                            pframe.scan, pframe.scan, 1);
+                        if (prc != IRXBC_OK)
+                        {
+                            vm_rc = prc;
+                            goto done;
+                        }
+                        break;
+                    }
+
+                    var_val_len = (int)Llen(&var_val);
+                    var_val_ptr = (const char *)Lpstr(&var_val);
+
+                    if (var_val_len <= 0 || var_val_ptr == NULL)
+                    {
+                        Lfree(alloc, &var_val);
+                        /* Empty string value: same as unset — split at
+                         * current scan position, do not advance.          */
+                        prc = pframe_assign(&pframe, vpool, alloc,
+                                            sym_base, n_syms,
+                                            pframe.scan, pframe.scan, 1);
+                        if (prc != IRXBC_OK)
+                        {
+                            vm_rc = prc;
+                            goto done;
+                        }
+                        break;
+                    }
+
+                    /* Search for the delimiter substring. */
+                    found = -1;
+                    for (si2 = pframe.scan;
+                         si2 + var_val_len <= pframe.source_len; si2++)
+                    {
+                        if (Lpstr(&pframe.source) != NULL &&
+                            memcmp((const char *)Lpstr(&pframe.source) + si2,
+                                   var_val_ptr,
+                                   (size_t)var_val_len) == 0)
+                        {
+                            found = si2;
+                            break;
+                        }
+                    }
+                    Lfree(alloc, &var_val);
+
+                    if (found >= 0)
+                    {
+                        seg_end_v = found;
+                        new_scan_v = found + var_val_len;
+                    }
+                    else
+                    {
+                        seg_end_v = pframe.source_len;
+                        new_scan_v = pframe.source_len;
+                    }
+                    prc = pframe_assign(&pframe, vpool, alloc, sym_base,
+                                        n_syms, seg_end_v, new_scan_v, 1);
+                    if (prc != IRXBC_OK)
+                    {
+                        vm_rc = prc;
+                        goto done;
+                    }
+                    break;
+                }
+
                 case OP_PUSH_SOURCE:
                 {
                     const char *calltype =

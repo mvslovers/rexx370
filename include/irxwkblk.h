@@ -217,6 +217,17 @@ struct irx_wkblk_int
      * and VM instead of the token-walk interpreter.  Default: 0 (off).
      * Set explicitly in tests or callers to engage the bytecode path. */
     int wkbi_use_bytecode;
+
+    /* --- Bytecode execution path counters (WP-BC-09) --------------- */
+    /* wkbi_bc_exec_count   — incremented each time irx_exec_run takes
+     *   the bytecode path (compile succeeded + VM executed).
+     * wkbi_bc_fallback_count — incremented each time the compiler
+     *   returns IRXBC_ERR_UNSUP and falls back to token-walk.
+     * Both start at zero (zero-initialised by irxstor) and accumulate
+     * across repeated irx_exec_run calls on the same environment.
+     * Reset them in tests before an assertion window.                 */
+    int wkbi_bc_exec_count;
+    int wkbi_bc_fallback_count;
 };
 
 #define WKBLK_INT_ID "WKBI"

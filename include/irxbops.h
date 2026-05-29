@@ -230,11 +230,11 @@
 /*    OP_TR_ABS   — up to an absolute column (1-based; inline u16)   */
 /*    OP_TR_REL   — by a signed relative offset (inline i16)         */
 /*    OP_TR_END   — rest of the source string (last item in segment)  */
+/*    OP_TR_VAR   — like TR_LIT but delimiter fetched from variable   */
+/*                  at runtime (indirect pattern `(var)`)             */
 /*                                                                    */
 /*  When no template items precede a position trigger, the compiler   */
 /*  emits OP_PDOT + trigger to silently advance the scan position.   */
-/*                                                                    */
-/*  Indirect patterns (var) are rejected with IRXBC_ERR_UNSUP.      */
 /* ================================================================== */
 
 #define OP_PARSE_BEGIN  0x80 /* 2 bytes: op + flags:u8 (bit0=UPPER)  */
@@ -248,6 +248,9 @@
 #define OP_TR_END       0x88 /* 1 byte — trigger: rest of string      */
 #define OP_PUSH_SOURCE  0x89 /* 1 byte — push PARSE SOURCE string     */
 #define OP_PUSH_NUMERIC 0x8A /* 1 byte — push PARSE NUMERIC string    */
+#define OP_TR_VAR       0x9D /* 3 bytes: op + sym_idx:u16 — indirect  */
+                             /* pattern: value of variable used as    */
+                             /* literal delimiter at runtime          */
 
 /* ================================================================== */
 /*  PARSE compound-target opcode (WP-BC-05 PR C)                     */
@@ -336,6 +339,7 @@
      ((op) == OP_TR_LIT)      ? 3 :         \
      ((op) == OP_TR_ABS)      ? 3 :         \
      ((op) == OP_TR_REL)      ? 3 :         \
+     ((op) == OP_TR_VAR)      ? 3 :         \
      ((op) == OP_PROC)            ? 2 :         \
      ((op) == OP_EXPOSE)          ? 3 :         \
      ((op) == OP_EXPOSE_INDIRECT) ? 3 :         \

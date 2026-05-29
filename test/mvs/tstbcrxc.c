@@ -206,6 +206,55 @@ static void test_equiv(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  BC-path proof (AC #6, WP-BC-09)                                    */
+/*                                                                     */
+/*  Runs REXXCPS-style source with the indirect pattern (var) through  */
+/*  the bytecode path and verifies: wkbi_bc_exec_count > 0 AND         */
+/*  wkbi_bc_fallback_count == 0, proving no UNSUP fallback occurred.  */
+/* ------------------------------------------------------------------ */
+static const char BC_PATH_SRC[] =
+    "sep = ' '\n"
+    "rc = 'This is an awfully boring program'\n"
+    "parse var rc p1 (sep) p5\n"
+    "say p1\n"
+    "sep2 = 'b'\n"
+    "parse var rc q1 (sep2) q5\n"
+    "say q1\n"
+    "say q5\n";
+
+static void test_bc_path(struct envblock *env)
+{
+    struct irx_wkblk_int *wk;
+    int src_len = (int)strlen(BC_PATH_SRC);
+    int bc_rc;
+    int exit_rc = 0;
+
+    printf("\n[BC-path proof — REXXCPS indirect pattern (AC #6)]\n");
+
+    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    if (wk == NULL)
+    {
+        CHECK(0, "work block available");
+        return;
+    }
+
+    wk->wkbi_bc_exec_count = 0;
+    wk->wkbi_bc_fallback_count = 0;
+
+    cap_reset();
+    wk->wkbi_use_bytecode = 1;
+    bc_rc = irx_exec_run(BC_PATH_SRC, src_len, NULL, 0, &exit_rc, env);
+    wk->wkbi_use_bytecode = 0;
+
+    CHECK(bc_rc == 0, "REXXCPS indirect pattern: BC run succeeds");
+    CHECK(exit_rc == 0, "REXXCPS indirect pattern: exit rc == 0");
+    CHECK(wk->wkbi_bc_exec_count > 0,
+          "REXXCPS indirect pattern: BC exec path taken");
+    CHECK(wk->wkbi_bc_fallback_count == 0,
+          "REXXCPS indirect pattern: no UNSUP fallback");
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -231,6 +280,7 @@ int main(void)
     }
 
     test_equiv(env);
+    test_bc_path(env);
 
     irxterm(env);
 

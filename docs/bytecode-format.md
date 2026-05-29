@@ -213,13 +213,18 @@ trigger.
 | `OP_TR_END` | 0x88 | 1 | Trigger: rest of string (last item) |
 | `OP_PUSH_SOURCE` | 0x89 | 1 | Push PARSE SOURCE string |
 | `OP_PUSH_NUMERIC` | 0x8A | 1 | Push PARSE NUMERIC string |
+| `OP_TR_VAR` | 0x9D | 3 | `sym_idx:u16` — trigger: indirect pattern `(var)`: reads variable's value at runtime, uses it as a literal delimiter (WP-BC-09) |
 
 Each template item is a target (`OP_PVAR`, `OP_PDOT`) followed immediately by a
 trigger.  `OP_TR_SPACE` is the implicit trigger for bare variable names.  The
 last item in a template always ends with `OP_TR_END`.
 
-Variable delimiters `(varname)` in templates are rejected with
-`IRXBC_ERR_UNSUP`.
+`OP_TR_VAR` implements the indirect pattern `(varname)` in PARSE templates.
+The named variable is read from the variable pool at execution time and its
+value is used as a literal search delimiter, exactly like `OP_TR_LIT` but with
+a runtime-dynamic string.  If the variable is unset or its value is empty, the
+pending target variable receives an empty segment and the scan position is not
+advanced.
 
 ### 3.9 Phase 5 — PROCEDURE EXPOSE (WP-BC-05 PR B)
 

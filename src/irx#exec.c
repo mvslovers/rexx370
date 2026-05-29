@@ -359,12 +359,14 @@ int irx_exec_run(const char *source, int source_len,
                     void *p = bc;
                     irxstor(RXSMFRE, 0, &p, envblock);
                 }
+                wk->wkbi_bc_fallback_count++;
             }
             else
             {
                 if (rc == IRXBC_OK)
                 {
                     rc = irx_bc_execute(envblock, bc, args, args_len, &bc_rc);
+                    wk->wkbi_bc_exec_count++;
                 }
                 if (rc_out != NULL)
                 {

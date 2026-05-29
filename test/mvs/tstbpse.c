@@ -488,6 +488,150 @@ static void test_parse_compound_target(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Indirect pattern (var) — WP-BC-09                                  */
+/* ------------------------------------------------------------------ */
+
+static void test_parse_indirect(struct envblock *env)
+{
+    struct irx_wkblk_int *wk;
+
+    printf("\n[PARSE indirect pattern (var)]\n");
+
+    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    if (wk == NULL)
+    {
+        printf("  FAIL: no work block\n");
+        tests_run++;
+        tests_failed++;
+        return;
+    }
+
+    /* Basic (var): split on value of p0 */
+    equiv(env,
+          "p0 = 'b'\n"
+          "rc = 'This is an awfully boring program'\n"
+          "PARSE VAR rc p1 (p0) p5\n"
+          "SAY p1\n"
+          "SAY p5\n",
+          "PARSE VAR indirect (p0) basic split on 'b'");
+
+    /* REXXCPS hot-loop pattern: multiple vars + indirect */
+    equiv(env,
+          "sep = ' '\n"
+          "x = 'hello world foo'\n"
+          "PARSE VAR x a (sep) b\n"
+          "SAY a\n"
+          "SAY b\n",
+          "PARSE VAR indirect (sep) space separator");
+
+    /* Multiple occurrences: split on first match only */
+    equiv(env,
+          "d = ':'\n"
+          "s = 'usr:bin:lib'\n"
+          "PARSE VAR s h (d) t\n"
+          "SAY h\n"
+          "SAY t\n",
+          "PARSE VAR indirect (d) colon first match");
+
+    /* Null delimiter (empty sep): split at current scan pos, no advance.
+     * a='', b='abc'.  Use concat to avoid empty-string SAY divergence. */
+    equiv(env,
+          "sep = ''\n"
+          "x = 'abc'\n"
+          "PARSE VAR x a (sep) b\n"
+          "SAY a || '|' || b\n",
+          "PARSE VAR indirect (sep) empty delimiter -> a empty b all");
+
+    /* Unset variable: null delimiter → split at current pos.  a='', b=all.
+     * No NOVALUE trap.  Use concat to avoid empty-SAY divergence.       */
+    equiv(env,
+          "DROP mysep\n"
+          "x = 'hello world'\n"
+          "PARSE VAR x a (mysep) b\n"
+          "SAY a || '|' || b\n",
+          "PARSE VAR indirect (mysep) unset -> empty split -> b gets all");
+
+    /* Indirect not found: p1 gets all, p5=''.
+     * Use concat to avoid empty-string SAY divergence between paths. */
+    equiv(env,
+          "p0 = 'XYZ'\n"
+          "rc = 'This is an awfully boring program'\n"
+          "PARSE VAR rc p1 (p0) p5\n"
+          "SAY p1 || '|' || p5\n",
+          "PARSE VAR indirect (p0) delimiter not found");
+
+    /* Verify bytecode path taken (AC #6): no fallback for (var) */
+    {
+        const char *src =
+            "p0 = 'b'\n"
+            "rc = 'This is an awfully boring program'\n"
+            "PARSE VAR rc p1 (p0) p5\n"
+            "SAY p1\n"
+            "SAY p5\n";
+        int src_len = (int)strlen(src);
+        int exec_rc;
+        int exec_exit_rc = 0;
+
+        wk->wkbi_bc_exec_count = 0;
+        wk->wkbi_bc_fallback_count = 0;
+        cap_reset();
+        wk->wkbi_use_bytecode = 1;
+        exec_rc = irx_exec_run(src, src_len, NULL, 0, &exec_exit_rc, env);
+        (void)exec_rc;
+        wk->wkbi_use_bytecode = 0;
+
+        CHECK(wk->wkbi_bc_exec_count > 0,
+              "indirect pattern: BC exec path taken");
+        CHECK(wk->wkbi_bc_fallback_count == 0,
+              "indirect pattern: no UNSUP fallback");
+    }
+
+    /* Compound indirect (a.x) is UNSUP — falls back, does not run wrong */
+    {
+        const char *src =
+            "x = 'b'\n"
+            "s = 'abc'\n"
+            "PARSE VAR s h (a.x) t\n"
+            "SAY h\n";
+        int src_len = (int)strlen(src);
+        int cmp_rc;
+        int cmp_exit_rc = 0;
+
+        wk->wkbi_bc_exec_count = 0;
+        wk->wkbi_bc_fallback_count = 0;
+        wk->wkbi_use_bytecode = 1;
+        cmp_rc = irx_exec_run(src, src_len, NULL, 0, &cmp_exit_rc, env);
+        (void)cmp_rc;
+        wk->wkbi_use_bytecode = 0;
+
+        CHECK(wk->wkbi_bc_fallback_count > 0,
+              "compound indirect (a.x): UNSUP fallback taken");
+        CHECK(wk->wkbi_bc_exec_count == 0,
+              "compound indirect (a.x): BC exec path NOT taken");
+    }
+
+    /* Verify counter discriminates: INTERPRET is still UNSUP */
+    {
+        const char *src = "INTERPRET 'SAY 1'\n";
+        int src_len = (int)strlen(src);
+        int interp_rc;
+        int interp_exit_rc = 0;
+
+        wk->wkbi_bc_exec_count = 0;
+        wk->wkbi_bc_fallback_count = 0;
+        wk->wkbi_use_bytecode = 1;
+        interp_rc = irx_exec_run(src, src_len, NULL, 0, &interp_exit_rc, env);
+        (void)interp_rc;
+        wk->wkbi_use_bytecode = 0;
+
+        CHECK(wk->wkbi_bc_fallback_count > 0,
+              "INTERPRET still UNSUP: fallback_count incremented");
+        CHECK(wk->wkbi_bc_exec_count == 0,
+              "INTERPRET still UNSUP: exec_count not incremented");
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  PARSE PULL — WP-33b stub (compiles; fails at runtime)             */
 /* ------------------------------------------------------------------ */
 
@@ -551,6 +695,7 @@ int main(void)
     test_parse_value(env);
     test_parse_special(env);
     test_parse_compound_target(env);
+    test_parse_indirect(env);
     test_parse_pull(env);
 
     irxterm(env);
