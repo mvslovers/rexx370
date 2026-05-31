@@ -320,21 +320,54 @@ static int tok_kw(const struct bcom_ctx *ctx, int offset, const char *kw)
     return strcmp(t->tok_upper, kw) == 0;
 }
 
+/* True if t is an explicit ';' clause separator.
+ *
+ * The tokenizer maps BOTH ';' and ':' to TOK_SEMICOLON, distinguished
+ * only by the source character: a ';' terminates a clause exactly like
+ * a logical newline (TOK_EOC), whereas a ':' marks a label and must
+ * NOT be treated as a clause end (see the label special-case in
+ * bc_program).  This helper returns true for ';' only, never ':'. */
+static int tok_is_semi(const struct irx_token *t)
+{
+    return t != NULL && t->tok_type == TOK_SEMICOLON &&
+           t->tok_length > 0 && t->tok_text != NULL && t->tok_text[0] == ';';
+}
+
 static int tok_ends_clause(const struct bcom_ctx *ctx)
 {
     const struct irx_token *t = tok_at(ctx, 0);
-    return t == NULL || t->tok_type == TOK_EOC || t->tok_type == TOK_EOF;
+    return t == NULL || t->tok_type == TOK_EOC || t->tok_type == TOK_EOF ||
+           tok_is_semi(t);
 }
 
 static void skip_eoc(struct bcom_ctx *ctx)
 {
-    while (tok_type_at(ctx, 0, TOK_EOC))
+    const struct irx_token *t;
+    while ((t = tok_at(ctx, 0)) != NULL &&
+           (t->tok_type == TOK_EOC || tok_is_semi(t)))
     {
         ctx->pos++;
     }
 }
 
 static void consume_eoc(struct bcom_ctx *ctx)
+{
+    const struct irx_token *t = tok_at(ctx, 0);
+    if (t != NULL && (t->tok_type == TOK_EOC || tok_is_semi(t)))
+    {
+        ctx->pos++;
+    }
+}
+
+/* Skip a single logical-newline (TOK_EOC) so a THEN/ELSE/WHEN body that
+ * begins on the next physical line is found.  A ';' is deliberately NOT
+ * skipped: a ';' immediately after THEN/ELSE is a null clause (an empty
+ * conditional body), matching the token-walk interpreter.  The ';' is
+ * left in place for the caller's clause-separator consume_eoc, and the
+ * empty body is produced by bc_stmt's tok_is_semi early-return.  Using
+ * consume_eoc here instead would swallow the ';' and wrongly absorb the
+ * following clause as the body. */
+static void consume_newline(struct bcom_ctx *ctx)
 {
     if (tok_type_at(ctx, 0, TOK_EOC))
     {
@@ -1326,7 +1359,8 @@ static int bc_count_parse_templates(const struct bcom_ctx *ctx)
     for (i = ctx->pos; i < ctx->tok_count; i++)
     {
         const struct irx_token *t = &ctx->tokens[i];
-        if (t->tok_type == TOK_EOC || t->tok_type == TOK_EOF)
+        if (t->tok_type == TOK_EOC || t->tok_type == TOK_EOF ||
+            tok_is_semi(t))
         {
             break;
         }
@@ -1394,7 +1428,8 @@ static void bc_parse_stmt(struct bcom_ctx *ctx)
         for (j = ctx->pos; j < ctx->tok_count; j++)
         {
             const struct irx_token *t = &ctx->tokens[j];
-            if (t->tok_type == TOK_EOC || t->tok_type == TOK_EOF)
+            if (t->tok_type == TOK_EOC || t->tok_type == TOK_EOF ||
+                tok_is_semi(t))
             {
                 break;
             }
@@ -2405,7 +2440,7 @@ static void C_if_bc(struct bcom_ctx *ctx)
         return;
     }
     ctx->pos++; /* consume THEN */
-    consume_eoc(ctx);
+    consume_newline(ctx);
 
     jf_patch = emit_jmp_op(ctx, OP_JF);
     if (jf_patch < 0)
@@ -2430,7 +2465,7 @@ static void C_if_bc(struct bcom_ctx *ctx)
         patch_jmp_to_here(ctx, jf_patch);
 
         ctx->pos++; /* consume ELSE */
-        consume_eoc(ctx);
+        consume_newline(ctx);
 
         bc_stmt(ctx);
         if (ctx->rc != IRXBC_OK)
@@ -2491,7 +2526,7 @@ static void C_select_bc(struct bcom_ctx *ctx)
                 break;
             }
             ctx->pos++; /* consume THEN */
-            consume_eoc(ctx);
+            consume_newline(ctx);
 
             jf_patch = emit_jmp_op(ctx, OP_JF);
             if (jf_patch < 0)
@@ -3172,9 +3207,10 @@ static void bc_address_stmt(struct bcom_ctx *ctx)
         const struct irx_token *tnext = tok_at(ctx, 1);
 
         /* One-shot form: ADDRESS env command — consume clause, no write.
-         * TODO(WP-33): route command to host environment. */
+         * TODO(WP-33): route command to host environment.  A bare ';'
+         * after the env name ends the clause, so it is the set form. */
         if (tnext != NULL && tnext->tok_type != TOK_EOC &&
-            tnext->tok_type != TOK_EOF)
+            tnext->tok_type != TOK_EOF && !tok_is_semi(tnext))
         {
             while (!tok_ends_clause(ctx))
             {
@@ -3442,7 +3478,8 @@ static void bc_stmt(struct bcom_ctx *ctx)
     const struct irx_token *t0 = tok_at(ctx, 0);
     const struct irx_token *t1 = tok_at(ctx, 1);
 
-    if (t0 == NULL || t0->tok_type == TOK_EOC || t0->tok_type == TOK_EOF)
+    if (t0 == NULL || t0->tok_type == TOK_EOC || t0->tok_type == TOK_EOF ||
+        tok_is_semi(t0))
     {
         return;
     }
@@ -3458,7 +3495,8 @@ static void bc_stmt(struct bcom_ctx *ctx)
         const struct irx_token *tn;
         ctx->pos++;
         tn = tok_at(ctx, 0);
-        if (tn == NULL || tn->tok_type == TOK_EOC || tn->tok_type == TOK_EOF)
+        if (tn == NULL || tn->tok_type == TOK_EOC || tn->tok_type == TOK_EOF ||
+            tok_is_semi(tn))
         {
             emit_byte(ctx, OP_EXIT);
         }
@@ -3610,7 +3648,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
         {
             const struct irx_token *td = tok_at(ctx, 0);
             if (td == NULL || td->tok_type == TOK_EOC ||
-                td->tok_type == TOK_EOF)
+                td->tok_type == TOK_EOF || tok_is_semi(td))
             {
                 break;
             }
@@ -3740,13 +3778,15 @@ static void bc_program(struct bcom_ctx *ctx)
         {
             break;
         }
-        if (t->tok_type == TOK_EOC)
+        if (t->tok_type == TOK_EOC || tok_is_semi(t))
         {
             ctx->pos++;
             continue;
         }
 
-        /* Detect label: SYMBOL followed by SEMICOLON (tokenizer maps ':') */
+        /* Detect label: SYMBOL followed by SEMICOLON (tokenizer maps ':').
+         * tok_is_semi() above matched only ';', so a ':' still reaches
+         * here and the label form is recognised unchanged. */
         if (t->tok_type == TOK_SYMBOL &&
             tok_type_at(ctx, 1, TOK_SEMICOLON) &&
             tok_ch(ctx, 1) == ':')
@@ -3771,7 +3811,7 @@ static void bc_program(struct bcom_ctx *ctx)
         }
 
         t = tok_at(ctx, 0);
-        if (t != NULL && t->tok_type == TOK_EOC)
+        if (t != NULL && (t->tok_type == TOK_EOC || tok_is_semi(t)))
         {
             ctx->pos++;
         }
