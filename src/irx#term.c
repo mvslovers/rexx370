@@ -27,6 +27,7 @@
 #include "irx_init.h"
 #include "irxanchr.h"
 #include "irxbif.h"
+#include "irxbvm.h"
 #include "irxfunc.h"
 #include "irxlstr.h"
 #include "irxwkblk.h"
@@ -171,6 +172,14 @@ int irxterm(struct envblock *envblk)
             printf("[bc] exec=%d fallback=%d\n",
                    wkbi->wkbi_bc_exec_count,
                    wkbi->wkbi_bc_fallback_count);
+            /* On a token-walk fallback, name the construct that forced
+             * it and the source line (WP-BC-DIAG). */
+            if (wkbi->wkbi_bc_fallback_count > 0)
+            {
+                printf("[bc] unsup: line %d, %s\n",
+                       wkbi->wkbi_bc_unsup_line,
+                       irx_bc_unsup_text(wkbi->wkbi_bc_unsup_reason));
+            }
             fflush(stdout);
         }
 

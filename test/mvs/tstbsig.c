@@ -345,7 +345,7 @@ static void test_signal_sigl(struct envblock *env)
 
     wk->wkbi_sigl = 999; /* set a sentinel before SIGNAL */
 
-    rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+    rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
     if (rc == IRXBC_OK && bc != NULL)
     {
         rc = irx_bc_execute(env, bc, NULL, 0, &exit_rc);

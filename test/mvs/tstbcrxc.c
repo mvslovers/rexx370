@@ -33,6 +33,8 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxbops.h"
+#include "irxbvm.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxwkblk.h"
@@ -255,6 +257,34 @@ static void test_bc_path(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  UNSUP diagnostic mechanism (WP-BC-DIAG)                            */
+/*                                                                     */
+/*  Locks in the reason/line diagnostic: a ';' clause separator forces */
+/*  a token-walk fallback (REXXCPS line 91 `do count; end`), and       */
+/*  irx_bc_compile must report WHICH construct and WHERE via its       */
+/*  out-params — mapped to human text by irx_bc_unsup_text.            */
+/* ------------------------------------------------------------------ */
+static void test_unsup_diag(struct envblock *env)
+{
+    static const char SRC[] = "say 1; end";
+    struct irx_bc_execblk *bc = NULL;
+    int reason = -1;
+    int line = -1;
+    int rc;
+
+    printf("\n[UNSUP diagnostic — WP-BC-DIAG]\n");
+
+    rc = irx_bc_compile(env, SRC, (int)strlen(SRC), &bc, &reason, &line);
+
+    CHECK(rc == IRXBC_ERR_UNSUP, "';' clause separator -> IRXBC_ERR_UNSUP");
+    CHECK(bc == NULL, "no execblk produced on UNSUP");
+    CHECK(reason != 0, "unsup_reason recorded (non-NONE)");
+    CHECK(line == 1, "unsup_line == 1");
+    CHECK(strcmp(irx_bc_unsup_text(reason), "unknown") != 0,
+          "reason maps to known text");
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -281,6 +311,7 @@ int main(void)
 
     test_equiv(env);
     test_bc_path(env);
+    test_unsup_diag(env);
 
     irxterm(env);
 

@@ -74,7 +74,7 @@ static void test_execute_empty(struct envblock *env)
     printf("  [execute: empty source]\n");
 
     rc = irx_bc_compile(env, "/* nothing */",
-                        (int)strlen("/* nothing */"), &bc);
+                        (int)strlen("/* nothing */"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile succeeds");
     if (bc == NULL)
     {
@@ -99,7 +99,7 @@ static void test_execute_exit(struct envblock *env)
 
     printf("  [execute: exit]\n");
 
-    rc = irx_bc_compile(env, "exit", (int)strlen("exit"), &bc);
+    rc = irx_bc_compile(env, "exit", (int)strlen("exit"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile succeeds");
     if (bc == NULL)
     {

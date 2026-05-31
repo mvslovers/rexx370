@@ -71,7 +71,7 @@ static void test_compile_empty(struct envblock *env)
     printf("  [compile: empty source]\n");
 
     rc = irx_bc_compile(env, "/* nothing */",
-                        (int)strlen("/* nothing */"), &bc);
+                        (int)strlen("/* nothing */"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile returns IRXBC_OK");
     CHECK(bc != NULL, "bc pointer is non-NULL");
 
@@ -109,7 +109,7 @@ static void test_compile_exit(struct envblock *env)
 
     printf("  [compile: exit]\n");
 
-    rc = irx_bc_compile(env, "exit", (int)strlen("exit"), &bc);
+    rc = irx_bc_compile(env, "exit", (int)strlen("exit"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile returns IRXBC_OK");
     CHECK(bc != NULL, "bc pointer is non-NULL");
 
@@ -145,7 +145,7 @@ static void test_compile_unsupported(struct envblock *env)
     printf("  [compile: unsupported construct]\n");
 
     /* CALL is not yet handled by the bytecode compiler. */
-    rc = irx_bc_compile(env, "CALL foo", (int)strlen("CALL foo"), &bc);
+    rc = irx_bc_compile(env, "CALL foo", (int)strlen("CALL foo"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_ERR_UNSUP,
           "compile returns IRXBC_ERR_UNSUP for unsupported construct");
     CHECK(bc == NULL, "bc is NULL on error");
@@ -157,7 +157,7 @@ static void test_compile_null_out(struct envblock *env)
 
     printf("  [compile: NULL bc_out]\n");
 
-    rc = irx_bc_compile(env, "exit", (int)strlen("exit"), NULL);
+    rc = irx_bc_compile(env, "exit", (int)strlen("exit"), NULL, NULL, NULL);
     CHECK(rc != IRXBC_OK, "compile rejects NULL bc_out");
 }
 

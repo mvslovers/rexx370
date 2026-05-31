@@ -455,7 +455,7 @@ static void test_disasm(struct envblock *env)
     /* TRACE Off -> TRACE_SET opcode. */
     {
         const char *src = "trace off\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+        rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
         CHECK(rc == 0, "TRACE Off compiles OK");
         if (rc == 0 && bc != NULL)
         {
@@ -471,7 +471,7 @@ static void test_disasm(struct envblock *env)
     /* Bare TRACE -> TRACE_TOGGLE. */
     {
         const char *src = "trace\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+        rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
         CHECK(rc == 0, "bare TRACE compiles OK");
         if (rc == 0 && bc != NULL)
         {
@@ -487,7 +487,7 @@ static void test_disasm(struct envblock *env)
     /* TRACE VALUE x -> TRACE_VALUE. */
     {
         const char *src = "trace value x\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+        rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
         CHECK(rc == 0, "TRACE VALUE compiles OK");
         if (rc == 0 && bc != NULL)
         {
@@ -503,7 +503,7 @@ static void test_disasm(struct envblock *env)
     /* ADDRESS TSO -> ADDRESS_SET with sym name. */
     {
         const char *src = "address tso\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+        rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
         CHECK(rc == 0, "ADDRESS TSO compiles OK");
         if (rc == 0 && bc != NULL)
         {
@@ -521,7 +521,7 @@ static void test_disasm(struct envblock *env)
     /* Bare ADDRESS -> ADDRESS_TOGGLE. */
     {
         const char *src = "address\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+        rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
         CHECK(rc == 0, "bare ADDRESS compiles OK");
         if (rc == 0 && bc != NULL)
         {
@@ -537,7 +537,7 @@ static void test_disasm(struct envblock *env)
     /* ADDRESS VALUE x -> ADDRESS_VALUE. */
     {
         const char *src = "address value x\n";
-        rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+        rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
         CHECK(rc == 0, "ADDRESS VALUE compiles OK");
         if (rc == 0 && bc != NULL)
         {
