@@ -112,6 +112,70 @@ struct bcom_ctx
 
     int rc;
     int hit_exit;
+
+    /* WP-BC-DIAG: set together at every UNSUP site via BC_FAIL_UNSUP.
+     * unsup_reason holds a bc_unsup_reason code (see below); unsup_line
+     * is the 1-based source line of the offending token, captured by
+     * bc_cur_line() at the moment the compiler gives up.  Both stay at
+     * their zero-initialised defaults (BC_UNSUP_NONE / 0) unless an
+     * UNSUP is hit. */
+    int unsup_reason;
+    int unsup_line;
+};
+
+/* ================================================================== */
+/*  UNSUP reason codes (WP-BC-DIAG)                                    */
+/*                                                                    */
+/*  Each of the IRXBC_ERR_UNSUP sites in this file records one of     */
+/*  these codes so the REXX370_BCDEBUG diagnostic can report WHICH    */
+/*  construct forced the token-walk fallback (and on which line).     */
+/*  Codes are MVS-memory-friendly: the call sites carry only the      */
+/*  small integer; the human-readable strings live once, centrally,   */
+/*  in bc_unsup_text[] (see irx_bc_unsup_text below).                 */
+/*                                                                    */
+/*  Some sites are defensive syntax guards and legitimately share a   */
+/*  coarse code; others mark real feature gaps and get a specific     */
+/*  one.  BC_UNSUP_COUNT is the table-sizing sentinel — keep it last. */
+/* ================================================================== */
+
+enum bc_unsup_reason
+{
+    BC_UNSUP_NONE = 0,             /* no UNSUP recorded                 */
+    BC_UNSUP_INTERNAL,             /* API misuse / internal guard       */
+    BC_UNSUP_STATEMENT,            /* unrecognised statement keyword    */
+    BC_UNSUP_EXPR_OPERAND,         /* unsupported expression operand    */
+    BC_UNSUP_EXPR_PAREN,           /* ')' expected in (sub)expression   */
+    BC_UNSUP_TOO_MANY_ARGS,        /* argument count exceeds limit      */
+    BC_UNSUP_FUNC_ARG_SEP,         /* malformed function-call arg list  */
+    BC_UNSUP_CALL_TARGET,          /* CALL target is not a plain label  */
+    BC_UNSUP_CALL_ARG_SEP,         /* malformed CALL argument list      */
+    BC_UNSUP_PARSE_INDIRECT,       /* PARSE indirect pattern (var)      */
+    BC_UNSUP_PARSE_RELPOS,         /* PARSE relative position (+n/-n)   */
+    BC_UNSUP_PARSE_ABSPOS,         /* PARSE absolute position (=n)      */
+    BC_UNSUP_PARSE_TOO_MANY_TAILS, /* template tail count limit       */
+    BC_UNSUP_PARSE_TEMPLATE,       /* unsupported PARSE template item   */
+    BC_UNSUP_PARSE_VAR,            /* PARSE VAR target not a symbol     */
+    BC_UNSUP_PARSE_VALUE_WITH,     /* PARSE VALUE without WITH          */
+    BC_UNSUP_PARSE_SOURCE,         /* unsupported PARSE source keyword  */
+    BC_UNSUP_EXPOSE_INDIRECT,      /* PROCEDURE EXPOSE indirect (var)   */
+    BC_UNSUP_EXPOSE_LIMIT,         /* PROCEDURE EXPOSE count limit      */
+    BC_UNSUP_COMPOUND_TAIL_LIMIT,  /* compound variable tail limit     */
+    BC_UNSUP_IF_THEN,              /* IF condition not followed by THEN */
+    BC_UNSUP_WHEN_THEN,            /* WHEN condition not followed by THEN*/
+    BC_UNSUP_SELECT_BODY,          /* unexpected token in SELECT body   */
+    BC_UNSUP_DO_CONTROL,           /* unsupported controlled-DO clause  */
+    BC_UNSUP_ITERATE_TARGET,       /* ITERATE has no matching loop      */
+    BC_UNSUP_LEAVE_TARGET,         /* LEAVE has no matching loop/SELECT */
+    BC_UNSUP_TRACE_VALUE,          /* TRACE VALUE with empty expression */
+    BC_UNSUP_TRACE_SETTING,        /* empty/invalid TRACE setting word  */
+    BC_UNSUP_TRACE_FORM,           /* unsupported TRACE form            */
+    BC_UNSUP_ADDRESS_VALUE,        /* ADDRESS VALUE with empty expr     */
+    BC_UNSUP_ADDRESS_FORM,         /* unsupported ADDRESS form          */
+    BC_UNSUP_SIGNAL_CONDITION,     /* SIGNAL ON/OFF unknown condition   */
+    BC_UNSUP_SIGNAL_NAME,          /* SIGNAL ON ... NAME not a symbol   */
+    BC_UNSUP_SIGNAL_TARGET,        /* SIGNAL label is not a symbol      */
+    BC_UNSUP_DROP_TARGET,          /* DROP target is not a symbol       */
+    BC_UNSUP_COUNT                 /* sentinel — table size; keep last  */
 };
 
 /* ================================================================== */
@@ -277,6 +341,48 @@ static void consume_eoc(struct bcom_ctx *ctx)
         ctx->pos++;
     }
 }
+
+/* ================================================================== */
+/*  UNSUP diagnostic helpers (WP-BC-DIAG)                             */
+/* ================================================================== */
+
+/* Source line of the token the compiler is currently looking at.
+ * Clamps pos into range and steps back over the TOK_EOF sentinel
+ * (whose tok_line is upbuf_cap, not a real line) so an UNSUP raised
+ * at end-of-source still reports the last meaningful line. */
+static int bc_cur_line(const struct bcom_ctx *ctx)
+{
+    int p = ctx->pos;
+
+    if (ctx->tokens == NULL || ctx->tok_count <= 0)
+    {
+        return 0;
+    }
+    if (p < 0)
+    {
+        p = 0;
+    }
+    if (p >= ctx->tok_count)
+    {
+        p = ctx->tok_count - 1;
+    }
+    while (p > 0 && ctx->tokens[p].tok_type == TOK_EOF)
+    {
+        p--;
+    }
+    return ctx->tokens[p].tok_line;
+}
+
+/* Record an unsupported construct: set rc plus the diagnostic
+ * reason/line in one place.  Control flow (return / break / return -1)
+ * stays explicit at each call site because it differs per site. */
+#define BC_FAIL_UNSUP(ctx, reason)            \
+    do                                        \
+    {                                         \
+        (ctx)->rc = IRXBC_ERR_UNSUP;          \
+        (ctx)->unsup_reason = (reason);       \
+        (ctx)->unsup_line = bc_cur_line(ctx); \
+    } while (0)
 
 /* ================================================================== */
 /*  Symbol / constant table                                           */
@@ -550,7 +656,7 @@ static void bc_funcall(struct bcom_ctx *ctx, int sym_idx)
         }
         if (nargs >= IRX_MAX_ARGS)
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_TOO_MANY_ARGS);
             return;
         }
         bc_exp0(ctx);
@@ -570,7 +676,7 @@ static void bc_funcall(struct bcom_ctx *ctx, int sym_idx)
             ctx->pos++;
             continue;
         }
-        ctx->rc = IRXBC_ERR_UNSUP;
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_FUNC_ARG_SEP);
         return;
     }
 
@@ -598,7 +704,7 @@ static void bc_call_stmt(struct bcom_ctx *ctx)
     if (t == NULL || t->tok_type != TOK_SYMBOL ||
         (t->tok_flags & TOKF_CONSTANT))
     {
-        ctx->rc = IRXBC_ERR_UNSUP;
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_CALL_TARGET);
         return;
     }
 
@@ -621,7 +727,7 @@ static void bc_call_stmt(struct bcom_ctx *ctx)
             }
             if (nargs >= IRX_MAX_ARGS)
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_TOO_MANY_ARGS);
                 return;
             }
             bc_exp0(ctx);
@@ -639,7 +745,7 @@ static void bc_call_stmt(struct bcom_ctx *ctx)
                 ctx->pos++;
                 continue;
             }
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_CALL_ARG_SEP);
             return;
         }
     }
@@ -911,7 +1017,7 @@ static void bc_parse_template(struct bcom_ctx *ctx)
                 n_items = 0;
                 continue;
             }
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_INDIRECT);
             return;
         }
 
@@ -939,7 +1045,7 @@ static void bc_parse_template(struct bcom_ctx *ctx)
                 n_items = 0;
                 continue;
             }
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_RELPOS);
             return;
         }
 
@@ -980,7 +1086,7 @@ static void bc_parse_template(struct bcom_ctx *ctx)
                 n_items = 0;
                 continue;
             }
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_ABSPOS);
             return;
         }
 
@@ -1094,7 +1200,7 @@ static void bc_parse_template(struct bcom_ctx *ctx)
                         }
                         if (it->tail_count >= BPSE_MAX_TAILS)
                         {
-                            ctx->rc = IRXBC_ERR_UNSUP;
+                            BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_TOO_MANY_TAILS);
                             return;
                         }
                         is_const_tail = (seg_len == 0 ||
@@ -1158,7 +1264,7 @@ static void bc_parse_template(struct bcom_ctx *ctx)
             continue;
         }
 
-        ctx->rc = IRXBC_ERR_UNSUP;
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_TEMPLATE);
         return;
     }
 
@@ -1262,7 +1368,7 @@ static void bc_parse_stmt(struct bcom_ctx *ctx)
         if (vt == NULL || vt->tok_type != TOK_SYMBOL ||
             (vt->tok_flags & TOKF_CONSTANT))
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_VAR);
             return;
         }
         vname = (vt->tok_upper != NULL) ? vt->tok_upper : vt->tok_text;
@@ -1312,7 +1418,7 @@ static void bc_parse_stmt(struct bcom_ctx *ctx)
         }
         if (with_pos < 0)
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_VALUE_WITH);
             return;
         }
         saved_count = ctx->tok_count;
@@ -1384,7 +1490,7 @@ static void bc_parse_stmt(struct bcom_ctx *ctx)
     }
     else
     {
-        ctx->rc = IRXBC_ERR_UNSUP;
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_PARSE_SOURCE);
         return;
     }
 
@@ -1476,7 +1582,7 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
             if (t == NULL || t->tok_type != TOK_SYMBOL ||
                 (t->tok_flags & TOKF_CONSTANT))
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPOSE_INDIRECT);
                 return;
             }
             iname = (t->tok_upper != NULL) ? t->tok_upper : t->tok_text;
@@ -1489,7 +1595,7 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
             t = tok_at(ctx, 0);
             if (t == NULL || t->tok_type != TOK_RPAREN)
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPOSE_INDIRECT);
                 return;
             }
             ctx->pos++; /* consume ) */
@@ -1505,7 +1611,7 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
             }
             if (++nexposed > 255)
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPOSE_LIMIT);
                 return;
             }
         }
@@ -1531,7 +1637,7 @@ static void bc_procedure_stmt(struct bcom_ctx *ctx)
             }
             if (++nexposed > 255)
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPOSE_LIMIT);
                 return;
             }
             ctx->pos++;
@@ -1605,7 +1711,7 @@ static int bc_compound_tails(struct bcom_ctx *ctx,
 
         if (tail_count == 255)
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_COMPOUND_TAIL_LIMIT);
             return -1;
         }
 
@@ -1671,7 +1777,7 @@ static void bc_exp8(struct bcom_ctx *ctx)
         t = tok_at(ctx, 0);
         if (t == NULL || t->tok_type != TOK_RPAREN)
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPR_PAREN);
             return;
         }
         ctx->pos++;
@@ -1777,7 +1883,7 @@ static void bc_exp8(struct bcom_ctx *ctx)
         return;
     }
 
-    ctx->rc = IRXBC_ERR_UNSUP;
+    BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPR_OPERAND);
 }
 
 static void bc_exp7(struct bcom_ctx *ctx)
@@ -2295,7 +2401,7 @@ static void C_if_bc(struct bcom_ctx *ctx)
 
     if (!tok_kw(ctx, 0, "THEN"))
     {
-        ctx->rc = IRXBC_ERR_UNSUP;
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_IF_THEN);
         return;
     }
     ctx->pos++; /* consume THEN */
@@ -2381,7 +2487,7 @@ static void C_select_bc(struct bcom_ctx *ctx)
 
             if (!tok_kw(ctx, 0, "THEN"))
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_WHEN_THEN);
                 break;
             }
             ctx->pos++; /* consume THEN */
@@ -2422,7 +2528,7 @@ static void C_select_bc(struct bcom_ctx *ctx)
         }
         else
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_SELECT_BODY);
             break;
         }
     }
@@ -2568,7 +2674,7 @@ static void C_do_bc(struct bcom_ctx *ctx)
         /* Expect TO */
         if (!tok_kw(ctx, 0, "TO"))
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_DO_CONTROL);
             return;
         }
         ctx->pos++; /* consume TO */
@@ -2849,7 +2955,7 @@ static void C_iterate_bc(struct bcom_ctx *ctx)
     lf = loop_find(ctx, label[0] ? label : NULL);
     if (lf == NULL)
     {
-        ctx->rc = IRXBC_ERR_UNSUP;
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_ITERATE_TARGET);
         return;
     }
 
@@ -2899,7 +3005,7 @@ static void C_leave_bc(struct bcom_ctx *ctx)
         lf = select_frame(ctx);
         if (lf == NULL)
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_LEAVE_TARGET);
             return;
         }
     }
@@ -2945,7 +3051,7 @@ static void bc_trace_stmt(struct bcom_ctx *ctx)
         ctx->pos++; /* consume VALUE */
         if (tok_ends_clause(ctx))
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_TRACE_VALUE);
             return;
         }
         bc_exp0(ctx);
@@ -2991,7 +3097,7 @@ static void bc_trace_stmt(struct bcom_ctx *ctx)
         }
         if (idx >= n)
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_TRACE_SETTING);
             return;
         }
         c = (char)toupper((unsigned char)text[idx]);
@@ -2999,7 +3105,7 @@ static void bc_trace_stmt(struct bcom_ctx *ctx)
             const char *p = strchr(allowed, c);
             if (p == NULL)
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_TRACE_SETTING);
                 return;
             }
             /* Encode as letter-index (0-8) in bits 0-3, interactive in bit 4.
@@ -3014,7 +3120,7 @@ static void bc_trace_stmt(struct bcom_ctx *ctx)
         return;
     }
 
-    ctx->rc = IRXBC_ERR_UNSUP;
+    BC_FAIL_UNSUP(ctx, BC_UNSUP_TRACE_FORM);
 }
 
 /* ================================================================== */
@@ -3046,7 +3152,7 @@ static void bc_address_stmt(struct bcom_ctx *ctx)
         ctx->pos++; /* consume VALUE */
         if (tok_ends_clause(ctx))
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_ADDRESS_VALUE);
             return;
         }
         bc_exp0(ctx);
@@ -3115,7 +3221,7 @@ static void bc_address_stmt(struct bcom_ctx *ctx)
         return;
     }
 
-    ctx->rc = IRXBC_ERR_UNSUP;
+    BC_FAIL_UNSUP(ctx, BC_UNSUP_ADDRESS_FORM);
 }
 
 static void bc_signal_stmt(struct bcom_ctx *ctx)
@@ -3165,7 +3271,7 @@ static void bc_signal_stmt(struct bcom_ctx *ctx)
         }
         else
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_SIGNAL_CONDITION);
             return;
         }
         ctx->pos++; /* consume condition name */
@@ -3178,7 +3284,7 @@ static void bc_signal_stmt(struct bcom_ctx *ctx)
             nt = tok_at(ctx, 0);
             if (nt == NULL || nt->tok_type != TOK_SYMBOL)
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_SIGNAL_NAME);
                 return;
             }
             lname = (nt->tok_upper != NULL) ? nt->tok_upper : nt->tok_text;
@@ -3238,7 +3344,7 @@ static void bc_signal_stmt(struct bcom_ctx *ctx)
         }
         else
         {
-            ctx->rc = IRXBC_ERR_UNSUP;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_SIGNAL_CONDITION);
             return;
         }
         ctx->pos++; /* consume condition name */
@@ -3265,7 +3371,7 @@ static void bc_signal_stmt(struct bcom_ctx *ctx)
     t = tok_at(ctx, 0);
     if (t == NULL || t->tok_type != TOK_SYMBOL)
     {
-        ctx->rc = IRXBC_ERR_UNSUP;
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_SIGNAL_TARGET);
         return;
     }
     {
@@ -3511,7 +3617,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
             if (td->tok_type != TOK_SYMBOL ||
                 (td->tok_flags & TOKF_CONSTANT))
             {
-                ctx->rc = IRXBC_ERR_UNSUP;
+                BC_FAIL_UNSUP(ctx, BC_UNSUP_DROP_TARGET);
                 return;
             }
             if (td->tok_flags & TOKF_COMPOUND)
@@ -3617,7 +3723,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
-    ctx->rc = IRXBC_ERR_UNSUP;
+    BC_FAIL_UNSUP(ctx, BC_UNSUP_STATEMENT);
 }
 
 /* ================================================================== */
@@ -3675,12 +3781,71 @@ static void bc_program(struct bcom_ctx *ctx)
 }
 
 /* ================================================================== */
+/*  UNSUP reason → text (WP-BC-DIAG)                                  */
+/*                                                                    */
+/*  Central, compact lookup used only by the REXX370_BCDEBUG          */
+/*  diagnostic.  Designated initialisers key each string to its enum  */
+/*  value, so the mapping cannot drift if the enum is reordered; any  */
+/*  gap falls through to "unknown" in irx_bc_unsup_text().            */
+/* ================================================================== */
+
+static const char *const bc_unsup_text[BC_UNSUP_COUNT] = {
+    [BC_UNSUP_NONE] = "(none)",
+    [BC_UNSUP_INTERNAL] = "internal/API guard",
+    [BC_UNSUP_STATEMENT] = "unsupported statement",
+    [BC_UNSUP_EXPR_OPERAND] = "unsupported expression operand",
+    [BC_UNSUP_EXPR_PAREN] = "')' expected in expression",
+    [BC_UNSUP_TOO_MANY_ARGS] = "too many call arguments",
+    [BC_UNSUP_FUNC_ARG_SEP] = "malformed function argument list",
+    [BC_UNSUP_CALL_TARGET] = "CALL target is not a label",
+    [BC_UNSUP_CALL_ARG_SEP] = "malformed CALL argument list",
+    [BC_UNSUP_PARSE_INDIRECT] = "PARSE indirect pattern (var)",
+    [BC_UNSUP_PARSE_RELPOS] = "PARSE relative position (+n/-n)",
+    [BC_UNSUP_PARSE_ABSPOS] = "PARSE absolute position (=n)",
+    [BC_UNSUP_PARSE_TOO_MANY_TAILS] = "PARSE template tail limit",
+    [BC_UNSUP_PARSE_TEMPLATE] = "unsupported PARSE template item",
+    [BC_UNSUP_PARSE_VAR] = "PARSE VAR target is not a symbol",
+    [BC_UNSUP_PARSE_VALUE_WITH] = "PARSE VALUE without WITH",
+    [BC_UNSUP_PARSE_SOURCE] = "unsupported PARSE source",
+    [BC_UNSUP_EXPOSE_INDIRECT] = "PROCEDURE EXPOSE indirect (var)",
+    [BC_UNSUP_EXPOSE_LIMIT] = "PROCEDURE EXPOSE count limit",
+    [BC_UNSUP_COMPOUND_TAIL_LIMIT] = "compound variable tail limit",
+    [BC_UNSUP_IF_THEN] = "IF without THEN",
+    [BC_UNSUP_WHEN_THEN] = "WHEN without THEN",
+    [BC_UNSUP_SELECT_BODY] = "unexpected token in SELECT",
+    [BC_UNSUP_DO_CONTROL] = "unsupported controlled DO",
+    [BC_UNSUP_ITERATE_TARGET] = "ITERATE has no matching loop",
+    [BC_UNSUP_LEAVE_TARGET] = "LEAVE has no matching loop/SELECT",
+    [BC_UNSUP_TRACE_VALUE] = "TRACE VALUE with empty expression",
+    [BC_UNSUP_TRACE_SETTING] = "invalid TRACE setting",
+    [BC_UNSUP_TRACE_FORM] = "unsupported TRACE form",
+    [BC_UNSUP_ADDRESS_VALUE] = "ADDRESS VALUE with empty expression",
+    [BC_UNSUP_ADDRESS_FORM] = "unsupported ADDRESS form",
+    [BC_UNSUP_SIGNAL_CONDITION] = "unsupported SIGNAL condition",
+    [BC_UNSUP_SIGNAL_NAME] = "SIGNAL ... NAME is not a symbol",
+    [BC_UNSUP_SIGNAL_TARGET] = "SIGNAL label is not a symbol",
+    [BC_UNSUP_DROP_TARGET] = "DROP target is not a symbol",
+};
+
+const char *irx_bc_unsup_text(int reason)
+{
+    if (reason < 0 || reason >= BC_UNSUP_COUNT ||
+        bc_unsup_text[reason] == NULL)
+    {
+        return "unknown";
+    }
+    return bc_unsup_text[reason];
+}
+
+/* ================================================================== */
 /*  irx_bc_compile                                                    */
 /* ================================================================== */
 
 int irx_bc_compile(struct envblock *envblock,
                    const char *source, int source_len,
-                   struct irx_bc_execblk **bc_out)
+                   struct irx_bc_execblk **bc_out,
+                   int *unsup_reason_out,
+                   int *unsup_line_out)
 {
     struct irx_token *tokens = NULL;
     int tok_count = 0;
@@ -3696,8 +3861,22 @@ int irx_bc_compile(struct envblock *envblock,
 
     memset(&tok_err, 0, sizeof(tok_err));
 
+    /* Default the diagnostic out-params; only an UNSUP overwrites them. */
+    if (unsup_reason_out != NULL)
+    {
+        *unsup_reason_out = BC_UNSUP_NONE;
+    }
+    if (unsup_line_out != NULL)
+    {
+        *unsup_line_out = 0;
+    }
+
     if (bc_out == NULL)
     {
+        if (unsup_reason_out != NULL)
+        {
+            *unsup_reason_out = BC_UNSUP_INTERNAL;
+        }
         return IRXBC_ERR_UNSUP;
     }
     *bc_out = NULL;
@@ -3724,6 +3903,18 @@ int irx_bc_compile(struct envblock *envblock,
 
     bc_program(ctx);
     rc = ctx->rc;
+    if (rc == IRXBC_ERR_UNSUP)
+    {
+        /* Capture the reason/line before cleanup frees ctx. */
+        if (unsup_reason_out != NULL)
+        {
+            *unsup_reason_out = ctx->unsup_reason;
+        }
+        if (unsup_line_out != NULL)
+        {
+            *unsup_line_out = ctx->unsup_line;
+        }
+    }
     if (rc != IRXBC_OK)
     {
         goto cleanup;

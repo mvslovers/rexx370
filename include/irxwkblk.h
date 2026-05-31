@@ -235,6 +235,19 @@ struct irx_wkblk_int
      * Activated by setting REXX370_BCDEBUG=1 (or true/yes/on)
      * in the environment before IRXINIT.  No effect otherwise.        */
     int wkbi_bc_debug;
+
+    /* --- Bytecode UNSUP diagnostic (WP-BC-DIAG) --------------------- */
+    /* The reason code (bc_unsup_reason) and 1-based source line of the
+     * FIRST construct that forced a token-walk fallback.  Recorded by
+     * irx_exec_run from irx_bc_compile's out-params; first fallback
+     * wins so the earliest/outermost cause is reported.  When
+     * REXX370_BCDEBUG is set and at least one fallback occurred,
+     * irxterm() emits a second line:
+     *   [bc] unsup: line N, <reason text>
+     * wkbi_bc_unsup_reason stays 0 (BC_UNSUP_NONE) until the first
+     * fallback.                                                        */
+    int wkbi_bc_unsup_reason;
+    int wkbi_bc_unsup_line;
 };
 
 #define WKBLK_INT_ID "WKBI"

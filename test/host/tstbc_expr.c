@@ -140,7 +140,7 @@ static void test_compile_assignment(struct envblock *env)
 
     printf("  [compile: x = 5]\n");
 
-    rc = irx_bc_compile(env, "x = 5", (int)strlen("x = 5"), &bc);
+    rc = irx_bc_compile(env, "x = 5", (int)strlen("x = 5"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile returns IRXBC_OK");
     CHECK(bc != NULL, "bc pointer is non-NULL");
 
@@ -178,7 +178,7 @@ static void test_compile_expr(struct envblock *env)
 
     printf("  [compile: x = 3 + 4]\n");
 
-    rc = irx_bc_compile(env, "x = 3 + 4", (int)strlen("x = 3 + 4"), &bc);
+    rc = irx_bc_compile(env, "x = 3 + 4", (int)strlen("x = 3 + 4"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile returns IRXBC_OK");
     CHECK(bc != NULL, "bc pointer is non-NULL");
 
@@ -212,7 +212,7 @@ static void test_compile_exit_rc(struct envblock *env)
 
     printf("  [compile: EXIT 7]\n");
 
-    rc = irx_bc_compile(env, "EXIT 7", (int)strlen("EXIT 7"), &bc);
+    rc = irx_bc_compile(env, "EXIT 7", (int)strlen("EXIT 7"), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile returns IRXBC_OK");
     CHECK(bc != NULL, "bc pointer is non-NULL");
 

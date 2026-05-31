@@ -50,18 +50,41 @@ struct bc_stack_slot
 /*  construct returns IRXBC_ERR_UNSUP.                               */
 /*                                                                    */
 /*  Parameters:                                                       */
-/*    envblock   — owning environment (used for irxstor)             */
-/*    source     — REXX source text (need not be NUL-terminated)     */
-/*    source_len — length in bytes                                   */
-/*    bc_out     — receives pointer to allocated irx_bc_execblk on   */
-/*                 success; caller must free with irxstor(RXSMFRE)   */
+/*    envblock        — owning environment (used for irxstor)        */
+/*    source          — REXX source text (need not be NUL-terminated)*/
+/*    source_len      — length in bytes                              */
+/*    bc_out          — receives pointer to allocated irx_bc_execblk */
+/*                      on success; caller frees with irxstor(RXSMFRE)*/
+/*    unsup_reason_out — optional (may be NULL); on IRXBC_ERR_UNSUP  */
+/*                      receives a bc_unsup_reason code identifying   */
+/*                      the construct the compiler could not handle.  */
+/*                      0 (BC_UNSUP_NONE) on any other outcome.       */
+/*    unsup_line_out  — optional (may be NULL); on IRXBC_ERR_UNSUP   */
+/*                      receives the 1-based source line of the       */
+/*                      offending construct.  0 on any other outcome. */
+/*                                                                    */
+/*  The reason/line pair is purely diagnostic (WP-BC-DIAG) — pass    */
+/*  NULL for both when the caller does not need it.                   */
 /*                                                                    */
 /*  Returns: IRXBC_OK (0) on success, IRXBC_ERR_* on failure.       */
 /* ================================================================== */
 
 int irx_bc_compile(struct envblock *envblock,
                    const char *source, int source_len,
-                   struct irx_bc_execblk **bc_out) asm("IRXBCOMP");
+                   struct irx_bc_execblk **bc_out,
+                   int *unsup_reason_out,
+                   int *unsup_line_out) asm("IRXBCOMP");
+
+/* ================================================================== */
+/*  irx_bc_unsup_text — map a bc_unsup_reason code to short text      */
+/*                                                                    */
+/*  Returns a static, never-NULL human-readable string for a reason  */
+/*  code reported by irx_bc_compile via unsup_reason_out.  Out-of-    */
+/*  range or unmapped codes return "unknown".  Used only for the     */
+/*  REXX370_BCDEBUG diagnostic output; not on any hot path.          */
+/* ================================================================== */
+
+const char *irx_bc_unsup_text(int reason) asm("IRXBCUTX");
 
 /* ================================================================== */
 /*  irx_bc_execute — execute a compiled bytecode container           */

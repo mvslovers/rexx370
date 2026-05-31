@@ -144,7 +144,7 @@ static void test_strtoolong(struct envblock *env)
     src[70] = '\0';
 
     printf("  [long literal (64 bytes) rejected]\n");
-    rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+    rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
     CHECK(rc == IRXBC_ERR_STRTOOLONG, "compile returns IRXBC_ERR_STRTOOLONG");
     CHECK(bc == NULL, "bc is NULL on strtoolong error");
 
@@ -163,7 +163,7 @@ static void test_strtoolong(struct envblock *env)
     src[69] = '\0';
 
     bc = NULL;
-    rc = irx_bc_compile(env, src, (int)strlen(src), &bc);
+    rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "63-byte literal compiles OK");
     if (bc != NULL)
     {

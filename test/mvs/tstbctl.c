@@ -354,7 +354,7 @@ static void test_disasm(struct envblock *env)
 
     printf("\n[disasm]\n");
 
-    rc = irx_bc_compile(env, "SAY \"hi\"", (int)strlen("SAY \"hi\""), &bc);
+    rc = irx_bc_compile(env, "SAY \"hi\"", (int)strlen("SAY \"hi\""), &bc, NULL, NULL);
     CHECK(rc == IRXBC_OK, "compile SAY for disasm");
     if (bc != NULL)
     {

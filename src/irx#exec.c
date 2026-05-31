@@ -348,8 +348,11 @@ int irx_exec_run(const char *source, int source_len,
         {
             struct irx_bc_execblk *bc = NULL;
             int bc_rc = 0;
+            int unsup_reason = 0;
+            int unsup_line = 0;
 
-            rc = irx_bc_compile(envblock, source, source_len, &bc);
+            rc = irx_bc_compile(envblock, source, source_len, &bc,
+                                &unsup_reason, &unsup_line);
             if (rc == IRXBC_ERR_UNSUP)
             {
                 /* Unsupported construct — release bc and fall through
@@ -360,6 +363,14 @@ int irx_exec_run(const char *source, int source_len,
                     irxstor(RXSMFRE, 0, &p, envblock);
                 }
                 wk->wkbi_bc_fallback_count++;
+                /* Record the FIRST fallback's reason/line for the
+                 * REXX370_BCDEBUG diagnostic (WP-BC-DIAG).  First wins
+                 * so the earliest cause survives later fallbacks. */
+                if (wk->wkbi_bc_unsup_reason == 0)
+                {
+                    wk->wkbi_bc_unsup_reason = unsup_reason;
+                    wk->wkbi_bc_unsup_line = unsup_line;
+                }
             }
             else
             {
