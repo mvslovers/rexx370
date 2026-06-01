@@ -692,10 +692,23 @@ static void bc_funcall(struct bcom_ctx *ctx, int sym_idx)
             BC_FAIL_UNSUP(ctx, BC_UNSUP_TOO_MANY_ARGS);
             return;
         }
-        bc_exp0(ctx);
-        if (ctx->rc != IRXBC_OK)
+        /* An omitted argument is an empty slot — a ',' or ')' where an
+         * expression is expected (f(,b), f(a,,c), f(a,)).  Emit the
+         * omitted marker instead of compiling an expression; the marker
+         * still occupies one argument slot.  Mirrors the token-walk
+         * parse_function_call() (WP-BC-ARGOMIT). */
+        if (tok_type_at(ctx, 0, TOK_COMMA) ||
+            tok_type_at(ctx, 0, TOK_RPAREN))
         {
-            return;
+            emit_byte(ctx, OP_PUSH_OMITTED);
+        }
+        else
+        {
+            bc_exp0(ctx);
+            if (ctx->rc != IRXBC_OK)
+            {
+                return;
+            }
         }
         nargs++;
 
@@ -752,6 +765,7 @@ static void bc_call_stmt(struct bcom_ctx *ctx)
     /* Optional arg list: CALL NAME arg1, arg2 ... */
     if (!tok_ends_clause(ctx))
     {
+        int after_comma = 0;
         for (;;)
         {
             if (ctx->rc != IRXBC_OK)
@@ -763,20 +777,44 @@ static void bc_call_stmt(struct bcom_ctx *ctx)
                 BC_FAIL_UNSUP(ctx, BC_UNSUP_TOO_MANY_ARGS);
                 return;
             }
+            /* Omitted argument at this position — a leading or
+             * between-commas empty slot (CALL f ,x  /  CALL f a,,c).
+             * Mirrors the token-walk kw_call (WP-BC-ARGOMIT). */
+            if (tok_type_at(ctx, 0, TOK_COMMA))
+            {
+                emit_byte(ctx, OP_PUSH_OMITTED);
+                nargs++;
+                ctx->pos++;
+                after_comma = 1;
+                continue;
+            }
+            /* A trailing comma (CALL f a,) contributes one final
+             * omitted argument before the clause ends. */
+            if (tok_ends_clause(ctx))
+            {
+                if (after_comma)
+                {
+                    emit_byte(ctx, OP_PUSH_OMITTED);
+                    nargs++;
+                }
+                break;
+            }
             bc_exp0(ctx);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
             }
             nargs++;
-            if (tok_ends_clause(ctx))
-            {
-                break;
-            }
+            after_comma = 0;
             if (tok_type_at(ctx, 0, TOK_COMMA))
             {
                 ctx->pos++;
+                after_comma = 1;
                 continue;
+            }
+            if (tok_ends_clause(ctx))
+            {
+                break;
             }
             BC_FAIL_UNSUP(ctx, BC_UNSUP_CALL_ARG_SEP);
             return;
