@@ -29,6 +29,7 @@ static const struct { unsigned char op; const char *name; } op_names[] = {
     { OP_JT,        "JT"        },
     { OP_PUSH_LIT,  "PUSH_LIT"  },
     { OP_PUSH_TMP,  "PUSH_TMP"  },
+    { OP_PUSH_OMITTED, "PUSH_OMITTED" },
     { OP_POP,       "POP"       },
     { OP_DUP,       "DUP"       },
     { OP_LOAD,      "LOAD"      },

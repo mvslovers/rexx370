@@ -47,6 +47,17 @@
 #define OP_POP      0x12 /* 2 bytes: op + n:u8 — discard n items    */
 #define OP_DUP      0x13 /* 1 byte  — duplicate top of stack        */
 
+/* OP_PUSH_OMITTED (value appended at the high end, like OP_TR_VAR)  */
+/* marks an omitted function/CALL argument — the empty slot between  */
+/* commas in f(a,,b), f(,b), or f(a,) (WP-BC-ARGOMIT).  It pushes a   */
+/* sentinel stack slot (empty string + type_cache OMITTED) consumed   */
+/* by the very next OP_CALL / OP_CALL_BIF.  For a BIF the slot is     */
+/* delivered as a non-NULL empty Lstr (identical to the token-walk    */
+/* interpreter); for an internal routine it sets arg_exists[i]=0 so   */
+/* ARG(i,'O')/PARSE ARG see the argument as omitted, NOT a present    */
+/* empty string. */
+#define OP_PUSH_OMITTED 0x9E /* 1 byte — push omitted-argument marker */
+
 /* ================================================================== */
 /*  Variable ops (WP-BC-02)                                          */
 /* ================================================================== */

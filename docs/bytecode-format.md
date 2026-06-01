@@ -99,6 +99,7 @@ The `OP_SIZE(op)` macro in `irxbops.h` returns the total byte size
 |--------|-----|------|--------------|-------------|
 | `OP_PUSH_LIT` | 0x10 | 3 | → val | `const_idx:u16`; push constant from table |
 | `OP_PUSH_TMP` | 0x11 | 1 | — | Reserved |
+| `OP_PUSH_OMITTED` | 0x9E | 1 | → marker | Push an omitted-argument marker (WP-BC-ARGOMIT); see §3.7 |
 | `OP_POP` | 0x12 | 2 | pop n → | `n:u8`; discard N slots |
 | `OP_DUP` | 0x13 | 1 | val → val val | Duplicate top slot |
 | `OP_LOAD` | 0x20 | 3 | → val | `sym_idx:u16`; load variable into slot |
@@ -192,6 +193,27 @@ Before `OP_CALL`/`OP_CALL_BIF`, args are pushed on the eval stack (arg N first,
 arg 1 last).  The VM saves them into the call frame and pops them.  On
 `OP_RETURN`/`OP_RETURNV` the call frame is popped; with a return value it lands
 on the eval stack of the caller.
+
+**Omitted arguments (WP-BC-ARGOMIT).** An omitted argument — the empty slot
+in `f(a,,b)`, `f(,b)`, `f(a,)`, or `CALL f a,,c` — is pushed as
+`OP_PUSH_OMITTED` rather than a compiled expression, still occupying one
+`nargs` slot.  The `nargs` count therefore matches the token-walk argument
+count exactly (including a trailing comma's extra slot).  At the call site the
+marker's behaviour depends on the target:
+
+- **Internal routine** (`sym_idx` resolves to an `OP_LABEL`): the slot is
+  recorded with `arg_exists = 0`, so `ARG(i,'O')` returns `1` and `ARG(i,'E')`
+  returns `0` inside the callee — distinct from a present empty string
+  (`f(a,'',b)`), which has `arg_exists = 1`.
+- **BIF** (no matching label): the slot is delivered as a **non-NULL empty
+  `Lstr`**, identical to how the token-walk interpreter passes an omitted
+  argument, so optional-argument helpers (`irx_bif_opt_whole` etc.) apply their
+  defaults.  The omitted/empty distinction is not visible to BIF argv — it is
+  carried only through `arg_exists`.
+
+The marker rides on the eval stack (no change to the `OP_CALL`/`OP_CALL_BIF`
+encoding); the `type_cache` field of the stack slot is tagged
+`IRXBC_STACK_OMITTED` and is consumed by the immediately following call.
 
 ### 3.8 Phase 5 — PARSE Sub-VM (WP-BC-05 PR A)
 

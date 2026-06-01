@@ -962,6 +962,32 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                case OP_PUSH_OMITTED:
+                {
+                    /* Push an omitted-argument marker (WP-BC-ARGOMIT).
+                     * The slot carries an empty string so a BIF sees a
+                     * non-NULL empty Lstr (token-walk parity); the
+                     * OMITTED type_cache tag tells OP_CALL / OP_CALL_BIF
+                     * to record the slot as a non-existent argument
+                     * (arg_exists=0) when the target is an internal
+                     * routine, so ARG(i,'O') / PARSE ARG treat it as
+                     * omitted rather than as a present empty string. */
+                    if (sp >= IRXBC_STACK_DEPTH)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    if (slot_set_buf(&stack[sp], alloc, "", 0) != LSTR_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                    stack[sp].type_cache = IRXBC_STACK_OMITTED;
+                    stack[sp].int_cache = 0;
+                    sp++;
+                    break;
+                }
+
                 case OP_POP:
                 {
                     int n = (int)*pc++;
@@ -1900,6 +1926,18 @@ int irx_bc_execute(struct envblock *envblock,
                                COND_COUNT * (int)sizeof(int));
                         for (ci = 0; ci < nargs; ci++)
                         {
+                            /* An omitted argument slot (OP_PUSH_OMITTED)
+                             * is recorded as non-existent so ARG(i,'O')
+                             * and PARSE ARG see it as omitted rather than
+                             * a present empty string.  cf is memset to
+                             * zero at frame entry, so the empty args[ci]
+                             * and arg_exists[ci]=0 are already correct —
+                             * skip the copy (WP-BC-ARGOMIT). */
+                            if (stack[sp - nargs + ci].type_cache ==
+                                IRXBC_STACK_OMITTED)
+                            {
+                                continue;
+                            }
                             PLstr src = stack[sp - nargs + ci].str;
                             if (lstr_copy(alloc, &cf->args[ci], src) != LSTR_OK)
                             {
@@ -2016,6 +2054,18 @@ int irx_bc_execute(struct envblock *envblock,
                                COND_COUNT * (int)sizeof(int));
                         for (ci = 0; ci < nargs; ci++)
                         {
+                            /* An omitted argument slot (OP_PUSH_OMITTED)
+                             * is recorded as non-existent so ARG(i,'O')
+                             * and PARSE ARG see it as omitted rather than
+                             * a present empty string.  cf is memset to
+                             * zero at frame entry, so the empty args[ci]
+                             * and arg_exists[ci]=0 are already correct —
+                             * skip the copy (WP-BC-ARGOMIT). */
+                            if (stack[sp - nargs + ci].type_cache ==
+                                IRXBC_STACK_OMITTED)
+                            {
+                                continue;
+                            }
                             PLstr src = stack[sp - nargs + ci].str;
                             if (lstr_copy(alloc, &cf->args[ci], src) != LSTR_OK)
                             {
