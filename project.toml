@@ -1553,6 +1553,54 @@ include = [
 "mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
+# TSTBCONT - WP-BC-CONTCOMMA: trailing-comma line continuation.
+# Verifies that a multi-line clause joined by a trailing comma
+# (TOKF_CONTINUATION) compiles on the bytecode path (no token-walk
+# fallback): in expression context the continuation comma is a blank
+# concatenation, while in a CALL/function-call argument list a comma
+# stays an argument separator.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTBCONT)'
+#   Batch  :  EXEC PGM=TSTBCONT
+#
+# Expected: CC=0
+#
+# WP-BC-CONTCOMMA / GitHub mvslovers/rexx370#174.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTBCONT"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTBCONT",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
+  "IRX#BCTL",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
 # TSTLOAD - WP-CPS-07 IRXLOAD C-core unit tests.
 # Tests irx_load_dispatch() directly (bypasses the asm IRXLOAD
 # wrapper). Host build uses the filesystem backend; MVS build
