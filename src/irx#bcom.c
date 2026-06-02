@@ -183,6 +183,7 @@ enum bc_unsup_reason
 /* ================================================================== */
 
 static void bc_exp0(struct bcom_ctx *ctx);
+static void bc_expr(struct bcom_ctx *ctx);
 static void bc_stmt(struct bcom_ctx *ctx);
 static void bc_stmts_until(struct bcom_ctx *ctx, const char *stop1,
                            const char *stop2, const char *stop3);
@@ -338,6 +339,18 @@ static int tok_ends_clause(const struct bcom_ctx *ctx)
     const struct irx_token *t = tok_at(ctx, 0);
     return t == NULL || t->tok_type == TOK_EOC || t->tok_type == TOK_EOF ||
            tok_is_semi(t);
+}
+
+/* True if the token at offset is a continuation-comma: a TOK_COMMA the
+ * tokenizer kept (suppressing the line-ending EOC) and flagged
+ * TOKF_CONTINUATION because it ended a physical line (SC28-1883-0 §3.2,
+ * src/irx#tokn.c).  In a general expression context this is a blank
+ * concatenation, NOT an argument separator (WP-BC-CONTCOMMA). */
+static int tok_is_cont_comma(const struct bcom_ctx *ctx, int offset)
+{
+    const struct irx_token *t = tok_at(ctx, offset);
+    return t != NULL && t->tok_type == TOK_COMMA &&
+           (t->tok_flags & TOKF_CONTINUATION) != 0;
 }
 
 static void skip_eoc(struct bcom_ctx *ctx)
@@ -840,7 +853,7 @@ static void bc_return_stmt(struct bcom_ctx *ctx)
         return;
     }
 
-    bc_exp0(ctx);
+    bc_expr(ctx);
     if (ctx->rc != IRXBC_OK)
     {
         return;
@@ -2433,6 +2446,44 @@ static void bc_exp0(struct bcom_ctx *ctx)
     }
 }
 
+/* Compile a full expression in a general (non-argument) context.
+ * Compiles the expression with bc_exp0, then folds any trailing
+ * continuation-comma (a physical-line join, SC28-1883-0 §3.2) into a
+ * blank concatenation with the following sub-expression — mirroring the
+ * token-walk irx_pars_eval_expr (src/irx#pars.c).  A continuation-comma
+ * immediately before a clause end or an instruction keyword is a bare
+ * line join with nothing to concatenate: it is consumed and the fold
+ * stops (matching the token-walk break conditions).
+ *
+ * Argument lists (CALL / function calls) deliberately do NOT use this:
+ * there a comma — even a continuation-comma — stays an argument
+ * separator, so bc_funcall / bc_call_stmt call bc_exp0 directly.  This
+ * is the same split as the token-walk's parse_or vs irx_pars_eval_expr
+ * (WP-BC-CONTCOMMA). */
+static void bc_expr(struct bcom_ctx *ctx)
+{
+    bc_exp0(ctx);
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+
+    while (tok_is_cont_comma(ctx, 0))
+    {
+        ctx->pos++; /* consume the continuation comma */
+        if (tok_ends_clause(ctx) || is_kw_barrier(ctx, 0))
+        {
+            break;
+        }
+        bc_exp0(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_byte(ctx, OP_BCONCAT);
+    }
+}
+
 /* ================================================================== */
 /*  SAY                                                               */
 /* ================================================================== */
@@ -2446,7 +2497,7 @@ static void C_say_bc(struct bcom_ctx *ctx)
     }
     else
     {
-        bc_exp0(ctx);
+        bc_expr(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2466,7 +2517,7 @@ static void C_if_bc(struct bcom_ctx *ctx)
 
     ctx->pos++; /* consume IF */
 
-    bc_exp0(ctx);
+    bc_expr(ctx);
     if (ctx->rc != IRXBC_OK)
     {
         return;
@@ -2552,7 +2603,7 @@ static void C_select_bc(struct bcom_ctx *ctx)
             int jmp;
             ctx->pos++; /* consume WHEN */
 
-            bc_exp0(ctx);
+            bc_expr(ctx);
             if (ctx->rc != IRXBC_OK)
             {
                 break;
@@ -3127,7 +3178,7 @@ static void bc_trace_stmt(struct bcom_ctx *ctx)
             BC_FAIL_UNSUP(ctx, BC_UNSUP_TRACE_VALUE);
             return;
         }
-        bc_exp0(ctx);
+        bc_expr(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -3228,7 +3279,7 @@ static void bc_address_stmt(struct bcom_ctx *ctx)
             BC_FAIL_UNSUP(ctx, BC_UNSUP_ADDRESS_VALUE);
             return;
         }
-        bc_exp0(ctx);
+        bc_expr(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -3432,7 +3483,7 @@ static void bc_signal_stmt(struct bcom_ctx *ctx)
     if (tok_kw(ctx, 0, "VALUE"))
     {
         ctx->pos++; /* consume VALUE */
-        bc_exp0(ctx);
+        bc_expr(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -3540,7 +3591,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
         }
         else
         {
-            bc_exp0(ctx);
+            bc_expr(ctx);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -3770,7 +3821,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
                 return;
             }
             ctx->pos += 2; /* consume compound-symbol + '=' */
-            bc_exp0(ctx);
+            bc_expr(ctx);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -3789,7 +3840,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
                 return;
             }
             ctx->pos += 2;
-            bc_exp0(ctx);
+            bc_expr(ctx);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
