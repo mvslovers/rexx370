@@ -17,11 +17,14 @@ lesson from OC-09/#181 (profile share ≠ hot-loop effect).
 **OC-06 is not worth building now.** The cache *works* (78 % hit rate), but the
 profile that motivated it is mislabelled: the committed "22 % cluster B" is
 ~88 % **simple-variable** access, and the compound tails OC-06 targets are only
-**~11.5 % of all vpool traffic**. The directly-measured lever is **~2.4–3.2 % of
-host CPU** — single digit. Higher-value targets: **OC-12 / cluster A (~32 %)**
-and the **simple-variable vpool path** (the real bulk of cluster B). The cache
-design below answers FRAGE 2/3 fully and is ready *if* OC-06 is ever taken, but
-the recommendation is to **deprioritise it**. (This is the OC-09 lesson a second
+**~11.5 % of all vpool traffic**. On the **same gprof basis that reported the
+"22 %"**, the **entire compound-access cost (build + lookup) is only ≈ 3.8 % of
+VM self-time** (key-build a mere 1.05 %, §2.2b) — and a cache reclaims only ~78 %
+of that. The directly-measured host lever is **~2.4–3.2 % of host CPU** — single
+digit either way. Higher-value targets: **OC-12 / cluster A (~32 %)** and the
+**simple-variable vpool path** (the real bulk of cluster B). The cache design
+below answers FRAGE 2/3 fully and is ready *if* OC-06 is ever taken, but the
+recommendation is to **deprioritise it**. (This is the OC-09 lesson a second
 time: *profile share ≠ hot-loop effect*.)
 
 A separate, unrelated **correctness bug** surfaced during the work (stem-reset,
@@ -72,11 +75,15 @@ A separate, unrelated **correctness bug** surfaced during the work (stem-reset,
 ## 1. Methodology
 
 All instrumentation lived in a **local diagnostic copy** of the tree
-(`/tmp/oc06diag`, built with the host `gcc`); **nothing instrumented was
-committed**. The repo working tree stayed pristine. Host: Apple M2 Pro
-(arm64, macOS) — so **no gprof** (the committed profile is WSL2/Linux); this WP
-uses deterministic op-counters + a correctness-preserving wall-clock ablation +
-an offline trace analyzer, none of which need gprof.
+(`/tmp/oc06diag` on the macOS dev box, and an uncommitted local edit on
+`mvsdev`); **nothing instrumented was committed**. The repo working tree stayed
+pristine on both. Primary host: Apple M2 Pro (arm64, macOS) — deterministic
+op-counters + a correctness-preserving wall-clock ablation + an offline trace
+analyzer. The macOS box has no gprof, so the **gprof-native cross-check (§2.2b)
+was run on `mvsdev`** (Linux x86_64, gcc — the same setup that produced the
+committed profile), with the key-build extracted into a `noinline` symbol so
+gprof could cost it directly. Three independent methods (byte-ops, ablation,
+gprof) agree on the FRAGE-1 split.
 
 Workload: `test/rexxcps.rexx` (REXXCPS 2.2), the same self-calibrated
 `100 × 100 × 1000` = 10 M-clause run as WP-PERF-PROFILE, `exec=1 fallback=0`
@@ -145,6 +152,31 @@ compound-access cost (0.463 s), **lookup ≈ 80 %, key-build ≈ 20 %.** The byt
 split (71/29) and the time split (80/20) agree in direction; time is more skewed
 because of the lookup's per-access call overhead.
 
+### 2.2b gprof-native cross-check (Linux/gcc — same setup as the committed profile)
+
+Re-run on `mvsdev` (Linux x86_64, gcc, `-pg`, `[bc] exec=1 fallback=0`) with the
+key-build extracted into a `noinline irx_diag_build_key()` (local, uncommitted)
+so gprof attributes it as its own symbol instead of folding it into `IRXBEXEC`
+self-time. This puts the key-build into the **same units as the committed
+"22 %"** for the first time:
+
+| symbol | self-time | calls | note |
+|---|---:|---:|---|
+| `IRXBEXEC` | 19.2 % | 1 | VM dispatch root |
+| `VPOOLGTB` (cumulative) | 15.9 % | 12 522 138 | **all** gets |
+| `VPOOLSTB` (cumulative) | 7.6 % | 5 510 622 | **all** sets |
+| **cluster B (vpool total)** | **23.5 %** | — | matches committed ~22 % |
+| **`irx_diag_build_key`** | **1.05 %** | **2 080 000** | whole compound key-build (leaf) |
+
+So the **entire compound key-build is 1.05 % of VM self-time**, and the
+**compound lookup is ≈ 2.7 % pro-rata** (11.5 % of the 23.5 % cluster B; a little
+higher in practice — compound keys are longer and 12 % take a stem-fallback).
+gprof-native ratio **lookup : build ≈ 2.6 : 1** — consistent with the byte-op
+split (2.5 : 1) and the ablation (4 : 1; more call overhead shows up on
+macOS/clang). **Headline: the entire compound-access cost — build *and* lookup —
+is only ≈ 3.8 % of VM self-time** on the exact profile basis that reported the
+"22 %". The other ~88 % of cluster B is simple-variable access (§2.4).
+
 ### 2.3 Verdict for FRAGE 1
 
 - **Lookup dominates (~80 %).** Within it, the **hash** is the single largest
@@ -152,9 +184,10 @@ because of the lookup's per-access call overhead.
   memory-access character CON-12 expects the Hercules multiplier to amplify.
   The **bucket walk is already cheap** (1.04 nodes) — the table is well-sized,
   so OC-06 should attack the *hash + call overhead*, not the chain length.
-- **Key-build is the minority (~20 %)** but **non-trivial**, and it is the part
-  the committed gprof could not see (folded into `IRXBEXEC` self-time). A cache
-  that probes *before* building the key captures this slice too.
+- **Key-build is the minority (~20 %)** but **non-trivial**; the committed gprof
+  could not see it (folded into `IRXBEXEC` self-time) — §2.2b now measures it at
+  **1.05 % of VM self-time**. A cache that probes *before* building the key
+  captures this slice too.
 - **Escalation gate NOT triggered.** The time is in the lookup, as CON-12
   assumed — no re-interpretation needed.
 
@@ -370,6 +403,11 @@ EXTRA_CFLAGS="-DDIAG_DOUBLE_LOOKUP" ./build.sh /tmp/oc06diag/tstcps_dl
 #    run each 3×, compare cpu_user
 # 4. hit-rate analysis
 python3 analyze.py /tmp/oc06diag/trace.tsv
+# 5. gprof-native cross-check (§2.2b) on a Linux host with gprof:
+#    extract the OP_LOAD_STEM/OP_STORE_STEM key-build into a
+#    `noinline irx_diag_build_key()` (local, uncommitted), then:
+REXX370_BCDEBUG=1 ./scripts/host-profile.sh --source=test/rexxcps.rexx
+grep -E "irx_diag_build_key|VPOOLGTB|VPOOLSTB" build/host-profile/profile.txt
 ```
 
 Appendices A (instrumentation map) and B (`analyze.py`) below make this
