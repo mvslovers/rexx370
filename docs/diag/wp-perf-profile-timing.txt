@@ -1,0 +1,1 @@
+wall=6.988s  cpu_user=6.985s  cpu_sys=0.003s  exit_rc=0

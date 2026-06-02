@@ -44,7 +44,11 @@ build/
 
 
 # Build system
+# Credential / local-config files (never commit; .env.example is the template)
 .env
+.env.*
+!.env.example
+*.drnbrx*
 *.jcl
 !test/mvs/*.jcl
 !test/mvs/jcl/*.jcl

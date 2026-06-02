@@ -1,0 +1,8 @@
+----- REXXCPS 2.2 -- Measuring REXX clauses/second -----
+ REXX version is: REXX370 0.1.0 16 Apr 2026
+       System is: MVS
+        Averaged: 100 x 100 iterations of 1000 clauses (over 7.0s)
+
+     Performance: 1431706 REXX clauses per second
+
+[bc] exec=1 fallback=0
