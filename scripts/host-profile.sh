@@ -127,7 +127,10 @@ ENGINE_SRC="${REPO_ROOT}/src/irx#init.c \
             ${REPO_ROOT}/src/irx#pars.c \
             ${REPO_ROOT}/src/irx#ctrl.c \
             ${REPO_ROOT}/src/irx#exec.c \
-            ${REPO_ROOT}/src/irx#arith.c"
+            ${REPO_ROOT}/src/irx#arith.c \
+            ${REPO_ROOT}/src/irx#bcom.c \
+            ${REPO_ROOT}/src/irx#bvm.c  \
+            ${REPO_ROOT}/src/irx#bctl.c"
 
 # shellcheck disable=SC2086
 "${CC}" \
