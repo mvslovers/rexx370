@@ -1650,6 +1650,55 @@ include = [
 "mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
+# TSTBCMP - WP-BC-OC12: numeric-compare int_cache fast-path.
+# Verifies the bytecode VM comparison opcodes (OP_EQ..OP_GE) take
+# the int_cache fast-path when both operands are LINTEGER and
+# NUMERIC FUZZ is 0, and otherwise fall back to irx_arith_compare
+# (and its string-memcmp tail) unchanged.  Equivalence vs the
+# token-walk reference (CON-18) plus teeth tests that flip if the
+# fast-path ever misfires on a decimal operand.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTBCMP)'
+#   Batch  :  EXEC PGM=TSTBCMP
+#
+# Expected: CC=0
+#
+# WP-BC-OC12.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTBCMP"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTBCMP",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
+  "IRX#BCTL",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
 # TSTLOAD - WP-CPS-07 IRXLOAD C-core unit tests.
 # Tests irx_load_dispatch() directly (bypasses the asm IRXLOAD
 # wrapper). Host build uses the filesystem backend; MVS build

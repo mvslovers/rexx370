@@ -453,6 +453,19 @@ static int try_arith_fast(struct bc_stack_slot *dst,
     return 1;
 }
 
+/* Current NUMERIC FUZZ for this environment, or the default (0) when no
+ * work block is reachable (e.g. a bare batch VM run). */
+static int bc_numeric_fuzz(struct envblock *envblock)
+{
+    if (envblock != NULL && envblock->envblock_userfield != NULL)
+    {
+        const struct irx_wkblk_int *wk =
+            (const struct irx_wkblk_int *)envblock->envblock_userfield;
+        return wk->wkbi_fuzz;
+    }
+    return NUMERIC_FUZZ_DEFAULT;
+}
+
 /* ================================================================== */
 /*  PARSE sub-VM frame (WP-BC-05 PR A)                               */
 /* ================================================================== */
@@ -1461,38 +1474,85 @@ int irx_bc_execute(struct envblock *envblock,
                 {
                     int cmp;
                     int result;
-                    int arc;
 
                     if (sp < 2)
                     {
                         vm_rc = IRXBC_ERR_STACK;
                         goto done;
                     }
-                    arc = irx_arith_compare(envblock,
-                                            stack[sp - 2].str,
-                                            stack[sp - 1].str,
-                                            &cmp);
-                    sp--;
-                    if (arc != IRXPARS_OK)
+                    /* WP-BC-OC12 integer fast-path: when BOTH operands are
+                     * cached as a plain int32 (LINTEGER), derive cmp from a
+                     * direct int_cache comparison and skip irx_arith_compare,
+                     * which otherwise re-parses both .str operands through
+                     * num_from_str (profile Cluster A, the largest hot spot).
+                     *
+                     * Guard rationale:
+                     *  - BOTH must be LINTEGER.  A decimal/exponent/non-numeric
+                     *    operand is never cached (try_parse_int_cache rejects
+                     *    it), so '5 < 5.5' and 'a < b' fall through unchanged.
+                     *  - FUZZ must be 0.  With NUMERIC FUZZ > 0 irx_arith_compare
+                     *    applies a magnitude-scaled tolerance that can declare
+                     *    two distinct integers equal — a result a raw int_cache
+                     *    compare cannot reproduce.  The bytecode VM never writes
+                     *    wkbi_fuzz (NUMERIC FUZZ forces token-walk fallback), so
+                     *    fuzz is normally 0 here; the guard is defensive and also
+                     *    keeps us correct if a work block carrying fuzz != 0 is
+                     *    ever shared into a VM run.
+                     *  - DIGITS needs no guard: num_from_str does not round
+                     *    operands on parse, so the fuzz==0 compare is exact for
+                     *    int32 values under any NUMERIC DIGITS setting.
+                     *
+                     * The fast-path replaces only the numeric comparison; the
+                     * irx_arith_compare path and its string-memcmp fallback
+                     * below are reached unchanged for every other case. */
+                    if (stack[sp - 2].type_cache == IRXBC_STACK_LINTEGER &&
+                        stack[sp - 1].type_cache == IRXBC_STACK_LINTEGER &&
+                        bc_numeric_fuzz(envblock) == 0)
                     {
-                        /* Fall back to string comparison */
-                        int slen_a = (int)Llen(stack[sp - 1].str);
-                        int slen_b = (int)Llen(stack[sp].str);
-                        int min_len =
-                            slen_a < slen_b ? slen_a : slen_b;
-                        int scmp = (Lpstr(stack[sp - 1].str) &&
-                                    Lpstr(stack[sp].str))
-                                       ? memcmp(Lpstr(stack[sp - 1].str),
-                                                Lpstr(stack[sp].str),
-                                                (size_t)min_len)
-                                       : 0;
-                        if (scmp == 0)
+                        int32_t va = stack[sp - 2].int_cache;
+                        int32_t vb = stack[sp - 1].int_cache;
+                        if (va < vb)
                         {
-                            cmp = slen_a - slen_b;
+                            cmp = -1;
+                        }
+                        else if (va > vb)
+                        {
+                            cmp = 1;
                         }
                         else
                         {
-                            cmp = scmp < 0 ? -1 : 1;
+                            cmp = 0;
+                        }
+                        sp--;
+                    }
+                    else
+                    {
+                        int arc = irx_arith_compare(envblock,
+                                                    stack[sp - 2].str,
+                                                    stack[sp - 1].str,
+                                                    &cmp);
+                        sp--;
+                        if (arc != IRXPARS_OK)
+                        {
+                            /* Fall back to string comparison */
+                            int slen_a = (int)Llen(stack[sp - 1].str);
+                            int slen_b = (int)Llen(stack[sp].str);
+                            int min_len =
+                                slen_a < slen_b ? slen_a : slen_b;
+                            int scmp = (Lpstr(stack[sp - 1].str) &&
+                                        Lpstr(stack[sp].str))
+                                           ? memcmp(Lpstr(stack[sp - 1].str),
+                                                    Lpstr(stack[sp].str),
+                                                    (size_t)min_len)
+                                           : 0;
+                            if (scmp == 0)
+                            {
+                                cmp = slen_a - slen_b;
+                            }
+                            else
+                            {
+                                cmp = scmp < 0 ? -1 : 1;
+                            }
                         }
                     }
                     switch (op)
