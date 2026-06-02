@@ -113,8 +113,8 @@
 /*  String ops (WP-BC-02) — all 1 byte                              */
 /* ================================================================== */
 
-#define OP_CONCAT  0x60 /* ||  — explicit concatenation            */
-#define OP_BCONCAT 0x61 /* abuttal with one blank                  */
+#define OP_CONCAT  0x60 /* concatenation, no blank (|| or abuttal) */
+#define OP_BCONCAT 0x61 /* blank concatenation (one blank)         */
 
 /* ================================================================== */
 /*  I/O ops (WP-BC-03)                                               */

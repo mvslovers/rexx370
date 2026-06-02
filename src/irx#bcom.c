@@ -650,7 +650,17 @@ static void loop_add_iterate_patch(struct bcom_ctx *ctx, struct bc_loop_ctx *f,
 /*  Adjacency check (WP-BC-04)                                        */
 /* ================================================================== */
 
-/* True when b immediately follows a in source with no whitespace gap. */
+/* True when b immediately follows a in source with no whitespace gap.
+ *
+ * The source-end column of a string-like token is its start column plus
+ * its body length plus the surrounding delimiters that tok_length does
+ * not count: 2 for a plain quoted string, 3 for a hex / bin string (which
+ * also carries a trailing x / b suffix).  This mirrors tok_source_end_col
+ * in the token-walk (src/irx#pars.c) so the bytecode compiler computes
+ * adjacency identically.  The hex/bin arm is currently unreachable from
+ * the concatenation site (bc_exp8 rejects hex/bin operands and forces a
+ * whole-program token-walk fallback); it is kept faithful to the
+ * reference so the helper stays correct if that ever changes. */
 static int toks_adjacent_bc(const struct irx_token *a,
                             const struct irx_token *b)
 {
@@ -664,10 +674,13 @@ static int toks_adjacent_bc(const struct irx_token *a,
         return 0;
     }
     end = (int)a->tok_col + (int)a->tok_length;
-    /* STRING tokens are delimited by quotes not reflected in tok_length */
     if (a->tok_type == TOK_STRING)
     {
         end += 2;
+    }
+    else if (a->tok_type == TOK_HEXSTRING || a->tok_type == TOK_BINSTRING)
+    {
+        end += 3;
     }
     return end == (int)b->tok_col;
 }
@@ -2230,12 +2243,24 @@ static void bc_exp3(struct bcom_ctx *ctx)
         }
         else if (is_value_starter(ctx, 0))
         {
+            /* Implicit concatenation. Decide abuttal vs. blank by source
+             * adjacency BEFORE bc_exp4 advances past the right operand,
+             * mirroring the token-walk parse_concat (src/irx#pars.c): the
+             * left operand's last token sits at pos-1 and the right
+             * operand's first token at pos.  Adjacent in source (no
+             * whitespace gap) is an abuttal -> OP_CONCAT (no blank); a gap
+             * is a blank concatenation -> OP_BCONCAT.  Terms on different
+             * source lines (reachable only across a line-spanning comment)
+             * are not adjacent and keep the prior blank behavior. */
+            const struct irx_token *lhs_last = tok_at(ctx, -1);
+            const struct irx_token *rhs_first = tok_at(ctx, 0);
+            int abuttal = toks_adjacent_bc(lhs_last, rhs_first);
             bc_exp4(ctx);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
             }
-            emit_byte(ctx, OP_BCONCAT);
+            emit_byte(ctx, abuttal ? OP_CONCAT : OP_BCONCAT);
         }
         else
         {

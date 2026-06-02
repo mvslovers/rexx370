@@ -149,8 +149,8 @@ Pop two slots, push "0" or "1".
 | `OP_OR` | 0x51 | 1 | `a \| b` — logical OR |
 | `OP_XOR` | 0x52 | 1 | `a && b` — logical XOR |
 | `OP_NOT` | 0x53 | 1 | `\a` — logical NOT (pops 1, pushes "0"/"1") |
-| `OP_CONCAT` | 0x60 | 1 | `a \|\| b` — concatenate without separator |
-| `OP_BCONCAT` | 0x61 | 1 | `a b` — concatenate with one blank |
+| `OP_CONCAT` | 0x60 | 1 | `a\|\|b` or abuttal `a'b'` — concatenate without separator |
+| `OP_BCONCAT` | 0x61 | 1 | `a b` — blank concatenation (one blank) |
 | `OP_SAY` | 0x70 | 1 | Pop TOS, output via IRXINOUT |
 
 ### 3.6 Phase 3 — Control Flow (WP-BC-03)
