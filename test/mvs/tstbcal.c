@@ -398,6 +398,105 @@ static void test_bif_contexts(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  WP-BC-OC09: BIF direct-dispatch cache                              */
+/*                                                                    */
+/*  The VM caches BIF resolution per symbol index, replacing a per-    */
+/*  call linear registry walk.  These cases pin the properties that    */
+/*  the cache must not break: a user-defined routine shadows a same-   */
+/*  named BIF (the cache is never consulted for that symbol), repeated */
+/*  and mixed BIF calls stay correct, the cache is shared across the   */
+/*  expression (OP_CALL_BIF) and CALL (OP_CALL) forms, and an unknown  */
+/*  name still falls through to the not-found error instead of being   */
+/*  swallowed.                                                         */
+/* ------------------------------------------------------------------ */
+
+static void test_bif_dispatch_cache(struct envblock *env)
+{
+    struct irx_bc_execblk *bc = NULL;
+    int unsup_reason = 0;
+    int unsup_line = 0;
+    int bc_rc = 0;
+    int rc;
+    const char *unknown_src = "SAY ZZNOSUCH(\"x\")";
+
+    printf("\n[WP-BC-OC09 BIF dispatch cache]\n");
+
+    /* A user-defined routine shadows a same-named BIF.  label_pc wins,
+     * so the BIF cache for this symbol is never populated or used. */
+    equiv(env,
+          "CALL length \"ignored\"\n"
+          "SAY RESULT\n"
+          "EXIT\n"
+          "length:\n"
+          "  RETURN \"user-length\"\n",
+          "user routine shadows BIF (CALL form)");
+
+    /* Same shadow in expression form (OP_CALL_BIF).  Token-walk has no
+     * user-defined func() in expr context, so this is bytecode-only. */
+    bc_only(env,
+            "SAY length(\"ignored\")\n"
+            "EXIT\n"
+            "length:\n"
+            "  RETURN \"user-length\"\n",
+            "user-length\n",
+            "user routine shadows BIF (expr form)");
+
+    /* Repeated calls of one BIF exercise the cache hot path. */
+    equiv(env,
+          "DO i = 1 TO 4\n"
+          "  SAY LENGTH(\"abcd\")\n"
+          "END",
+          "repeated BIF call (hot path)");
+
+    /* Distinct BIFs populate distinct cache slots. */
+    equiv(env,
+          "SAY SUBSTR(\"abcdef\", 2, 3)\n"
+          "SAY LENGTH(\"hello\")\n"
+          "SAY WORD(\"alpha beta gamma\", 2)\n"
+          "SAY FORMAT(3.14159, 2, 2)\n"
+          "SAY REVERSE(\"xyz\")",
+          "mixed distinct BIFs (SUBSTR/LENGTH/WORD/FORMAT/REVERSE)");
+
+    /* The same BIF reached through both the expression form and the
+     * CALL-statement form shares one cache slot (same symbol index). */
+    equiv(env,
+          "SAY LENGTH(\"abcde\")\n"
+          "CALL LENGTH \"xy\"\n"
+          "SAY RESULT\n"
+          "SAY LENGTH(\"abcde\")",
+          "shared cache across expr + CALL forms");
+
+    /* A user routine and a real BIF with different names keep separate
+     * slots and resolutions in the same run. */
+    equiv(env,
+          "CALL mylen \"abc\"\n"
+          "SAY RESULT\n"
+          "SAY LENGTH(\"abcd\")\n"
+          "EXIT\n"
+          "mylen:\n"
+          "  RETURN ARG(1)\n",
+          "user routine and BIF coexist");
+
+    /* Unknown name: resolution returns NULL on every call, so the VM
+     * still reports the not-found error (IRXBC_ERR_UNSUP).  Driven
+     * directly through the VM so the exec-layer token-walk fallback
+     * does not mask the bytecode behavior — this confirms the fast-path
+     * does not swallow unknown names. */
+    rc = irx_bc_compile(env, unknown_src, (int)strlen(unknown_src),
+                        &bc, &unsup_reason, &unsup_line);
+    CHECK(rc == IRXBC_OK && bc != NULL,
+          "unknown BIF compiles (compiler is BIF-agnostic)");
+    if (rc == IRXBC_OK && bc != NULL)
+    {
+        rc = irx_bc_execute(env, bc, NULL, 0, &bc_rc);
+        CHECK(rc == IRXBC_ERR_UNSUP,
+              "unknown BIF -> not-found error (not swallowed)");
+        void *p = bc;
+        irxstor(RXSMFRE, 0, &p, env);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -428,6 +527,7 @@ int main(void)
     test_arg_bif(env);
     test_return_top(env);
     test_bif_contexts(env);
+    test_bif_dispatch_cache(env);
 
     irxterm(env);
 

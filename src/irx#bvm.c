@@ -156,6 +156,71 @@ static int get_entry(const char *table_base, int table_count, int idx,
 }
 
 /* ================================================================== */
+/*  WP-BC-OC09: BIF direct dispatch via per-symbol resolution cache.  */
+/*                                                                    */
+/*  Resolve the BIF named by sym_idx, using and populating a cache    */
+/*  array indexed by sym_idx (one slot per symbol-table entry, NULL = */
+/*  not yet resolved).  This replaces the per-call linear walk of the */
+/*  BIF registry (irx_bif_find, a linked list with a name-compare and */
+/*  a node->next pointer-chase per node) with an O(1) pointer load on  */
+/*  every call after the first for a given sym_idx.                   */
+/*                                                                    */
+/*  Why the cache is sound (the registry-static assumption):          */
+/*   - The BIF registry is built one-shot at environment init and is  */
+/*     immutable thereafter — see irx#bifs.c: "Registration is one-   */
+/*     shot via irx_bif_register_all()".  A name therefore resolves    */
+/*     to the same entry for the life of the environment.             */
+/*   - label_pc[sym_idx] is fixed for the whole run, so a given        */
+/*     sym_idx is consistently either a user label (handled before we  */
+/*     ever get here — see OP_CALL/OP_CALL_BIF) or a BIF.  The user-   */
+/*     defined-function path is never reached through this helper, so  */
+/*     it is left completely untouched.                               */
+/*   - Only found (non-NULL) entries are cached.  An unknown name      */
+/*     (irx_bif_find -> NULL) is the caller's error path and ends the  */
+/*     run without re-dispatching that sym_idx, so caching NULL is     */
+/*     unnecessary and a NULL slot safely means "not yet resolved".   */
+/*                                                                    */
+/*  *bad_idx is set when sym_idx does not name a symbol-table entry    */
+/*  (corrupt bytecode) so the caller can raise IRXBC_ERR_OPCODE rather */
+/*  than IRXBC_ERR_UNSUP, preserving the existing error semantics.    */
+/* ================================================================== */
+
+static const struct irx_bif_entry *
+bvm_resolve_bif(struct envblock *envblock, const char *sym_base,
+                int n_syms, const struct irx_bif_entry **bif_cache,
+                int sym_idx, int *bad_idx)
+{
+    const char *name_data;
+    int name_len;
+    int valid_idx = (bif_cache != NULL && sym_idx >= 0 && sym_idx < n_syms);
+
+    *bad_idx = 0;
+
+    /* Hot path: previously resolved — no symbol lookup, no registry walk. */
+    if (valid_idx && bif_cache[sym_idx] != NULL)
+    {
+        return bif_cache[sym_idx];
+    }
+
+    name_len = get_entry(sym_base, n_syms, sym_idx, &name_data);
+    if (name_len < 0)
+    {
+        *bad_idx = 1;
+        return NULL;
+    }
+
+    const struct irx_bif_entry *bife = irx_bif_find(
+        bvm_get_bif_registry(envblock),
+        (const unsigned char *)name_data, (size_t)name_len);
+
+    if (bife != NULL && valid_idx)
+    {
+        bif_cache[sym_idx] = bife;
+    }
+    return bife;
+}
+
+/* ================================================================== */
 /*  Lstr helpers                                                      */
 /* ================================================================== */
 
@@ -631,6 +696,7 @@ int irx_bc_execute(struct envblock *envblock,
     struct bc_call_frame *call_frames = NULL;
     struct irx_parser *proxy_parser = NULL;
     int *label_pc = NULL;
+    const struct irx_bif_entry **bif_cache = NULL; /* WP-BC-OC09 */
     Lstr *lstrs = NULL;
     void *stack_mem = NULL;
     void *lstr_mem = NULL;
@@ -638,6 +704,7 @@ int irx_bc_execute(struct envblock *envblock,
     void *call_frame_mem = NULL;
     void *proxy_parser_mem = NULL;
     void *label_pc_mem = NULL;
+    void *bif_cache_mem = NULL; /* WP-BC-OC09 */
     int32_t *const_type_cache = NULL;
     int32_t *const_int_cache = NULL;
     void *const_cache_mem = NULL;
@@ -772,6 +839,25 @@ int irx_bc_execute(struct envblock *envblock,
                 scan_pos += opsz;
             }
         }
+    }
+
+    /* --- WP-BC-OC09: per-symbol BIF resolution cache ---------------- */
+    /* One pointer slot per symbol, indexed by sym_idx parallel to      */
+    /* label_pc.  NULL means "not yet resolved"; bvm_resolve_bif()       */
+    /* fills a slot on the first BIF dispatch for that symbol and        */
+    /* returns it directly on every later call (see the helper above).   */
+    if (n_syms > 0)
+    {
+        if (irxstor(RXSMGET,
+                    n_syms * (int)sizeof(const struct irx_bif_entry *),
+                    &bif_cache_mem, envblock) != 0)
+        {
+            vm_rc = IRXBC_ERR_STOR;
+            goto done;
+        }
+        memset(bif_cache_mem, 0,
+               (size_t)n_syms * sizeof(const struct irx_bif_entry *));
+        bif_cache = (const struct irx_bif_entry **)bif_cache_mem;
     }
 
     /* --- OC-07: pre-compute integer cache for all constants (WP-BC-06) */
@@ -2016,29 +2102,20 @@ int irx_bc_execute(struct envblock *envblock,
                     else
                     {
                         /* BIF fallback for CALL stmt */
-                        const struct irx_bif_registry *reg;
                         const struct irx_bif_entry *bife;
-                        const char *name_data;
-                        int name_len;
                         PLstr argv_arr[IRX_MAX_ARGS];
                         int ci;
                         int brc;
+                        int bad_idx;
 
-                        name_len = get_entry(sym_base, n_syms,
-                                             sym_idx, &name_data);
-                        if (name_len < 0)
-                        {
-                            vm_rc = IRXBC_ERR_OPCODE;
-                            goto done;
-                        }
-                        reg = bvm_get_bif_registry(envblock);
-                        bife = irx_bif_find(
-                            reg,
-                            (const unsigned char *)name_data,
-                            (size_t)name_len);
+                        /* WP-BC-OC09: cached per-symbol dispatch in place
+                         * of a per-call linear registry walk. */
+                        bife = bvm_resolve_bif(envblock, sym_base, n_syms,
+                                               bif_cache, sym_idx, &bad_idx);
                         if (bife == NULL)
                         {
-                            vm_rc = IRXBC_ERR_UNSUP;
+                            vm_rc = bad_idx ? IRXBC_ERR_OPCODE
+                                            : IRXBC_ERR_UNSUP;
                             goto done;
                         }
                         if (nargs < bife->min_args ||
@@ -2080,8 +2157,6 @@ int irx_bc_execute(struct envblock *envblock,
                                   sym_idx < n_syms)
                                      ? label_pc[sym_idx]
                                      : -1;
-                    const char *name_data;
-                    int name_len;
                     int ci;
 
                     pc += 3;
@@ -2144,10 +2219,10 @@ int irx_bc_execute(struct envblock *envblock,
                     else
                     {
                         /* BIF dispatch */
-                        const struct irx_bif_registry *reg;
                         const struct irx_bif_entry *bife;
                         PLstr argv_arr[IRX_MAX_ARGS];
                         int brc;
+                        int bad_idx;
 
                         /* net stack delta = -nargs+1; overflow only when nargs==0 */
                         if (sp - nargs + 1 > IRXBC_STACK_DEPTH)
@@ -2155,21 +2230,14 @@ int irx_bc_execute(struct envblock *envblock,
                             vm_rc = IRXBC_ERR_STACK;
                             goto done;
                         }
-                        name_len = get_entry(sym_base, n_syms,
-                                             sym_idx, &name_data);
-                        if (name_len < 0)
-                        {
-                            vm_rc = IRXBC_ERR_OPCODE;
-                            goto done;
-                        }
-                        reg = bvm_get_bif_registry(envblock);
-                        bife = irx_bif_find(
-                            reg,
-                            (const unsigned char *)name_data,
-                            (size_t)name_len);
+                        /* WP-BC-OC09: cached per-symbol dispatch in place
+                         * of a per-call linear registry walk. */
+                        bife = bvm_resolve_bif(envblock, sym_base, n_syms,
+                                               bif_cache, sym_idx, &bad_idx);
                         if (bife == NULL)
                         {
-                            vm_rc = IRXBC_ERR_UNSUP;
+                            vm_rc = bad_idx ? IRXBC_ERR_OPCODE
+                                            : IRXBC_ERR_UNSUP;
                             goto done;
                         }
                         if (nargs < bife->min_args ||
@@ -3475,6 +3543,11 @@ done:
     if (label_pc_mem != NULL)
     {
         void *p = label_pc_mem;
+        irxstor(RXSMFRE, 0, &p, envblock);
+    }
+    if (bif_cache_mem != NULL)
+    {
+        void *p = bif_cache_mem;
         irxstor(RXSMFRE, 0, &p, envblock);
     }
     if (proxy_parser_mem != NULL)
