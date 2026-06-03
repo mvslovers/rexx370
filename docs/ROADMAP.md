@@ -53,20 +53,31 @@ Two execution paths exist:
 ### Axis 1 — Performance (toward BREXX)
 
 The three large, clearly-measurable hotspots from the first profile are done
-(OC-12 numeric compare, OC-09 BIF dispatch, OC-ARITH integer op). The profile is
-now stale — three optimizations have shifted the cost landscape.
+(OC-12 numeric compare, OC-09 BIF dispatch, OC-ARITH integer op).
 
-**Next action: a fresh bytecode-VM profile** (`scripts/host-profile.sh` is now
-fixed for the bytecode path, PR #179) to find where time goes *now*, before
-choosing the next optimization. Do not optimize on the old profile's hypotheses.
+**The re-profile is done** (`docs/diag/wp-perf-profile-2.md`, HEAD `210b90f`,
+2026-06-03). Verdict: OC-09 was decisive (BIF name-compare `ebcdic_eq`
+57.3 M → 269 calls — cluster C gone); OC-12/OC-ARITH cut numeric ~24 % (cluster A
+roughly halved, not gone); cluster B (variable pool) was untouched as designed
+and is **now the #1 cluster (~27 % flat self)**.
 
-Open candidates (see CON-12 for full analysis):
-- **(re-profile first)** — identify the current top hotspot
-- **OC-11** — HLASM hot-path for the top 1-3 functions (the eventual lever, after
-  algorithmic wins are exhausted)
+Next candidates, ranked by the new profile (share ≠ lever — see the doc):
+- **Variable-resolution inline cache** (top recommendation) — cache the resolved
+  vpool entry pointer at each bytecode reference *operand site*, for the ~88 %
+  **simple-variable** bulk of cluster B. Memory-bound → multiplier applies;
+  ~16 % host estimate. **Explicitly NOT OC-06** (compound-only, measured 2.4–3.2 %
+  and rejected). Unmeasured — must be prototyped + measured on host AND MVS cps
+  first; the `PROCEDURE EXPOSE`/`DROP`/frame invalidation is the real risk.
+- **VM value copy-elision** (complementary) — the ~14 % lstring/VM-slot
+  string-copy cluster (`slot_set_buf`/`Lstrcpy`/`Lfx`); pairs with the inline
+  cache to fully drain `VPOOLGTB`. Memory-bound.
+- **OC-11** — HLASM / threaded dispatch for `IRXBEXEC` (the 20.6 % dispatch-loop
+  self-time; real on-target, the product also builds `-O0`). CPU-bound → weak
+  multiplier; the eventual lever, but per CON-12 discipline *after* the
+  algorithmic wins above.
 - **OC-02** — packed-decimal backend (only if decimal arithmetic ever proves to
-  be a real hotspot; rejected for REXXCPS as the decimal share is partly a
-  benchmark artifact)
+  be a real hotspot; cluster A residual is diminishing returns and partly a
+  benchmark artifact).
 
 Rejected/done: OC-06 (compound cache — measured, ~2.4-3.2%, not worth it),
 OC-07 (done via WP-BC-06), OC-08 (folds into OC-12), OC-10 (obsolete — bytecode
