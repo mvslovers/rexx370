@@ -101,7 +101,7 @@ Open items:
   (CON-17 §8.4: separate EXECBLK per call, recursive compile→execute→free,
   reentrant via heap-allocated bcom_ctx).
 - ~~**WP-BC-RT03**~~ — quote de-doubling for string literals (`'p''q''r'` →
-  `p'q'r`). **Done** (2026-06-03): `bc_exp8`'s `TOK_STRING` branch now runs
+  `p'q'r`). **Done** (PR #192, 2026-06-03): `bc_exp8`'s `TOK_STRING` branch now runs
   `bpse_dedouble` when `TOKF_QUOTE_DBL` is set, mirroring the PARSE-template
   path; one fix covers both quote kinds (`'` and `"`). This was a silent
   wrong-output divergence, not a `BC_FAIL_UNSUP` fallback gate. Token-walk (the
