@@ -395,19 +395,24 @@ have a runnable Linux cross-compile entry of its own.
 
 Full matrix: 15 binaries, **1200 tests green** as of WP-I1c.2 close-out.
 
-## Work packages
+## Work packages & roadmap
 
-See `docs/workpackages.md` for the full list of work packages.
-Each WP is self-contained with inputs, outputs, constraints,
-and acceptance criteria.
+**`docs/ROADMAP.md` is the single source of truth for current status and what's
+next.** Read it first. It orders all open work into five axes (Performance,
+Decommission/Correctness, Spec-Completeness, Environment/Anchor, Infrastructure)
+and tracks which design docs (CONs) are current vs. stale.
 
-Current status:
-- Phase 1 (WP-01 through WP-05): complete
-- Phase 2 (WP-10 through WP-18): complete
-- Phase 3 in progress:
-  - WP-20 (Arithmetic engine — 128/128 + 113/113 extended)
-  - WP-21a (String BIFs, 29 BIFs) — done
-  - WP-21b (Numeric/Conversion/Reflection/Environment BIFs, 23 BIFs) — done
+`docs/workpackages.md` holds the historical Phase 1-3 per-WP definitions and is
+**frozen/stale** — do not treat its status table as current.
+
+Current status (2026-06-03), summarized — see ROADMAP.md for detail:
+- Phases 1-3 (skeleton, core interpreter, arithmetic + BIFs): complete
+- REXXCPS runs end-to-end on the **bytecode VM** (the primary path); the
+  token-walk interpreter is frozen (CON-18) as fallback + equivalence reference
+- Active focus: performance toward BREXX (~20.9k vs ~89.9k cps on System A,
+  factor ~4.3×) and token-walk decommission (CON-20)
+- Next performance step: a **fresh bytecode-VM profile** (the old profile is
+  stale after three optimization rounds) before choosing the next optimization
 
 ## Knowledge sources
 
