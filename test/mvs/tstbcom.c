@@ -306,6 +306,66 @@ static void test_compound_stem_default(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Bare-stem assignment resets the stem (WP-BC-STEMRESET, #183)        */
+/*                                                                    */
+/*  REXX (SC28-1883-0): assigning to a bare stem (A. = value) sets    */
+/*  the default for every tail AND discards all previously assigned   */
+/*  tails. The VM fix drops the existing tails before writing the new */
+/*  default.                                                          */
+/*                                                                    */
+/*  Token-walk shares this bug and is frozen under CON-18, so the     */
+/*  diverging cases (1 and 4) use bc_only() with explicit expected    */
+/*  output as the authoritative check. equiv() is used only for the   */
+/*  cases where token-walk and bytecode already agree and are correct */
+/*  (2 and 3), to confirm the fix does not disturb that agreement.    */
+/* ------------------------------------------------------------------ */
+
+static void test_compound_stem_reset(struct envblock *env)
+{
+    printf("\n[Compound variable — bare-stem assignment resets tails]\n");
+
+    /* (1) Core bug: bare-stem default clears a previously set tail. */
+    bc_only(env,
+            "A.1 = 5\nA. = 0\nSAY A.1\n",
+            "0\n",
+            "bare-stem default clears existing tail A.1");
+
+    /* (2) A tail assigned AFTER the default still takes effect. */
+    bc_only(env,
+            "A. = 0\nA.1 = 5\nSAY A.1\n",
+            "5\n",
+            "tail assigned after stem default overrides it");
+
+    /* (3) The default applies to never-assigned tails. */
+    bc_only(env,
+            "A. = 0\nSAY A.99\n",
+            "0\n",
+            "stem default returned for never-assigned tail");
+
+    /* (4) All prior tails cleared; new default covers every tail. */
+    bc_only(env,
+            "A.1 = 5\nA.2 = 7\nA. = 9\nSAY A.1 A.2 A.3\n",
+            "9 9 9\n",
+            "bare-stem default clears all tails and applies everywhere");
+
+    /* (5) The reset matches the full stem incl. its dot, so a sibling
+     * stem whose name shares the leading characters (AB. vs A.) is NOT
+     * affected. Guards against an over-broad prefix match. */
+    bc_only(env,
+            "AB.1 = 7\nA.1 = 5\nA. = 0\nSAY A.1 AB.1\n",
+            "0 7\n",
+            "bare-stem reset does not touch sibling stem AB.");
+
+    /* Equivalence against token-walk for the non-diverging cases only.
+     * Cases 1 and 4 diverge after the fix (token-walk shares the bug,
+     * frozen under CON-18) and are covered by bc_only() above. */
+    equiv(env, "A. = 0\nA.1 = 5\nSAY A.1\n",
+          "stem reset: tail after default (tokwalk agrees)");
+    equiv(env, "A. = 0\nSAY A.99\n",
+          "stem reset: default for unset tail (tokwalk agrees)");
+}
+
+/* ------------------------------------------------------------------ */
 /*  DROP statement                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -578,6 +638,7 @@ int main(void)
     test_compound_basic(env);
     test_compound_multilevel(env);
     test_compound_stem_default(env);
+    test_compound_stem_reset(env);
     test_compound_drop(env);
     test_compound_expr(env);
     test_compound_do(env);
