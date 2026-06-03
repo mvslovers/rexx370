@@ -285,6 +285,127 @@ static void test_unsup_diag(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  WP-BC-OC-ARITH — arithmetic op-path integer fast-path equivalence  */
+/*                                                                     */
+/*  The op-path integer fast-path parses uncached but integer-valued   */
+/*  operands on demand (BIF / prior-BCD results that cleared           */
+/*  type_cache).  The BCD / token-walk path is the reference: every    */
+/*  bytecode result must be bit-identical to it.  Each case below runs */
+/*  the same source token-walk then bytecode and asserts the SAY       */
+/*  output matches AND the bytecode path actually executed (no UNSUP   */
+/*  fallback) — so the fast path is genuinely on trial, not bypassed.  */
+/* ------------------------------------------------------------------ */
+static void run_equiv(struct envblock *env, const char *src,
+                      const char *label)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)env->envblock_userfield;
+    int src_len = (int)strlen(src);
+    int tw_rc;
+    int bc_rc;
+    int exit_rc = 0;
+    char tw_out[CAPBUF];
+
+    if (wk == NULL)
+    {
+        CHECK(0, label);
+        return;
+    }
+
+    /* Token-walk reference run (always the BCD engine). */
+    cap_reset();
+    wk->wkbi_use_bytecode = 0;
+    tw_rc = irx_exec_run(src, src_len, NULL, 0, &exit_rc, env);
+    memcpy(tw_out, g_cap, (size_t)(g_cap_len + 1));
+
+    /* Bytecode run (fast path under test). */
+    cap_reset();
+    wk->wkbi_use_bytecode = 1;
+    wk->wkbi_bc_fallback_count = 0;
+    bc_rc = irx_exec_run(src, src_len, NULL, 0, &exit_rc, env);
+    wk->wkbi_use_bytecode = 0;
+
+    CHECK(tw_rc == 0 && bc_rc == 0 &&
+              wk->wkbi_bc_fallback_count == 0 &&
+              strcmp(tw_out, g_cap) == 0,
+          label);
+    if (strcmp(tw_out, g_cap) != 0)
+    {
+        printf("    [%s] tw:[%s] bc:[%s]\n", label, tw_out, g_cap);
+    }
+}
+
+static void test_arith_equiv(struct envblock *env)
+{
+    /* clang-format off */
+    static const struct
+    {
+        const char *src;
+        const char *label;
+    } cases[] = {
+        /* --- named fixable constructs (the WP targets, uncached int) -- */
+        { "do j=1 to 3\n say length(j) - 1\n end\n",
+          "length(j)-1: uncached SUB hits fast path" },
+        { "k='Key Bee'\n a.k.1 = substr(12345678,6,2)\n"
+          " a.k.1 = a.k.1 + 1\n say a.k.1\n",
+          "compound+1: uncached substr result ADD" },
+
+        /* --- mixed cached / uncached ADD,SUB,MUL ---------------------- */
+        { "x = substr('00042',1,5)\n say x + 8\n",
+          "uncached + cached" },
+        { "x = substr('00042',1,5)\n say 100 - x\n",
+          "cached - uncached" },
+        { "x = length('abcd')\n y = length('xy')\n say x * y\n",
+          "uncached * uncached" },
+        { "x = substr('123',1,3)\n say x - x\n",
+          "uncached - uncached (= 0)" },
+        { "x = substr('50000',1,5)\n say x * x\n",
+          "uncached operand, MUL overflow -> BCD" },
+
+        /* --- DIGITS-9 / int32 overflow boundaries (must equal BCD) ---- */
+        { "say 999999999 + 999999999\n", "ADD > 9 digits (rounds)" },
+        { "say 999999999 + 1\n",         "ADD = 1E9 boundary" },
+        { "say 1 - 1000000000\n",        "SUB -1E9 boundary" },
+        { "say 50000 * 50000\n",         "MUL int32 overflow" },
+        { "say 100000 * 100000\n",       "MUL -> 1E+10" },
+        { "say 99999 * 99999\n",         "MUL 10-digit result" },
+
+        /* --- negatives & numeric normalization ----------------------- */
+        { "say -5 + 3\n",                "negative ADD" },
+        { "say -3 * -4\n",               "negative MUL" },
+        { "x = substr('007',1,3)\n say x + 0\n",
+          "leading-zero operand normalizes to 7" },
+
+        /* --- decimals MUST stay on BCD (not mis-routed to fast path) -- */
+        { "say 5 + 99.7\n",              "decimal ADD stays BCD" },
+        { "say 2.5 * 4\n",               "decimal MUL stays BCD" },
+        { "x = 1\n do k=1 to 5\n x = x * 1.1\n end\n say x\n",
+          "decimal MUL accumulator stays BCD" },
+
+        /* --- ops the WP does not touch stay on BCD -------------------- */
+        { "say 10 % 3\n say 10 // 3\n",  "IDIV/MOD unchanged" },
+        { "say 2 ** 10\n",               "POW unchanged" }
+
+        /* NB: a decimal-step `do j=1.1 to 2.2 by 1.1` case is deliberately
+         * NOT included here.  Token-walk and bytecode disagree on it (tw
+         * yields 1,2; bc yields 1.1,2.2) on main and this branch alike — a
+         * pre-existing token-walk DO-loop defect orthogonal to the op-path
+         * fast path (bytecode output is unchanged by this WP).  Adding it
+         * would make the suite red for an unrelated reason. */
+    };
+
+    /* clang-format on */
+    int n = (int)(sizeof(cases) / sizeof(cases[0]));
+    int i;
+
+    printf("\n[WP-BC-OC-ARITH — op-path integer fast-path equivalence]\n");
+    for (i = 0; i < n; i++)
+    {
+        run_equiv(env, cases[i].src, cases[i].label);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -310,6 +431,7 @@ int main(void)
     }
 
     test_equiv(env);
+    test_arith_equiv(env);
     test_bc_path(env);
     test_unsup_diag(env);
 

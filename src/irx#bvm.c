@@ -316,10 +316,21 @@ static int slot_to_bool(const struct bc_stack_slot *slot)
 /*  Integer fast-path helpers                                         */
 /* ================================================================== */
 
-/* If data[0..len-1] is a plain decimal integer (optional leading sign),
- * populate slot->type_cache and slot->int_cache.  Otherwise no-op. */
-static void try_parse_int_cache(struct bc_stack_slot *slot,
-                                const char *data, int len)
+/* Largest magnitude with <= 9 significant decimal digits.  Operands and
+ * results within [-IRXBC_INT_FAST_MAX, +IRXBC_INT_FAST_MAX] are exact
+ * under the bytecode VM's fixed NUMERIC DIGITS 9 (a NUMERIC statement
+ * forces token-walk fallback, so the VM never runs at any other DIGITS).
+ * A result outside this range would require DIGITS-9 rounding and must
+ * fall back to the BCD engine to stay bit-identical to it. */
+#define IRXBC_INT_FAST_MAX 999999999
+
+/* Core integer parser shared by try_parse_int_cache (constant / variable
+ * load) and slot_int32_fast (the arith fast-path's parse-on-demand).
+ * This is the single source of truth for "is this a fast-path integer",
+ * so the op path and the OC-12 compare path classify operands
+ * identically.  Returns 1 and writes *out when data[0..len-1] is a plain
+ * decimal integer (optional leading sign) of <= 9 digits; 0 otherwise. */
+static int parse_int32_fast(const char *data, int len, int32_t *out)
 {
     const unsigned char *p = (const unsigned char *)data;
     int32_t v = 0;
@@ -328,7 +339,7 @@ static void try_parse_int_cache(struct bc_stack_slot *slot,
 
     if (len <= 0)
     {
-        return;
+        return 0;
     }
     if (p[i] == (unsigned char)'-')
     {
@@ -341,22 +352,68 @@ static void try_parse_int_cache(struct bc_stack_slot *slot,
     }
     if (i >= len)
     {
-        return; /* sign only */
+        return 0; /* sign only */
     }
     for (; i < len; i++)
     {
         if (p[i] < (unsigned char)'0' || p[i] > (unsigned char)'9')
         {
-            return; /* non-digit — not a plain integer */
+            return 0; /* non-digit — not a plain integer */
         }
-        if (v > 99999999)
+        if (v > IRXBC_INT_FAST_MAX / 10)
         {
-            return; /* would overflow int32 fast path */
+            return 0; /* would exceed the 9-digit fast-path window */
         }
         v = v * 10 + (int32_t)(p[i] - (unsigned char)'0');
     }
-    slot->type_cache = IRXBC_STACK_LINTEGER;
-    slot->int_cache = neg ? -v : v;
+    *out = neg ? -v : v;
+    return 1;
+}
+
+/* If data[0..len-1] is a plain decimal integer (optional leading sign),
+ * populate slot->type_cache and slot->int_cache.  Otherwise no-op. */
+static void try_parse_int_cache(struct bc_stack_slot *slot,
+                                const char *data, int len)
+{
+    int32_t v;
+
+    if (parse_int32_fast(data, len, &v))
+    {
+        slot->type_cache = IRXBC_STACK_LINTEGER;
+        slot->int_cache = v;
+    }
+}
+
+/* Resolve a stack slot to its int32 fast-path value.  A slot already
+ * cached as LINTEGER is used directly.  Otherwise, when allow_parse is
+ * set, its string is parsed on demand through parse_int32_fast (the same
+ * 9-digit window) — this is WP-BC-OC-ARITH: a BIF result (length, substr)
+ * or a prior BCD result is integer-valued but carries type_cache == 0
+ * (slot_set_buf and the BCD op path both clear it), so without the parse
+ * it would needlessly fall to BCD.  Returns 1 + *out on success, 0 to
+ * fall back.  The slot is const: a read-only parse, no mutation and no
+ * alloc/free. */
+static int slot_int32_fast(const struct bc_stack_slot *slot, int allow_parse,
+                           int32_t *out)
+{
+    if (slot->type_cache == IRXBC_STACK_LINTEGER)
+    {
+        *out = slot->int_cache;
+        return 1;
+    }
+    if (!allow_parse)
+    {
+        return 0;
+    }
+
+    const char *p = (const char *)Lpstr(slot->str);
+    int len = (int)Llen(slot->str);
+
+    if (p == NULL || len == 0)
+    {
+        return 0;
+    }
+    return parse_int32_fast(p, len, out);
 }
 
 /* Convert a stack slot to int32.  Uses cached value when available;
@@ -443,53 +500,69 @@ static int i32toa(int32_t v, char *buf)
 }
 
 /* Attempt integer fast-path for binary arithmetic ops.
- * Returns 1 and writes result into dst on success; 0 to fall back. */
+ * Returns 1 and writes result into dst on success; 0 to fall back.
+ *
+ * WP-BC-OC-ARITH: for ADD/SUB/MUL an uncached but integer-valued operand
+ * is parsed on demand (slot_int32_fast), so results of BIFs / BCD ops
+ * that cleared type_cache still take the fast path.  IDIV/MOD keep the
+ * strict cached-only requirement (out of scope per the WP).  Every
+ * fast-path result is bit-identical to the BCD engine: operands are
+ * <= 9 digits and each op bails to BCD when the exact result would leave
+ * the 9-digit window (IRXBC_INT_FAST_MAX) — i.e. when NUMERIC DIGITS 9
+ * rounding or an int32 overflow would otherwise make the raw int32
+ * diverge from BCD.  The call site additionally gates on DIGITS == 9. */
 static int try_arith_fast(struct bc_stack_slot *dst,
                           const struct bc_stack_slot *a,
                           const struct bc_stack_slot *b,
                           unsigned char op,
                           struct lstr_alloc *alloc)
 {
+    int allow_parse = (op == OP_ADD || op == OP_SUB || op == OP_MUL);
     int32_t va;
     int32_t vb;
     int32_t result;
     char buf[24];
     int len;
 
-    if (a->type_cache != IRXBC_STACK_LINTEGER ||
-        b->type_cache != IRXBC_STACK_LINTEGER)
+    if (!slot_int32_fast(a, allow_parse, &va) ||
+        !slot_int32_fast(b, allow_parse, &vb))
     {
         return 0;
     }
-    va = a->int_cache;
-    vb = b->int_cache;
 
     switch (op)
     {
         case OP_ADD:
+            /* Operands are <= 9 digits, so va + vb cannot overflow int32;
+             * bail only when the result leaves the 9-digit window and
+             * would need DIGITS-9 rounding by the BCD engine. */
             result = va + vb;
-            /* Overflow: same-sign operands with different-sign result */
-            if (((va ^ vb) >= 0) && ((result ^ va) < 0))
+            if (result > IRXBC_INT_FAST_MAX || result < -IRXBC_INT_FAST_MAX)
             {
                 return 0;
             }
             break;
         case OP_SUB:
             result = va - vb;
-            if (((va ^ vb) < 0) && ((result ^ va) < 0))
+            if (result > IRXBC_INT_FAST_MAX || result < -IRXBC_INT_FAST_MAX)
             {
                 return 0;
             }
             break;
         case OP_MUL:
-            /* Avoid overflow: bail if either operand is large */
-            if (va > 1000000000 || va < -1000000000 ||
-                vb > 1000000000 || vb < -1000000000)
+        {
+            int32_t aa = va < 0 ? -va : va;
+            int32_t bb = vb < 0 ? -vb : vb;
+            /* Bail when |va * vb| would exceed the 9-digit window (which
+             * also precludes int32 overflow).  The division tests this
+             * without computing the overflowing product. */
+            if (bb != 0 && aa > IRXBC_INT_FAST_MAX / bb)
             {
                 return 0;
             }
             result = va * vb;
             break;
+        }
         case OP_IDIV:
             if (vb == 0)
             {
@@ -529,6 +602,28 @@ static int bc_numeric_fuzz(struct envblock *envblock)
         return wk->wkbi_fuzz;
     }
     return NUMERIC_FUZZ_DEFAULT;
+}
+
+/* Current NUMERIC DIGITS for this environment, or the default (9) when no
+ * work block is reachable.  The arith fast path REQUIRES this dynamic read
+ * for correctness: the int32 fast path is bit-identical to BCD only at
+ * DIGITS 9, so it must yield to the BCD engine whenever the VM runs at any
+ * other DIGITS.  Today a NUMERIC statement forces token-walk fallback, so
+ * DIGITS happens to always be 9 here — but that is a current implementation
+ * fact, NOT the reason the gate is safe.  When NUMERIC is one day supported
+ * in the bytecode path the VM will run at DIGITS != 9, and this read is
+ * exactly what keeps the fast path correct: it switches the path off and
+ * routes to BCD.  Do NOT remove the gate as "redundant" — without it a
+ * NUMERIC DIGITS 20 program would get wrong int32 results. */
+static int bc_numeric_digits(struct envblock *envblock)
+{
+    if (envblock != NULL && envblock->envblock_userfield != NULL)
+    {
+        const struct irx_wkblk_int *wk =
+            (const struct irx_wkblk_int *)envblock->envblock_userfield;
+        return wk->wkbi_digits;
+    }
+    return NUMERIC_DIGITS_DEFAULT;
 }
 
 /* ================================================================== */
@@ -1504,8 +1599,15 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_STACK;
                         goto done;
                     }
-                    /* Integer fast-path: skip REXX arithmetic for simple ops */
+                    /* Integer fast-path: skip REXX arithmetic for simple ops.
+                     * The DIGITS == 9 gate (see bc_numeric_digits) is a
+                     * correctness requirement, not a redundancy: the int32
+                     * fast path matches BCD only at DIGITS 9, so it MUST
+                     * switch off if the VM ever runs at another DIGITS (e.g.
+                     * once NUMERIC is supported in the bytecode path).  Keep
+                     * it — removing it would mis-round under NUMERIC DIGITS. */
                     if (op != OP_DIV && op != OP_POW &&
+                        bc_numeric_digits(envblock) == NUMERIC_DIGITS_DEFAULT &&
                         try_arith_fast(&stack[sp - 2], &stack[sp - 2],
                                        &stack[sp - 1], op, alloc))
                     {
