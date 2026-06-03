@@ -605,12 +605,16 @@ static int bc_numeric_fuzz(struct envblock *envblock)
 }
 
 /* Current NUMERIC DIGITS for this environment, or the default (9) when no
- * work block is reachable.  The bytecode VM normally runs only at the
- * default — any NUMERIC statement forces token-walk fallback — but, like
- * the OC-12 fuzz guard, the arith fast path checks this defensively: the
- * int32 fast path is bit-identical to BCD only at DIGITS 9, so it must
- * yield to the BCD engine if a work block carrying a non-default DIGITS
- * is ever shared into a VM run. */
+ * work block is reachable.  The arith fast path REQUIRES this dynamic read
+ * for correctness: the int32 fast path is bit-identical to BCD only at
+ * DIGITS 9, so it must yield to the BCD engine whenever the VM runs at any
+ * other DIGITS.  Today a NUMERIC statement forces token-walk fallback, so
+ * DIGITS happens to always be 9 here — but that is a current implementation
+ * fact, NOT the reason the gate is safe.  When NUMERIC is one day supported
+ * in the bytecode path the VM will run at DIGITS != 9, and this read is
+ * exactly what keeps the fast path correct: it switches the path off and
+ * routes to BCD.  Do NOT remove the gate as "redundant" — without it a
+ * NUMERIC DIGITS 20 program would get wrong int32 results. */
 static int bc_numeric_digits(struct envblock *envblock)
 {
     if (envblock != NULL && envblock->envblock_userfield != NULL)
@@ -1596,9 +1600,12 @@ int irx_bc_execute(struct envblock *envblock,
                         goto done;
                     }
                     /* Integer fast-path: skip REXX arithmetic for simple ops.
-                     * Defensive DIGITS == 9 gate (see bc_numeric_digits):
-                     * the int32 fast path is bit-identical to BCD only at
-                     * the default NUMERIC DIGITS. */
+                     * The DIGITS == 9 gate (see bc_numeric_digits) is a
+                     * correctness requirement, not a redundancy: the int32
+                     * fast path matches BCD only at DIGITS 9, so it MUST
+                     * switch off if the VM ever runs at another DIGITS (e.g.
+                     * once NUMERIC is supported in the bytecode path).  Keep
+                     * it — removing it would mis-round under NUMERIC DIGITS. */
                     if (op != OP_DIV && op != OP_POW &&
                         bc_numeric_digits(envblock) == NUMERIC_DIGITS_DEFAULT &&
                         try_arith_fast(&stack[sp - 2], &stack[sp - 2],
