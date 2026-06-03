@@ -92,8 +92,14 @@ whole-program fallback to token-walk.
   fast-path at DIGITS≠9 / FUZZ>0 and must not be removed.
 
 Open items:
-- **WP-BC-INT** — bytecode INTERPRET (runtime compilation). Depends on the
-  token-walk INTERPRET work (WP-23). The largest functional gap.
+- **WP-BC-INT** — bytecode INTERPRET (runtime compilation). Deferred (low
+  priority): INTERPRET is absent from BOTH the bytecode and the token-walk path,
+  so it is NOT a decommission blocker — the token-walk fallback offers nothing
+  here that would be lost. WP-23 (token-walk INTERPRET) is won't-do; INTERPRET
+  goes straight to bytecode, tested against the spec / bc_only (no token-walk
+  reference will ever exist). Design is captured in the WP-BC-INT ticket
+  (CON-17 §8.4: separate EXECBLK per call, recursive compile→execute→free,
+  reentrant via heap-allocated bcom_ctx).
 - **WP-BC-RT03** — quote de-doubling for string literals (`'p''q''r'`).
 - **WP-CPS-09a-FU** — SIGNAL/CALL condition-trap *activation* (the parser-only
   baseline is done via #131; the runtime trap machinery — NOVALUE hook,

@@ -31,7 +31,7 @@ Reference: [Architecture Design v0.2.0](https://www.notion.so/3283d9938787811ba3
 | WP-21a | String BIFs (IRXBIFS) | 3 | DONE (29/29 + 87/87) — PR #26 |
 | WP-21b | Misc BIFs | 3 | DONE — 23 BIFs across Phases A (#28, registry), B (#30, IRXARITH API), C (#36, numeric), D (#38, conversion), E (#39, reflection), F (#42, environment); Phase H closes the work package. Suite: 1156 total across 14 cross-compile binaries |
 | WP-22 | Built-in misc functions | 3 | OPEN |
-| WP-23 | INTERPRET instruction | 3 | OPEN |
+| WP-23 | INTERPRET instruction | 3 | WON'T DO — superseded by WP-BC-INT; INTERPRET goes straight to bytecode (token-walk is frozen, CON-18, so no INTERPRET is built there). Not a decommission blocker: INTERPRET is absent from BOTH paths. |
 | WP-30 | EXECIO command | 4 | OPEN |
 | WP-31 | Data stack (IRXSTK) | 4 | OPEN |
 | WP-32 | Host command envs (TSO/MVS/LINK) | 4 | OPEN |
