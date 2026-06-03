@@ -85,13 +85,13 @@ The cleanest way to scope this: **every `BC_FAIL_UNSUP` trigger in the bytecode
 compiler is a decommission gate** — each is a construct that still forces a
 whole-program fallback to token-walk.
 
+**Closed gates** (constructs that no longer force a token-walk fallback):
+- ~~**WP-BC-NUMERIC**~~ — `NUMERIC DIGITS/FUZZ/FORM` statement (PR #188, 2026-06-03).
+  Writes `wkbi_digits/fuzz/form` in the VM; the arith engine and the OC-ARITH/OC-12
+  fast-path gates read them automatically. The gates correctly disable the integer
+  fast-path at DIGITS≠9 / FUZZ>0 and must not be removed.
+
 Open items:
-- **WP-BC-NUMERIC** — the `NUMERIC DIGITS/FUZZ/FORM` statement is not implemented
-  in the bytecode compiler (the only `NUMERIC` handler is `PARSE NUMERIC`, a
-  different construct). Any program using a `NUMERIC` statement falls back to
-  token-walk. *Note: when implemented, the VM will run at DIGITS≠9 for the first
-  time — the OC-ARITH fast-path gate (`bc_numeric_digits == DEFAULT`) handles
-  this correctly and must not be removed.*
 - **WP-BC-INT** — bytecode INTERPRET (runtime compilation). Depends on the
   token-walk INTERPRET work (WP-23). The largest functional gap.
 - **WP-BC-RT03** — quote de-doubling for string literals (`'p''q''r'`).
