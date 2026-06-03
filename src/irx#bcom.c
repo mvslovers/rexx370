@@ -175,6 +175,7 @@ enum bc_unsup_reason
     BC_UNSUP_SIGNAL_NAME,          /* SIGNAL ON ... NAME not a symbol   */
     BC_UNSUP_SIGNAL_TARGET,        /* SIGNAL label is not a symbol      */
     BC_UNSUP_DROP_TARGET,          /* DROP target is not a symbol       */
+    BC_UNSUP_NUMERIC_FORM,         /* unsupported NUMERIC sub-keyword   */
     BC_UNSUP_COUNT                 /* sentinel — table size; keep last  */
 };
 
@@ -3374,6 +3375,91 @@ static void bc_address_stmt(struct bcom_ctx *ctx)
     BC_FAIL_UNSUP(ctx, BC_UNSUP_ADDRESS_FORM);
 }
 
+/* True if the clause at the current position is an assignment
+ * (SYMBOL '=' ... but not SYMBOL '==').  A keyword instruction whose
+ * name is also a valid variable (NUMERIC, etc.) must yield to an
+ * assignment when the next token is a bare '=' — mirrors the
+ * token-walk tok_is_kw (src/irx#pars.c). */
+static int tok_next_is_assign(const struct bcom_ctx *ctx)
+{
+    const struct irx_token *t1 = tok_at(ctx, 1);
+    return t1 != NULL && t1->tok_type == TOK_COMPARISON &&
+           t1->tok_length > 0 && t1->tok_text[0] == '=' &&
+           !(tok_type_at(ctx, 2, TOK_COMPARISON) && tok_ch(ctx, 2) == '=');
+}
+
+/* ================================================================== */
+/*  bc_numeric_stmt — NUMERIC statement compiler (WP-BC-NUMERIC)      */
+/*                                                                    */
+/*  Forms (matching the token-walk kw_numeric, src/irx#pars.c):       */
+/*    NUMERIC DIGITS expr      → bc_expr + OP_SET_NUMERIC NUMSUB_DIGITS */
+/*    NUMERIC FUZZ expr        → bc_expr + OP_SET_NUMERIC NUMSUB_FUZZ   */
+/*    NUMERIC FORM SCIENTIFIC  → OP_SET_NUMERIC NUMSUB_FORM_SCI         */
+/*    NUMERIC FORM ENGINEERING → OP_SET_NUMERIC NUMSUB_FORM_ENG         */
+/*                                                                    */
+/*  The DIGITS/FUZZ value is an expression evaluated at runtime; the   */
+/*  VM pops it and validates it (DIGITS 1..NUMERIC_DIGITS_MAX, FUZZ    */
+/*  0..DIGITS-1) exactly like kw_numeric.  FORM takes only the two     */
+/*  keyword constants.  FORM VALUE expr and a bare DIGITS/FUZZ (no     */
+/*  value) are not in the token-walk reference, so they fall back via  */
+/*  BC_FAIL_UNSUP and the token-walk raises the same syntax error.     */
+/* ================================================================== */
+
+static void bc_numeric_stmt(struct bcom_ctx *ctx)
+{
+    ctx->pos++; /* consume NUMERIC */
+
+    if (tok_kw(ctx, 0, "DIGITS") || tok_kw(ctx, 0, "FUZZ"))
+    {
+        unsigned char sub = tok_kw(ctx, 0, "DIGITS")
+                                ? (unsigned char)NUMSUB_DIGITS
+                                : (unsigned char)NUMSUB_FUZZ;
+        ctx->pos++; /* consume DIGITS / FUZZ */
+
+        /* A value expression is required: the token-walk always
+         * evaluates one (no bare-reset form), so a missing value is a
+         * syntax error there — fall back and let it raise it. */
+        if (!is_value_starter(ctx, 0))
+        {
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_NUMERIC_FORM);
+            return;
+        }
+        bc_expr(ctx);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        emit_byte(ctx, OP_SET_NUMERIC);
+        emit_byte(ctx, sub);
+        return;
+    }
+
+    if (tok_kw(ctx, 0, "FORM"))
+    {
+        ctx->pos++; /* consume FORM */
+        if (tok_kw(ctx, 0, "SCIENTIFIC"))
+        {
+            ctx->pos++;
+            emit_byte(ctx, OP_SET_NUMERIC);
+            emit_byte(ctx, (unsigned char)NUMSUB_FORM_SCI);
+            return;
+        }
+        if (tok_kw(ctx, 0, "ENGINEERING"))
+        {
+            ctx->pos++;
+            emit_byte(ctx, OP_SET_NUMERIC);
+            emit_byte(ctx, (unsigned char)NUMSUB_FORM_ENG);
+            return;
+        }
+        /* FORM VALUE expr and any other word: not in the token-walk
+         * reference — fall back so behaviour matches. */
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_NUMERIC_FORM);
+        return;
+    }
+
+    BC_FAIL_UNSUP(ctx, BC_UNSUP_NUMERIC_FORM);
+}
+
 static void bc_signal_stmt(struct bcom_ctx *ctx)
 {
     const struct irx_token *t;
@@ -3743,6 +3829,14 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
+    /* NUMERIC is a keyword instruction only when not a bare assignment
+     * (`numeric = 5` assigns to a variable named NUMERIC). */
+    if (tok_kw(ctx, 0, "NUMERIC") && !tok_next_is_assign(ctx))
+    {
+        bc_numeric_stmt(ctx);
+        return;
+    }
+
     if (tok_kw(ctx, 0, "TRACE"))
     {
         bc_trace_stmt(ctx);
@@ -3979,6 +4073,7 @@ static const char *const bc_unsup_text[BC_UNSUP_COUNT] = {
     [BC_UNSUP_SIGNAL_NAME] = "SIGNAL ... NAME is not a symbol",
     [BC_UNSUP_SIGNAL_TARGET] = "SIGNAL label is not a symbol",
     [BC_UNSUP_DROP_TARGET] = "DROP target is not a symbol",
+    [BC_UNSUP_NUMERIC_FORM] = "unsupported NUMERIC form",
 };
 
 const char *irx_bc_unsup_text(int reason)

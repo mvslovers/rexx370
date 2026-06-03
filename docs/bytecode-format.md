@@ -431,6 +431,51 @@ the two slots.  Token-Walk `kw_address` bare-form is a no-op (documented TODO in
 - `ADDRESS VALUE expr` → `bc_exp0` + `OP_ADDRESS_VALUE`
 - `ADDRESS env command` (one-shot) → clause consumed, no opcode (WP-33 deferred)
 
+### 3.13 NUMERIC (WP-BC-NUMERIC)
+
+`NUMERIC DIGITS/FUZZ/FORM` writes the work-block fields the arith engine and the
+OC-ARITH/OC-12 fast-path gates already READ (`wkbi_digits`, `wkbi_fuzz`,
+`wkbi_form`) — so arithmetic, comparison and the fast-path gates pull the new
+settings automatically.  A single opcode carries a 1-byte sub-code.
+
+| Opcode | Hex | Size | Operands / Semantics |
+|--------|-----|------|----------------------|
+| `OP_SET_NUMERIC` | 0x9F | 2 | `sub:u8` — write a NUMERIC setting (see sub-codes) |
+
+**`OP_SET_NUMERIC` sub-codes** (`include/irxbops.h`):
+
+| Sub-code | Value | Stack | Action |
+|----------|-------|-------|--------|
+| `NUMSUB_DIGITS`   | 0 | pop value | validate 1..`NUMERIC_DIGITS_MAX`, set `wkbi_digits` |
+| `NUMSUB_FUZZ`     | 1 | pop value | validate 0..`wkbi_digits`-1, set `wkbi_fuzz` |
+| `NUMSUB_FORM_SCI` | 2 | — | `wkbi_form = NUMFORM_SCIENTIFIC` |
+| `NUMSUB_FORM_ENG` | 3 | — | `wkbi_form = NUMFORM_ENGINEERING` |
+
+For `NUMSUB_DIGITS`/`NUMSUB_FUZZ` the value expression is pushed on the eval stack
+by the preceding `bc_expr`; the VM pops it and validates it with `vm_lstr_to_long`
+(a verbatim copy of the token-walk `lstr_to_long` in `src/irx#pars.c`, kept in
+lockstep under the CON-18 freeze).  An invalid value raises SYNTAX
+(`IRXBC_ERR_ARITH` → `check_syntax_trap`), so `SIGNAL ON SYNTAX` can trap it.
+Validation matches the token-walk `kw_numeric` exactly.
+
+**Forms compiled:**
+- `NUMERIC DIGITS expr` → `bc_expr` + `OP_SET_NUMERIC NUMSUB_DIGITS`
+- `NUMERIC FUZZ expr` → `bc_expr` + `OP_SET_NUMERIC NUMSUB_FUZZ`
+- `NUMERIC FORM SCIENTIFIC` → `OP_SET_NUMERIC NUMSUB_FORM_SCI`
+- `NUMERIC FORM ENGINEERING` → `OP_SET_NUMERIC NUMSUB_FORM_ENG`
+- `NUMERIC name = expr` (e.g. `numeric = 5`) → not the instruction; compiled as an
+  assignment to a variable named `NUMERIC` (mirrors token-walk `tok_is_kw`)
+- `NUMERIC FORM VALUE expr`, `NUMERIC FORM other`, and a bare `NUMERIC DIGITS` /
+  `NUMERIC FUZZ` with no value → `IRXBC_ERR_UNSUP` (not in the token-walk
+  reference; falls back so the token-walk raises the same syntax error)
+
+> **Fast-path interaction (do not regress):** once NUMERIC runs, the VM can
+> execute at DIGITS ≠ 9 or FUZZ > 0 for the first time.  The OC-ARITH integer
+> fast-path gate (`bc_numeric_digits == NUMERIC_DIGITS_DEFAULT`) and the OC-12
+> compare fast-path guard (`bc_numeric_fuzz == 0`) READ these fields and
+> self-disable, routing to the BCD engine.  These gates are now actively
+> relevant and **must not** be removed as "redundant".
+
 ---
 
 ## 7. Compiler Limitations (current)

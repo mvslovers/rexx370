@@ -324,6 +324,29 @@
 #define OP_ADDRESS_VALUE  0x9C /* 1 byte — pop string, save prev, set addr  */
 
 /* ================================================================== */
+/*  NUMERIC DIGITS/FUZZ/FORM statement opcode (WP-BC-NUMERIC)         */
+/*                                                                    */
+/*  OP_SET_NUMERIC writes the NUMERIC settings in the work block       */
+/*  (wkbi_digits / wkbi_fuzz / wkbi_form) — exactly the fields the     */
+/*  arith engine and the OC-ARITH/OC-12 fast-path gates already READ.  */
+/*  The sub-code selects which setting to write:                       */
+/*    NUMSUB_DIGITS / NUMSUB_FUZZ — the value was pushed on the eval   */
+/*      stack by the preceding expression; the VM pops and validates   */
+/*      it (DIGITS 1..NUMERIC_DIGITS_MAX, FUZZ 0..DIGITS-1) exactly    */
+/*      like the token-walk kw_numeric (src/irx#pars.c).               */
+/*    NUMSUB_FORM_SCI / NUMSUB_FORM_ENG — constant FORM keyword; no    */
+/*      stack value (matches kw_numeric, which takes only the          */
+/*      SCIENTIFIC / ENGINEERING keywords, not FORM VALUE).            */
+/* ================================================================== */
+
+#define OP_SET_NUMERIC 0x9F /* 2 bytes: op + sub:u8 (see NUMSUB_*)      */
+
+#define NUMSUB_DIGITS   0 /* pop value -> wkbi_digits                   */
+#define NUMSUB_FUZZ     1 /* pop value -> wkbi_fuzz                     */
+#define NUMSUB_FORM_SCI 2 /* wkbi_form = NUMFORM_SCIENTIFIC             */
+#define NUMSUB_FORM_ENG 3 /* wkbi_form = NUMFORM_ENGINEERING           */
+
+/* ================================================================== */
 /*  Per-opcode size in bytes (including the opcode byte itself)       */
 /* ================================================================== */
 
@@ -363,6 +386,7 @@
      ((op) == OP_SIGNAL_OFF)   ? 2 :         \
      ((op) == OP_TRACE_SET)    ? 2 :         \
      ((op) == OP_ADDRESS_SET)  ? 3 :         \
+     ((op) == OP_SET_NUMERIC)  ? 2 :         \
      1)
 /* clang-format on */
 
