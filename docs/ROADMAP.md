@@ -62,12 +62,22 @@ roughly halved, not gone); cluster B (variable pool) was untouched as designed
 and is **now the #1 cluster (~27 % flat self)**.
 
 Next candidates, ranked by the new profile (share ≠ lever — see the doc):
-- **Variable-resolution inline cache** (top recommendation) — cache the resolved
-  vpool entry pointer at each bytecode reference *operand site*, for the ~88 %
-  **simple-variable** bulk of cluster B. Memory-bound → multiplier applies;
-  ~16 % host estimate. **Explicitly NOT OC-06** (compound-only, measured 2.4–3.2 %
-  and rejected). Unmeasured — must be prototyped + measured on host AND MVS cps
-  first; the `PROCEDURE EXPOSE`/`DROP`/frame invalidation is the real risk.
+- **Variable-resolution (pointer) cache** (top recommendation) — cache the
+  resolved vpool entry pointer at each bytecode reference *operand site*, for the
+  ~88 % **simple-variable** bulk of cluster B. **Invalidation frequency now
+  measured** (`docs/diag/wp-perf-varcache-diag.md`, 2026-06-03): the cache is a
+  **real lever, not OC-06-redux** — writes do **not** invalidate it (`set`
+  updates in place; resize re-links without moving entries), so only `DROP`/
+  stem-drop/`PROCEDURE` invalidate → **44.8 reads/invalidation**. Hit rate splits
+  by kind: **simple vars (~90 % of reads) ~99.9 %, clean** (the lever); compounds
+  lower (a per-operand cache can't cache the entry pointer — must rebuild the
+  composed key). Removes up to the ~18.8 % vpool-lookup self-time
+  (simple-var-dominated **upper bound**), memory-bound (multiplier).
+  **Explicitly NOT OC-06** (compound-only, measured 2.4–3.2 % and rejected) and
+  NOT a write-invalidated value cache (that variant *is* dead, 2.06 reads/inval).
+  Remaining gate: prototype + MVS-cps measurement (CON-12 discipline). Scope the
+  first cut to simple variables; build checklist (free/scope/stem-shadow
+  invalidation, compound key-rebuild) in the diag doc.
 - **VM value copy-elision** (complementary) — the ~14 % lstring/VM-slot
   string-copy cluster (`slot_set_buf`/`Lstrcpy`/`Lfx`); pairs with the inline
   cache to fully drain `VPOOLGTB`. Memory-bound.
