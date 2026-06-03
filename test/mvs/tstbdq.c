@@ -15,9 +15,13 @@
 /*  This test verifies:                                               */
 /*    1. spec-correct de-doubling on the bytecode path with no         */
 /*       fallback to token-walk (bc_exact: 'p''q''r' -> p'q'r, etc.);   */
-/*    2. bpse_dedouble handles both quote kinds — ' and " — and picks   */
-/*       the doubled kind itself ("a""b" -> a"b, 'it''s a "test"' ->    */
-/*       it's a "test");                                              */
+/*    2. single-kind self-detection: a body doubling only one quote     */
+/*       kind de-doubles that kind ("a""b" -> a"b, 'it''s a "test"' ->  */
+/*       it's a "test").  A "-delimited body that mixes a literal ''    */
+/*       with an escaped "" mis-detects the delimiter — a pre-existing   */
+/*       shared defect in bpse_dedouble AND token-walk's dedouble_string */
+/*       (both default to '), so tw==bc yet both are spec-wrong; pinned  */
+/*       as an equivalence case below, fix tracked outside WP-BC-RT03;   */
 /*    3. equivalence vs. token-walk across all variants (CON-18):       */
 /*       token-walk is the correct reference for de-doubling            */
 /*       (project_bc_dquote_divergence: token-walk = p'q'r);            */
@@ -269,6 +273,12 @@ static void test_equivalence(struct envblock *env)
     /* De-doubling inside a concatenation and an assignment RHS. */
     equiv(env, "v='X'\nsay 'a''b'v", "doubled literal abuttal var");
     equiv(env, "x='he said ''hi'''\nsay x", "doubled literal in assignment");
+
+    /* Mixed '' + "" in one "-delimited literal.  Both paths mis-detect
+     * the delimiter (shared bpse_dedouble / dedouble_string defect) and
+     * give a'b""c instead of the spec-correct a''b"c — but they agree,
+     * which is the property decommission needs.  Fix tracked outside RT03. */
+    equiv(env, "say \"a''b\"\"c\"", "mixed ''+\"\" (shared defect; tw==bc)");
 }
 
 /* ------------------------------------------------------------------ */
