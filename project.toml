@@ -1650,6 +1650,55 @@ include = [
 "mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
+# TSTBDQ - WP-BC-RT03: quote de-doubling in string literals.
+# Verifies that the bytecode compiler de-doubles escaped quotes in
+# a string literal (say 'p''q''r' -> p'q'r) on the value-expression
+# path (bc_exp8), mirroring the PARSE-template path's bpse_dedouble.
+# Covers both quote kinds (' and "), pins spec-correct output with
+# no token-walk fallback (bc-exact), and proves equivalence vs the
+# token-walk reference (CON-18), which already de-doubles correctly.
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTBDQ)'
+#   Batch  :  EXEC PGM=TSTBDQ
+#
+# Expected: CC=0
+#
+# WP-BC-RT03 / GitHub mvslovers/rexx370#TBD.
+# ---------------------------------------------------------------
+[[link.module]]
+name = "TSTBDQ"
+entry = "@@CRT0"
+options = ["LIST", "MAP", "XREF", "RENT"]
+include = [
+  "@@CRT1",
+  "TSTBDQ",
+  "IRX#INIT",
+  "IRX#TERM",
+  "IRX#STOR",
+  "IRX#ANCH",
+  "IRX#UID",
+  "IRX#MSID",
+  "IRX#COND",
+  "IRX#BIF",
+  "IRX#BIFS",
+  "IRX#IO",
+  "IRX#LSTR",
+  "IRX#TOKN",
+  "IRX#VPOL",
+  "IRX#PARS",
+  "IRX#CTRL",
+  "IRX#EXEC",
+  "IRX#BCOM",
+  "IRX#BVM",
+  "IRX#BCTL",
+  "IRX#ARIT",
+]
+
+[link.module.dep_includes]
+"mvslovers/lstring370" = "*"
+
+# ---------------------------------------------------------------
 # TSTBCMP - WP-BC-OC12: numeric-compare int_cache fast-path.
 # Verifies the bytecode VM comparison opcodes (OP_EQ..OP_GE) take
 # the int_cache fast-path when both operands are LINTEGER and
