@@ -18,6 +18,7 @@
 /* ------------------------------------------------------------------ */
 
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "irx.h"
@@ -624,6 +625,61 @@ static int bc_numeric_digits(struct envblock *envblock)
         return wk->wkbi_digits;
     }
     return NUMERIC_DIGITS_DEFAULT;
+}
+
+/* Parse an Lstr as a REXX whole number into *out; returns 1 on success,
+ * 0 if it is not a valid number.  Used by OP_SET_NUMERIC to validate the
+ * NUMERIC DIGITS/FUZZ value at runtime.  This REPLICATES the token-walk
+ * lstr_to_long (src/irx#pars.c) verbatim so DIGITS/FUZZ validation stays
+ * bit-for-bit equivalent with kw_numeric — CON-18 freezes the token-walk
+ * so the logic cannot be shared from pars.c; the two copies MUST stay in
+ * lockstep. */
+static int vm_lstr_to_long(PLstr s, long *out)
+{
+    char buf[48];
+    char *end;
+    long v;
+    size_t i, first, last;
+
+    if (_Lisnum(s) == LNUM_NOT_NUM)
+    {
+        return 0;
+    }
+    /* Strip leading/trailing blanks into a local null-terminated copy. */
+    first = 0;
+    while (first < s->len && (s->pstr[first] == ' ' || s->pstr[first] == '\t'))
+    {
+        first++;
+    }
+    last = s->len;
+    while (last > first &&
+           (s->pstr[last - 1] == ' ' || s->pstr[last - 1] == '\t'))
+    {
+        last--;
+    }
+    if (last - first >= sizeof(buf))
+    {
+        return 0;
+    }
+    for (i = 0; i < last - first; i++)
+    {
+        buf[i] = (char)s->pstr[first + i];
+    }
+    buf[last - first] = '\0';
+
+    v = strtol(buf, &end, 10);
+    if (*end != '\0')
+    {
+        /* Allow the REAL form accepted by _Lisnum (e.g. "1E1"). */
+        double d = strtod(buf, &end);
+        if (*end != '\0')
+        {
+            return 0;
+        }
+        v = (long)d;
+    }
+    *out = v;
+    return 1;
 }
 
 /* ================================================================== */
@@ -2861,6 +2917,79 @@ int irx_bc_execute(struct envblock *envblock,
                         {
                             memset(wk->wkbi_address + n, ' ',
                                    (size_t)(8 - n));
+                        }
+                    }
+                    break;
+                }
+
+                case OP_SET_NUMERIC:
+                {
+                    /* WP-BC-NUMERIC: write the NUMERIC settings the arith
+                     * engine and the OC-ARITH/OC-12 fast-path gates READ
+                     * (wkbi_digits / wkbi_fuzz / wkbi_form).  Validation
+                     * mirrors the token-walk kw_numeric exactly
+                     * (src/irx#pars.c): DIGITS 1..NUMERIC_DIGITS_MAX,
+                     * FUZZ 0..DIGITS-1.  An invalid value raises SYNTAX
+                     * (IRXBC_ERR_ARITH -> check_syntax_trap), so SIGNAL ON
+                     * SYNTAX can trap it. */
+                    unsigned char sub = *pc++;
+                    struct irx_wkblk_int *wk =
+                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    long n;
+
+                    if (sub == NUMSUB_FORM_SCI)
+                    {
+                        if (wk != NULL)
+                        {
+                            wk->wkbi_form = NUMFORM_SCIENTIFIC;
+                        }
+                        break;
+                    }
+                    if (sub == NUMSUB_FORM_ENG)
+                    {
+                        if (wk != NULL)
+                        {
+                            wk->wkbi_form = NUMFORM_ENGINEERING;
+                        }
+                        break;
+                    }
+
+                    /* DIGITS / FUZZ: pop the evaluated value, validate. */
+                    if (sp < 1)
+                    {
+                        vm_rc = IRXBC_ERR_STACK;
+                        goto done;
+                    }
+                    sp--;
+                    if (!vm_lstr_to_long(stack[sp].str, &n))
+                    {
+                        vm_rc = IRXBC_ERR_ARITH;
+                        goto check_syntax_trap;
+                    }
+                    if (sub == NUMSUB_DIGITS)
+                    {
+                        if (n < 1 || n > NUMERIC_DIGITS_MAX)
+                        {
+                            vm_rc = IRXBC_ERR_ARITH;
+                            goto check_syntax_trap;
+                        }
+                        if (wk != NULL)
+                        {
+                            wk->wkbi_digits = (int)n;
+                        }
+                    }
+                    else /* NUMSUB_FUZZ */
+                    {
+                        int cur_digits = (wk != NULL) ? wk->wkbi_digits
+                                                      : NUMERIC_DIGITS_DEFAULT;
+                        if (n < 0 || n >= cur_digits)
+                        {
+                            vm_rc = IRXBC_ERR_ARITH;
+                            goto check_syntax_trap;
+                        }
+                        if (wk != NULL)
+                        {
+                            wk->wkbi_fuzz = (int)n;
                         }
                     }
                     break;
