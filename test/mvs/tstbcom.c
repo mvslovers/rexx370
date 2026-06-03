@@ -348,6 +348,14 @@ static void test_compound_stem_reset(struct envblock *env)
             "9 9 9\n",
             "bare-stem default clears all tails and applies everywhere");
 
+    /* (5) The reset matches the full stem incl. its dot, so a sibling
+     * stem whose name shares the leading characters (AB. vs A.) is NOT
+     * affected. Guards against an over-broad prefix match. */
+    bc_only(env,
+            "AB.1 = 7\nA.1 = 5\nA. = 0\nSAY A.1 AB.1\n",
+            "0 7\n",
+            "bare-stem reset does not touch sibling stem AB.");
+
     /* Equivalence against token-walk for the non-diverging cases only.
      * Cases 1 and 4 diverge after the fix (token-walk shares the bug,
      * frozen under CON-18) and are covered by bc_only() above. */
