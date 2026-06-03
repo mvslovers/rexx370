@@ -402,6 +402,15 @@ next.** Read it first. It orders all open work into five axes (Performance,
 Decommission/Correctness, Spec-Completeness, Environment/Anchor, Infrastructure)
 and tracks which design docs (CONs) are current vs. stale.
 
+**ROADMAP is part of the deliverable, not a separate chore.** If a PR closes or
+materially changes a work package that ROADMAP names, the *same PR* must update
+the ROADMAP entry — move a finished item to its axis's "Closed gates"/"Recently
+shipped" note (Decommission axis) or remove it (other axes), and refresh the
+"Last updated" date. The truth lives in the repo, so a PR that ships the code but
+leaves ROADMAP saying the work is still open has left the source of truth wrong.
+Same class of always-do as the test-registration rule below (`tstall.jcl` +
+`project.toml`).
+
 `docs/workpackages.md` holds the historical Phase 1-3 per-WP definitions and is
 **frozen/stale** — do not treat its status table as current.
 
