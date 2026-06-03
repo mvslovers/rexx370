@@ -1489,6 +1489,18 @@ int irx_bc_execute(struct envblock *envblock,
                     name_buf[name_pos] = '\0';
                     /* Pop value (now at stack[sp-1]). */
                     sp--;
+                    /* A bare-stem assignment (A. = value) resets the whole
+                     * stem: every previously assigned tail is discarded and
+                     * the new value becomes the default for all tails. Drop
+                     * the existing tails first — this must precede the set,
+                     * since vpool_drop_stem_all also removes the default
+                     * entry "A." we are about to write. Identical call to the
+                     * OP_DROP_STEM handler (full stem incl. trailing dot, so
+                     * "A." matches A.1/A.2/... but never AB.x). */
+                    if (tail_cnt == 0)
+                    {
+                        vpool_drop_stem_all(vpool, stem_data, stem_len);
+                    }
                     vrc = vpool_set_buf(vpool, name_buf, name_pos,
                                         stack[sp].str,
                                         stack[sp].type_cache,
