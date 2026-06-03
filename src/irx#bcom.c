@@ -1886,7 +1886,27 @@ static void bc_exp8(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_STRING)
     {
-        int ci = add_const(ctx, t->tok_text, (int)t->tok_length);
+        char tmp[IRXBC_STR_MAX + 1];
+        int ci;
+        /* Doubled quotes inside a literal escape a single quote
+         * ('p''q''r' -> p'q'r).  The tokenizer stores the body raw and
+         * only flags it (TOKF_QUOTE_DBL); de-doubling is the consumer's
+         * job — mirror the PARSE-template path in bc_parse_template(). */
+        if (t->tok_flags & TOKF_QUOTE_DBL)
+        {
+            int tlen = bpse_dedouble(t->tok_text, (int)t->tok_length, tmp,
+                                     IRXBC_STR_MAX);
+            if (tlen < 0)
+            {
+                ctx->rc = IRXBC_ERR_STRTOOLONG;
+                return;
+            }
+            ci = add_const(ctx, tmp, tlen);
+        }
+        else
+        {
+            ci = add_const(ctx, t->tok_text, (int)t->tok_length);
+        }
         if (ci < 0)
         {
             return;

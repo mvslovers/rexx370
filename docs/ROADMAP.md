@@ -100,7 +100,13 @@ Open items:
   reference will ever exist). Design is captured in the WP-BC-INT ticket
   (CON-17 §8.4: separate EXECBLK per call, recursive compile→execute→free,
   reentrant via heap-allocated bcom_ctx).
-- **WP-BC-RT03** — quote de-doubling for string literals (`'p''q''r'`).
+- ~~**WP-BC-RT03**~~ — quote de-doubling for string literals (`'p''q''r'` →
+  `p'q'r`). **Done** (PR #192, 2026-06-03): `bc_exp8`'s `TOK_STRING` branch now runs
+  `bpse_dedouble` when `TOKF_QUOTE_DBL` is set, mirroring the PARSE-template
+  path; one fix covers both quote kinds (`'` and `"`). This was a silent
+  wrong-output divergence, not a `BC_FAIL_UNSUP` fallback gate. Token-walk (the
+  correct reference here) is unchanged per CON-18; equivalence proven in
+  `test/mvs/tstbdq.c`.
 - **WP-CPS-09a-FU** — SIGNAL/CALL condition-trap *activation* (the parser-only
   baseline is done via #131; the runtime trap machinery — NOVALUE hook,
   condition dispatcher, SIGL/RC/CONDITION updates, CALL ON/OFF — is open).
