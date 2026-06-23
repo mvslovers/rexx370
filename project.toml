@@ -40,10 +40,10 @@ dsorg = "PO"
 recfm = "U"
 lrecl = 0
 blksize = 15040
-space = ["TRK", 600, 100, 60]
+space = ["TRK", 1800, 600, 30]
 
 [dependencies]
-"mvslovers/crent370" = ">=1.0.9"
+"mvslovers/crent370" = "=1.0.10-dev"
 "mvslovers/lstring370" = "=0.1.0-dev"
 
 [mvs.install]
@@ -205,11 +205,7 @@ include = [
 name = "IRXLOAD"
 entry = "IRXLOAD"
 options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = [
-  "IRXLOAD",
-  "IRX#LOAD",
-  "IRX#STOR",
-]
+include = ["IRXLOAD", "IRX#LOAD", "IRX#STOR"]
 
 # ---------------------------------------------------------------
 # IRXEXEC - HLASM Entry-Point Wrapper for the IRXEXEC Programming
@@ -1815,12 +1811,7 @@ include = [
 name = "TSTLOAD"
 entry = "@@CRT0"
 options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTLOAD",
-  "IRX#LOAD",
-  "IRX#STOR",
-]
+include = ["@@CRT1", "TSTLOAD", "IRX#LOAD", "IRX#STOR"]
 
 # ---------------------------------------------------------------
 # TSTJCL - WP-CPS-08 IRXJCL C-core unit tests.
