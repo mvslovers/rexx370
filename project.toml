@@ -64,18 +64,6 @@ startup = false
 sources = ["asm/irxtmpw.asm"]
 
 # ---------------------------------------------------------------
-# ISTSO - EXTRACT-based TSO environment detector.
-# Returns 0 (batch) or 1 (TSO foreground/background) via R15.
-# Pure assembler NCAL member; TISTSO links it in for the live test.
-# WP-I1c.6 / GitHub mvslovers/rexx370#93.
-# ---------------------------------------------------------------
-[[module]]
-name = "ISTSO"
-entry = "ISTSO"
-startup = false
-sources = ["asm/istso.asm"]
-
-# ---------------------------------------------------------------
 # IRXINIT - HLASM Entry-Point Wrapper for the IRXINIT Programming
 #          Service (SC28-1883-0 §14). Parses the caller VLIST,
 #          extracts the function code, and delegates to the C-core
@@ -115,6 +103,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -152,6 +141,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -214,6 +204,7 @@ sources = [
   "src/irx#pars.c",
   "src/irx#ctrl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -233,22 +224,10 @@ name = "IRXDBG"
 startup = "crt1"
 sources = ["src/irxdbg.c", "src/irx#anch.c"]
 
-# ---------------------------------------------------------------
-# IRX#HELO - "Hello World" demo standalone load module.
-# Runs an embedded REXX exec through irx_exec_run() that exercises
-# SAY, arithmetic, NUMERIC DIGITS, string BIFs (LENGTH / REVERSE /
-# TRANSLATE / SUBSTR / WORDS / WORD / CENTER), conversion BIFs
-# (C2X / D2X / X2D), DO loops, SELECT / WHEN / OTHERWISE, and
-# PARSE VAR.  Same dep_includes rationale as TSTANCH.
-#
-# Invocation:
-#   TSO    :  CALL 'hlq.LOAD(IRX#HELO)'
-#   Batch  :  EXEC PGM=IRX#HELO
-# ---------------------------------------------------------------
-[[module]]
 # NOTE: renamed from IRX#HELO -- mbt v2 cannot use '#' in a module NAME
 # (it leaks into a make variable name and '#' starts a comment). Source
 # stays src/irx#helo.c. See issue #195.
+[[module]]
 name = "IRXHELO"
 startup = "crt1"
 sources = [
@@ -273,6 +252,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -318,6 +298,7 @@ sources = [
   "src/irx#pars.c",
   "src/irx#ctrl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ===================================================================
@@ -360,6 +341,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -422,6 +404,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -449,6 +432,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -504,6 +488,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -543,6 +528,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -582,6 +568,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -609,6 +596,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -636,6 +624,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -663,6 +652,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -690,6 +680,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -717,6 +708,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -744,6 +736,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -777,6 +770,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -804,6 +798,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -831,6 +826,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -858,6 +854,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -885,6 +882,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -912,6 +910,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -939,6 +938,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -966,6 +966,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1005,6 +1006,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1044,6 +1046,7 @@ sources = [
   "src/irx#bcom.c",
   "src/irx#bvm.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1083,6 +1086,7 @@ sources = [
   "src/irx#bcom.c",
   "src/irx#bvm.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1122,6 +1126,7 @@ sources = [
   "src/irx#bcom.c",
   "src/irx#bvm.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1161,6 +1166,7 @@ sources = [
   "src/irx#bcom.c",
   "src/irx#bvm.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1202,6 +1208,7 @@ sources = [
   "src/irx#bcom.c",
   "src/irx#bvm.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1241,6 +1248,7 @@ sources = [
   "src/irx#bcom.c",
   "src/irx#bvm.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1272,6 +1280,7 @@ sources = [
   "src/irx#bcom.c",
   "src/irx#bvm.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1314,6 +1323,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1355,6 +1365,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1399,6 +1410,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1442,6 +1454,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1486,6 +1499,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1530,6 +1544,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1574,6 +1589,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1619,6 +1635,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
@@ -1685,6 +1702,7 @@ sources = [
   "src/irx#pars.c",
   "src/irx#ctrl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -1712,6 +1730,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 [[test]]
@@ -1739,6 +1758,7 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
 # ---------------------------------------------------------------
