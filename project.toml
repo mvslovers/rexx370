@@ -30,6 +30,7 @@ version_files = ["VERSION"]
 name = "IRXANCHR"
 entry = "IRXANCHR"
 startup = false
+norent = true              # self-modified slot array -> REUS, not RENT
 sources = ["asm/irxanchr.asm"]
 
 # ---------------------------------------------------------------
@@ -61,6 +62,7 @@ sources = ["asm/irxisprm.asm"]
 name = "IRXTMPW"
 entry = "IRXTMPW"
 startup = false
+ac = 1
 sources = ["asm/irxtmpw.asm"]
 
 # ---------------------------------------------------------------
@@ -220,11 +222,8 @@ name = "IRXDBG"
 startup = "crt1"
 sources = ["src/irxdbg.c", "src/irx#anch.c"]
 
-# NOTE: renamed from IRX#HELO -- mbt v2 cannot use '#' in a module NAME
-# (it leaks into a make variable name and '#' starts a comment). Source
-# stays src/irx#helo.c. See issue #195.
 [[module]]
-name = "IRXHELO"
+name = "IRX#HELO"
 startup = "crt1"
 sources = [
   "src/irx#helo.c",
