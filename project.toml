@@ -1,6 +1,6 @@
 [project]
 name = "rexx370"
-version = "0.1.0-dev"
+version = "1.0.0-dev"
 type = "application"
 
 [build]
@@ -11,7 +11,7 @@ cflags = ["-std=gnu99", "-I", "include"]
 # lstring370 is staged via .mbt/deps (local path override until it ships a
 # v2 -lib.tar.gz release).
 [dependencies]
-"mvslovers/lstring370" = "=0.1.0-dev"
+"mvslovers/lstring370" = ">=1.0.0-dev"
 
 [release]
 version_files = ["VERSION"]
@@ -160,11 +160,7 @@ sources = [
 name = "IRXLOAD"
 entry = "IRXLOAD"
 startup = false
-sources = [
-  "asm/irxload.asm",
-  "src/irx#load.c",
-  "src/irx#stor.c",
-]
+sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
 # IRXEXEC - HLASM Entry-Point Wrapper for the IRXEXEC Programming
@@ -358,11 +354,7 @@ sources = [
 [[test]]
 name = "TSTTOKN"
 startup = "crt1"
-sources = [
-  "test/mvs/tsttokn.c",
-  "src/irx#tokn.c",
-  "src/irx#stor.c",
-]
+sources = ["test/mvs/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
 # MVS test load modules (follow-ups to the TSTTOKN pilot).
@@ -1655,11 +1647,7 @@ sources = [
 [[test]]
 name = "TSTLOAD"
 startup = "crt1"
-sources = [
-  "test/mvs/tstload.c",
-  "src/irx#load.c",
-  "src/irx#stor.c",
-]
+sources = ["test/mvs/tstload.c", "src/irx#load.c", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
 # TSTJCL - WP-CPS-08 IRXJCL C-core unit tests.
