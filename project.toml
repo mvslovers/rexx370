@@ -1647,6 +1647,15 @@ sources = [
 name = "TSTLOAD"
 startup = "crt1"
 sources = ["test/mvs/tstload.c", "src/irx#load.c", "src/irx#stor.c"]
+# On MVS the LOAD path reads members from real DDs (the host build self-
+# provisions /tmp dirs under #ifndef __MVS__). Pre-load the members and add the
+# DDs so the runner's batch + TSO steps can resolve them.
+[[test.fixture]]
+dd = "SYSEXEC"
+members = ["test/fixtures/tstload/HELLO", "test/fixtures/tstload/EMPTY"]
+[[test.fixture]]
+dd = "ALTDD"
+members = ["test/fixtures/tstload/ALTM"]
 
 # ---------------------------------------------------------------
 # TSTJCL - WP-CPS-08 IRXJCL C-core unit tests.
@@ -1690,6 +1699,15 @@ sources = [
   "src/irx#ctrl.c",
   "src/irx#arith.c",
   "asm/istso.asm",
+]
+# MVS: pre-load the SYSEXEC members the IRXJCL/LOAD path reads at runtime
+# (host build self-provisions them under #ifndef __MVS__).
+[[test.fixture]]
+dd = "SYSEXEC"
+members = [
+  "test/fixtures/tstjcl/HELLO",
+  "test/fixtures/tstjcl/WITHARG",
+  "test/fixtures/tstjcl/ENVTEST",
 ]
 
 [[test]]
