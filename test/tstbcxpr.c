@@ -225,11 +225,12 @@ static void test_compile_exit_rc(struct envblock *env)
     CHECK(bc->symbol_count == 0, "symbol_count==0");
 
     code = IRXBC_CODE(bc);
-    /* OP_NEWCLAUSE, PUSH_LIT 0 0, OP_EXIT_RC */
+    /* OP_NEWCLAUSE, PUSH_LIT 0 0, OP_EXIT_RC, trailing OP_EXIT terminator */
     CHECK(code[0] == OP_NEWCLAUSE, "code[0]==OP_NEWCLAUSE");
     CHECK(code[1] == OP_PUSH_LIT, "code[1]==OP_PUSH_LIT");
     CHECK(code[4] == OP_EXIT_RC, "code[4]==OP_EXIT_RC");
-    CHECK(bc->code_length == 5, "code_length==5");
+    CHECK(code[5] == OP_EXIT, "code[5]==OP_EXIT (trailing terminator)");
+    CHECK(bc->code_length == 6, "code_length==6");
 
     {
         void *p = bc;

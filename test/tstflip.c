@@ -42,6 +42,11 @@
 #include "irxfunc.h"
 #include "irxwkblk.h"
 
+#ifdef __MVS__
+#include <clibenv.h>   /* setenv/unsetenv on crent370 (host gets them from
+                          <stdlib.h> via _POSIX_C_SOURCE above) */
+#endif
+
 #ifndef __MVS__
 void *_simulated_ectenvbk = NULL;
 #endif

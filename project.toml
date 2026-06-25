@@ -1,53 +1,34 @@
 [project]
 name = "rexx370"
-version = "0.1.0-dev"
+version = "1.0.0-dev"
 type = "application"
 
 [build]
-cflags = ["-std=gnu99", "-I./include"]
+cflags = ["-std=gnu99", "-I", "include"]
 
-[build.sources]
-c_dirs = ["src/", "test/mvs/"]
-asm_dirs = ["asm/", "test/mvs/asm/"]
+# Host build (`make test-host`): the dual test/*.c tests run natively for a
+# fast inner loop. lstring370 is linked from source on the host (the staged
+# .mbt/deps .a is the cc370 cross build); -Wall -Wextra to catch more.
+[host]
+cflags = ["-Wall", "-Wextra"]
+sources = ["../lstring370/src/lstr#*.c"]
+# is_tso() resolves to the asm CSECT on MVS (asm/istso.asm) but to a stub on
+# the host (src/irx#env.c, #ifndef __MVS__). Swap it for the native build.
+replace = { "asm/istso.asm" = "src/irx#env.c" }
 
-[mvs.build.datasets.source]
-suffix = "SOURCE"
-dsorg = "PO"
-recfm = "FB"
-lrecl = 80
-blksize = 19040
-space = ["TRK", 200, 50, 50]
-
-[mvs.build.datasets.punch]
-suffix = "OBJECT"
-dsorg = "PO"
-recfm = "FB"
-lrecl = 80
-blksize = 19040
-space = ["TRK", 200, 50, 60]
-
-[mvs.build.datasets.ncalib]
-suffix = "NCALIB"
-dsorg = "PO"
-recfm = "U"
-lrecl = 0
-blksize = 19069
-space = ["TRK", 300, 100, 60]
-
-[mvs.build.datasets.syslmod]
-suffix = "LOAD"
-dsorg = "PO"
-recfm = "U"
-lrecl = 0
-blksize = 15040
-space = ["TRK", 1800, 600, 30]
-
+# crent370 is provided by the cc370 sysroot (libc370) in v2, so it is no
+# longer a declared dependency (same as the ufsd/ftpd v2 migrations).
+# lstring370 is staged via .mbt/deps (local path override until it ships a
+# v2 -lib.tar.gz release).
 [dependencies]
-"mvslovers/crent370" = "=1.0.10-dev"
-"mvslovers/lstring370" = "=0.1.0-dev"
+"mvslovers/lstring370" = ">=1.0.0-dev"
 
-[mvs.install]
-naming = "fixed"
+[release]
+version_files = ["VERSION"]
+
+# ===================================================================
+# Production load modules
+# ===================================================================
 
 # ---------------------------------------------------------------
 # IRXANCHR - Language Processor Environment table (data module).
@@ -55,11 +36,12 @@ naming = "fixed"
 # Loaded at runtime via LOAD EP=IRXANCHR by irx_anchor_get_handle().
 # No C runtime — pure assembler data object.
 # ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRXANCHR"
 entry = "IRXANCHR"
-options = ["LIST", "MAP", "XREF", "REUS"]
-include = ["IRXANCHR"]
+startup = false
+norent = true              # self-modified slot array -> REUS, not RENT
+sources = ["asm/irxanchr.asm"]
 
 # ---------------------------------------------------------------
 # IRXPARMS / IRXTSPRM / IRXISPRM - Default Parameter Modules.
@@ -68,41 +50,30 @@ include = ["IRXANCHR"]
 # no explicit PARMBLOCK (CON-1 §6.3, step 4).
 # No C runtime — pure assembler data objects.
 # ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRXPARMS"
 entry = "IRXPARMS"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["IRXPARMS"]
+startup = false
+sources = ["asm/irxparms.asm"]
 
-[[link.module]]
+[[module]]
 name = "IRXTSPRM"
 entry = "IRXTSPRM"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["IRXTSPRM"]
+startup = false
+sources = ["asm/irxtsprm.asm"]
 
-[[link.module]]
+[[module]]
 name = "IRXISPRM"
 entry = "IRXISPRM"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["IRXISPRM"]
+startup = false
+sources = ["asm/irxisprm.asm"]
 
-[[link.module]]
+[[module]]
 name = "IRXTMPW"
 entry = "IRXTMPW"
-options = ["LIST", "MAP", "XREF", "AC=1", "RENT", "REUS"]
-include = ["IRXTMPW"]
-
-# ---------------------------------------------------------------
-# ISTSO - EXTRACT-based TSO environment detector.
-# Returns 0 (batch) or 1 (TSO foreground/background) via R15.
-# Pure assembler NCAL member; TISTSO links it in for the live test.
-# WP-I1c.6 / GitHub mvslovers/rexx370#93.
-# ---------------------------------------------------------------
-[[link.module]]
-name = "ISTSO"
-entry = "ISTSO"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["ISTSO"]
+startup = false
+ac = 1
+sources = ["asm/irxtmpw.asm"]
 
 # ---------------------------------------------------------------
 # IRXINIT - HLASM Entry-Point Wrapper for the IRXINIT Programming
@@ -118,36 +89,34 @@ include = ["ISTSO"]
 #
 # WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83.
 # ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRXINIT"
 entry = "IRXINIT"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = [
-  "IRXINIT",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = false
+sources = [
+  "asm/irxinit.asm",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # IRXTERM - HLASM Entry-Point Wrapper for the IRXTERM Programming
@@ -158,36 +127,34 @@ include = [
 #
 # WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83.
 # ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRXTERM"
 entry = "IRXTERM"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = [
-  "IRXTERM",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = false
+sources = [
+  "asm/irxterm.asm",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # IRXLOAD - HLASM Entry-Point Wrapper for the IRXLOAD Programming
@@ -201,11 +168,11 @@ include = [
 #
 # WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#118.
 # ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRXLOAD"
 entry = "IRXLOAD"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["IRXLOAD", "IRX#LOAD", "IRX#STOR"]
+startup = false
+sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
 # IRXEXEC - HLASM Entry-Point Wrapper for the IRXEXEC Programming
@@ -219,79 +186,34 @@ include = ["IRXLOAD", "IRX#LOAD", "IRX#STOR"]
 # Reference: WP-CPS-06 / TSK-218 / PR #121
 # Reference: https://www.ibm.com/docs/en/zos/2.5.0?topic=irxexec-routine
 # ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRXEXEC"
 entry = "IRXEXEC"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = [
-  "IRXEXEC",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#ARIT",
+startup = false
+sources = [
+  "asm/irxexec.asm",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-# ---------------------------------------------------------------
-# TSTANCH - ENVBLOCK anchor smoketest pseudomodule
-# Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
-# Pulls in the full phase-1/phase-2 object set so IRXINIT and
-# IRXTERM link cleanly; it exits with RC=0 on push/pop success.
-#
-# Listed before IRXJCL so the TSTANCH load module links even while
-# the full IRXJCL CSECT (the batch entry point) has not been
-# implemented yet — IRXJCL's link step is expected to fail at this
-# phase, TSTANCH must not be blocked by it.
-# ---------------------------------------------------------------
-[[link.module]]
-name = "TSTANCH"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTANCH",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
-]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # IRXDBG - Debug / Inspection Tool.
@@ -305,59 +227,131 @@ include = [
 #   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ENV'
 #   TSO  :  CALL 'hlq.LOAD(IRXDBG)' 'ENV 18BC5C90'
 # ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRXDBG"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = ["@@CRT1", "IRXDBG", "IRX#ANCH"]
+startup = "crt1"
+sources = ["src/irxdbg.c", "src/irx#anch.c"]
 
-# ---------------------------------------------------------------
-# IRX#HELO - "Hello World" demo standalone load module.
-# Runs an embedded REXX exec through irx_exec_run() that exercises
-# SAY, arithmetic, NUMERIC DIGITS, string BIFs (LENGTH / REVERSE /
-# TRANSLATE / SUBSTR / WORDS / WORD / CENTER), conversion BIFs
-# (C2X / D2X / X2D), DO loops, SELECT / WHEN / OTHERWISE, and
-# PARSE VAR.  Same dep_includes rationale as TSTANCH.
-#
-# Invocation:
-#   TSO    :  CALL 'hlq.LOAD(IRX#HELO)'
-#   Batch  :  EXEC PGM=IRX#HELO
-# ---------------------------------------------------------------
-[[link.module]]
+[[module]]
 name = "IRX#HELO"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "IRX#HELO",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "src/irx#helo.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
+# ---------------------------------------------------------------
+# IRXJCL - Batch Entry Point (PGM=IRXJCL, WP-CPS-08 / TSK-220)
+# MVS loads this when a JCL step specifies EXEC PGM=IRXJCL.
+# Entry is @@CRT0 (crent370 bootstrap); main() in IRX#JCLM
+# reconstructs the single-arg-string from @@START-split argv
+# and delegates to irx_jcl_dispatch_main in IRX#JCL.
+#
+# REUS dropped: @@CRT0/main() setup is incompatible with REUS
+# (same as all other @@CRT0 test/service modules).
+# Programmatic CALL IRXJCL support: deferred to WP-CPS-08c.
+#
+# Invocation:
+#   Batch  :  EXEC PGM=IRXJCL,PARM='MYMEMBER args...'
+#
+# Reference: WP-CPS-08 / TSK-220 / GitHub mvslovers/rexx370#126
+# ---------------------------------------------------------------
+[[module]]
+name = "IRXJCL"
+startup = "crt1"
+sources = [
+  "src/irx#jclm.c",
+  "src/irx#jcl.c",
+  "src/irx#load.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ===================================================================
+# Test load modules ([[test]] -- built by 'make test', not deployed)
+# ===================================================================
+
+# ---------------------------------------------------------------
+# TSTANCH - ENVBLOCK anchor smoketest pseudomodule
+# Runs in TSO (CALL 'TSTANCH') or Batch (EXEC PGM=TSTANCH).
+# Pulls in the full phase-1/phase-2 object set so IRXINIT and
+# IRXTERM link cleanly; it exits with RC=0 on push/pop success.
+#
+# Listed before IRXJCL so the TSTANCH load module links even while
+# the full IRXJCL CSECT (the batch entry point) has not been
+# implemented yet — IRXJCL's link step is expected to fail at this
+# phase, TSTANCH must not be blocked by it.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTANCH"
+startup = "crt1"
+sources = [
+  "test/tstanch.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
 
 # ---------------------------------------------------------------
 # TSTTOKN - WP-10 tokenizer unit tests (pilot MVS test load module).
-# Standalone load module built from test/mvs/tsttokn.c. Runs the
+# Standalone load module built from test/tsttokn.c. Runs the
 # tokenizer test suite on MVS. Same dep_includes rationale as TSTANCH.
 #
 # Invocation:
@@ -366,19 +360,15 @@ include = [
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTTOKN"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = ["@@CRT1", "TSTTOKN", "IRX#TOKN", "IRX#STOR"]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
+startup = "crt1"
+sources = ["test/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
 # MVS test load modules (follow-ups to the TSTTOKN pilot).
 #
-# Each test translation unit in test/mvs/ becomes its own standalone
+# Each test translation unit in test/ becomes its own standalone
 # load module. The include list is the full Phase 1 + Phase 2 + EXEC
 # + ARIT chain (same as TSTANCH / IRXJCL) because irx#bifs.c pulls in
 # arithmetic and parser entry points even for tests that don't use
@@ -390,69 +380,61 @@ include = ["@@CRT1", "TSTTOKN", "IRX#TOKN", "IRX#STOR"]
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTPHAS1"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTPHAS1",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstphas1.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTANRM"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTANRM",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstanrm.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTANSL - WP-I1a.3 IRXANCHR Slot-Management-API unit tests.
@@ -466,14 +448,10 @@ include = [
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTANSL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = ["@@CRT1", "TSTANSL", "IRX#ANCH"]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
+startup = "crt1"
+sources = ["test/tstansl.c", "src/irx#anch.c"]
 
 # ---------------------------------------------------------------
 # TSTINIT - WP-I1c.1 IRXINIT INITENVB C-Core unit tests.
@@ -486,37 +464,33 @@ include = ["@@CRT1", "TSTANSL", "IRX#ANCH"]
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTINIT"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTINIT",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstinit.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTFIND - WP-I1c.2 IRXINIT FINDENVB + CHEKENVB unit tests.
@@ -530,37 +504,33 @@ include = [
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTFIND"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTFIND",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstfind.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTTERM - WP-I1c.3 IRXTERM C-Core unit tests.
@@ -574,229 +544,201 @@ include = [
 #
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTTERM"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTTERM",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstterm.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTLSTR"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTLSTR",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstlstr.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTVPOL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTVPOL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstvpol.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTPRSR"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTPRSR",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstprsr.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTSAY"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTSAY",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstsay.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTCTRL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTCTRL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstctrl.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTHELO"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTHELO",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tsthelo.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTEXEC - WP-CPS-06 IRXEXEC C-dispatcher unit tests.
@@ -804,261 +746,229 @@ include = [
 # Same dependency set as TSTHELO.
 # Exit code: 0 on success, 1 on any test failure.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTEXEC"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTEXEC",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstexec.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTPARSE"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTPARSE",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstparse.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTPROC"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTPROC",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstproc.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTARIT"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTARIT",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstarit.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTAREXT"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTAREXT",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstarext.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTBIF"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBIF",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbif.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTBIFS"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBIFS",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbifs.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTTIM"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTTIM",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tsttim.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCTL - WP-BC-03 bytecode control-flow + SAY equivalence tests.
@@ -1072,37 +982,33 @@ include = [
 #
 # WP-BC-03 / GitHub mvslovers/rexx370#145.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCTL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCTL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbctl.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCAL - WP-BC-04 function call / CALL / RETURN equivalence tests.
@@ -1117,36 +1023,32 @@ include = [
 #
 # WP-BC-04 / GitHub mvslovers/rexx370#149.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCAL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCAL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbcal.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBPSE - WP-BC-05 PR A: PARSE sub-VM tests.
@@ -1161,36 +1063,32 @@ include = [
 #
 # WP-BC-05 / GitHub mvslovers/rexx370#151.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBPSE"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBPSE",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbpse.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBPRO - WP-BC-05 PR B: PROCEDURE EXPOSE bytecode tests.
@@ -1205,36 +1103,32 @@ include = [
 #
 # WP-BC-05 / GitHub mvslovers/rexx370#151.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBPRO"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBPRO",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbpro.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCOM - WP-BC-05 PR C: Compound Variable bytecode tests.
@@ -1249,36 +1143,32 @@ include = [
 #
 # WP-BC-05 / GitHub mvslovers/rexx370#154.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCOM"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCOM",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbcom.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCRXC - WP-BC-06 REXXCPS-derived bytecode correctness driver.
@@ -1295,36 +1185,32 @@ include = [
 #
 # WP-BC-06 / GitHub mvslovers/rexx370#157.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCRXC"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCRXC",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbcrxc.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBSIG - WP-BC-07 PR A: SIGNAL label / SIGNAL VALUE bytecode tests.
@@ -1339,72 +1225,64 @@ include = [
 #
 # WP-BC-07 / GitHub mvslovers/rexx370#160.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBSIG"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBSIG",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbsig.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBTRP - WP-BC-07 PR B: SIGNAL ON/OFF + condition trap tests.
 # Covers NOVALUE / SYNTAX traps, trap auto-disable, CALL/RETURN
 # trap-state scope, and ERROR/HALT/FAILURE/NOTREADY infrastructure.
 # bc_only tests only (token-walk has no trap semantics per CON-18).
-[[link.module]]
+[[test]]
 name = "TSTBTRP"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBTRP",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbtrp.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBTRA - WP-BC-08: TRACE + ADDRESS bytecode tests.
@@ -1421,37 +1299,33 @@ include = [
 #
 # WP-BC-08 / GitHub mvslovers/rexx370.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBTRA"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBTRA",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbtra.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBSEM - WP-BC-SEMI: ';' clause-separator bytecode tests.
@@ -1467,37 +1341,33 @@ include = [
 #
 # WP-BC-SEMI / GitHub mvslovers/rexx370#169.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBSEM"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBSEM",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbsem.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBARG - WP-BC-ARGOMIT: omitted function arguments f(a,,b).
@@ -1516,37 +1386,33 @@ include = [
 #
 # WP-BC-ARGOMIT / GitHub mvslovers/rexx370#172.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBARG"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBARG",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbarg.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCONT - WP-BC-CONTCOMMA: trailing-comma line continuation.
@@ -1564,37 +1430,33 @@ include = [
 #
 # WP-BC-CONTCOMMA / GitHub mvslovers/rexx370#174.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCONT"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCONT",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbcont.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCAT - WP-BC-RT02: abuttal vs blank concatenation.
@@ -1613,37 +1475,33 @@ include = [
 #
 # WP-BC-RT02 / GitHub mvslovers/rexx370#TBD.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCAT"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCAT",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbcat.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBDQ - WP-BC-RT03: quote de-doubling in string literals.
@@ -1662,37 +1520,33 @@ include = [
 #
 # WP-BC-RT03 / GitHub mvslovers/rexx370#TBD.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBDQ"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBDQ",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbdq.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCMP - WP-BC-OC12: numeric-compare int_cache fast-path.
@@ -1711,37 +1565,33 @@ include = [
 #
 # WP-BC-OC12.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCMP"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCMP",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbcmp.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTBCNUM - WP-BC-NUMERIC: NUMERIC DIGITS/FUZZ/FORM statement.
@@ -1761,37 +1611,33 @@ include = [
 #
 # WP-BC-NUMERIC.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTBCNUM"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTBCNUM",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstbcnum.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TSTLOAD - WP-CPS-07 IRXLOAD C-core unit tests.
@@ -1807,11 +1653,19 @@ include = [
 #
 # WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#118.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTLOAD"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = ["@@CRT1", "TSTLOAD", "IRX#LOAD", "IRX#STOR"]
+startup = "crt1"
+sources = ["test/tstload.c", "src/irx#load.c", "src/irx#stor.c"]
+# On MVS the LOAD path reads members from real DDs (the host build self-
+# provisions /tmp dirs under #ifndef __MVS__). Pre-load the members and add the
+# DDs so the runner's batch + TSO steps can resolve them.
+[[test.fixture]]
+dd = "SYSEXEC"
+members = ["test/fixtures/tstload/HELLO", "test/fixtures/tstload/EMPTY"]
+[[test.fixture]]
+dd = "ALTDD"
+members = ["test/fixtures/tstload/ALTM"]
 
 # ---------------------------------------------------------------
 # TSTJCL - WP-CPS-08 IRXJCL C-core unit tests.
@@ -1827,103 +1681,100 @@ include = ["@@CRT1", "TSTLOAD", "IRX#LOAD", "IRX#STOR"]
 #
 # WP-CPS-08 / TSK-220 / GitHub mvslovers/rexx370#126.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TSTJCL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTJCL",
-  "IRX#JCL",
-  "IRX#LOAD",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstjcl.c",
+  "src/irx#jcl.c",
+  "src/irx#load.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+# MVS: pre-load the SYSEXEC members the IRXJCL/LOAD path reads at runtime
+# (host build self-provisions them under #ifndef __MVS__).
+[[test.fixture]]
+dd = "SYSEXEC"
+members = [
+  "test/fixtures/tstjcl/HELLO",
+  "test/fixtures/tstjcl/WITHARG",
+  "test/fixtures/tstjcl/ENVTEST",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTTRACE"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTTRACE",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tsttrace.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
-[[link.module]]
+[[test]]
 name = "TSTADDR"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "TSTADDR",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#ARIT",
+startup = "crt1"
+sources = [
+  "test/tstaddr.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
 
 # ---------------------------------------------------------------
 # TINITVL - Live MVS test caller for IRXINIT INITENVB.
@@ -1934,15 +1785,15 @@ include = [
 # pull-in, so the test exercises the real production load module.
 #
 # Invocation:
-#   Batch  :  EXEC PGM=TINITVL  (see test/mvs/jcl/tinitvl.jcl)
+#   Batch  :  EXEC PGM=TINITVL  (see test/jcl/tinitvl.jcl)
 #
 # WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#87.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TINITVL"
 entry = "TINITVL"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["TINITVL"]
+startup = false
+sources = ["test/asm/tinitvl.asm"]
 
 # ---------------------------------------------------------------
 # TTERMVL - Live MVS test caller for IRXINIT INITENVB + IRXTERM.
@@ -1950,102 +1801,250 @@ include = ["TINITVL"]
 # IRXTERM both resolved at run time via LOAD EP= from STEPLIB.
 #
 # Invocation:
-#   Batch  :  EXEC PGM=TTERMVL  (see test/mvs/jcl/ttermvl.jcl)
+#   Batch  :  EXEC PGM=TTERMVL  (see test/jcl/ttermvl.jcl)
 #
 # WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#87.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TTERMVL"
 entry = "TTERMVL"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["TTERMVL"]
+startup = false
+sources = ["test/asm/ttermvl.asm"]
 
 # ---------------------------------------------------------------
-# TISTSO - Live MVS test caller for ISTSO (EXTRACT-based TSO detect).
-# Pure HLASM; ISTSO is NCAL-linked in so L R15,=V(ISTSO) resolves.
-# Invocation:
-#   Batch : EXEC PGM=TISTSO  (see test/mvs/jcl/tistso.jcl)
-#   TSO   : CALL 'hlq.LOAD(TISTSO)'
-# WP-I1c.6 / GitHub mvslovers/rexx370#93.
+# TISTSO - self-validating test for ISTSO (EXTRACT-based TSO detect).
+# is_tso()'s correct result depends on the environment, so the runner passes
+# the EXPECTED value per leg (batch -> "0", TSO/IKJEFT01 -> "1") and the test
+# asserts is_tso() matches. C test (reads argv) + asm/istso.asm (the ISTSO
+# CSECT that is_tso() resolves to). WP-I1c.6 / GitHub mvslovers/rexx370#93.
 # ---------------------------------------------------------------
-[[link.module]]
+[[test]]
 name = "TISTSO"
-entry = "TISTSO"
-options = ["LIST", "MAP", "XREF", "RENT", "REUS"]
-include = ["TISTSO", "ISTSO"]
+startup = "crt1"
+sources = ["test/tistso.c", "asm/istso.asm"]
+parm_batch = "0"
+parm_tso = "1"
 
 # ---------------------------------------------------------------
-# IRXJCL - Batch Entry Point (PGM=IRXJCL, WP-CPS-08 / TSK-220)
-# MVS loads this when a JCL step specifies EXEC PGM=IRXJCL.
-# Entry is @@CRT0 (crent370 bootstrap); main() in IRX#JCLM
-# reconstructs the single-arg-string from @@START-split argv
-# and delegates to irx_jcl_dispatch_main in IRX#JCL.
-#
-# REUS dropped: @@CRT0/main() setup is incompatible with REUS
-# (same as all other @@CRT0 test/service modules).
-# Programmatic CALL IRXJCL support: deferred to WP-CPS-08c.
-#
-# Invocation:
-#   Batch  :  EXEC PGM=IRXJCL,PARM='MYMEMBER args...'
-#
-# Reference: WP-CPS-08 / TSK-220 / GitHub mvslovers/rexx370#126
+# TSTBCLN - WP-BC: bytecode cleanup/free internals (was test/host/tstbc_clean).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
 # ---------------------------------------------------------------
-[[link.module]]
-name = "IRXJCL"
-entry = "@@CRT0"
-options = ["LIST", "MAP", "XREF", "RENT"]
-include = [
-  "@@CRT1",
-  "IRX#JCLM",
-  "IRX#JCL",
-  "IRX#LOAD",
-  "IRX#EXEC",
-  "IRX#BCOM",
-  "IRX#BVM",
-  "IRX#BCTL",
-  "IRX#INIT",
-  "IRX#TERM",
-  "IRX#STOR",
-  "IRX#ANCH",
-  "IRX#UID",
-  "IRX#MSID",
-  "IRX#COND",
-  "IRX#BIF",
-  "IRX#BIFS",
-  "IRX#IO",
-  "IRX#LSTR",
-  "IRX#TOKN",
-  "IRX#VPOL",
-  "IRX#PARS",
-  "IRX#CTRL",
-  "IRX#ARIT",
+[[test]]
+name = "TSTBCLN"
+startup = "crt1"
+sources = [
+  "test/tstbcln.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
 
-[link.module.dep_includes]
-"mvslovers/lstring370" = "*"
-
 # ---------------------------------------------------------------
-# IRXEXCOM - Variable access (separate load module per IBM spec)
-# Loaded on demand via IRXEXTE entry point.
+# TSTBCCMP - WP-BC: bytecode compiler internals (was test/host/tstbc_compile).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
 # ---------------------------------------------------------------
-# [[link.module]]
-# name = "IRXEXCOM"
-# entry = "@@CRT0"
-# options = ["LIST", "MAP", "XREF", "RENT"]
-# include = ["@@CRT1", "IRX#XCOM"]
-
-[release]
-version_files = ["VERSION"]
-
-[artifacts]
-headers = true
-header_files = [
-  "irx.h",
-  "irxanchr.h",
-  "irxwkblk.h",
-  "irxfunc.h",
-  "irxbif.h",
-  "irxbifs.h",
-  "irxcond.h",
+[[test]]
+name = "TSTBCCMP"
+startup = "crt1"
+sources = [
+  "test/tstbccmp.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
 ]
-loads = true
+
+# ---------------------------------------------------------------
+# TSTBCEXE - WP-BC: bytecode VM execute internals (was test/host/tstbc_execute).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCEXE"
+startup = "crt1"
+sources = [
+  "test/tstbcexe.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTBCXPR - WP-BC: bytecode expression internals (was test/host/tstbc_expr).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCXPR"
+startup = "crt1"
+sources = [
+  "test/tstbcxpr.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTPOOL - WP-PERF: Lstring allocator pool stress (was test/host/tstpool).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTPOOL"
+startup = "crt1"
+sources = [
+  "test/tstpool.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTFLIP - REXX370_BYTECODE env-var override (was test/host/tstbc_flip).
+# Dual: setenv/getenv work on crent370, so the toggle is exercised on MVS too.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTFLIP"
+startup = "crt1"
+sources = [
+  "test/tstflip.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTRXCPS - REXXCPS token-walk vs bytecode equivalence (was tstbc_rexxcps).
+# Gates on identical output from both paths; reports CPS timing on the host.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTRXCPS"
+startup = "crt1"
+sources = [
+  "test/tstrxcps.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]

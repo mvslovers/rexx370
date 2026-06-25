@@ -41,7 +41,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "irx.h"
 #include "irxexec.h"
@@ -157,13 +156,22 @@ static int capture_io(int function, PLstr data, struct envblock *envblock)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Elapsed wall-clock in seconds (CLOCK_MONOTONIC).                  */
+/*  Monotonic wall-clock seconds. Host uses CLOCK_MONOTONIC; MVS has no
+ *  portable monotonic clock here, so timing reads 0 there. This is a
+ *  correctness test (token-walk vs bytecode equivalence) that also
+ *  reports timing on the host.                                        */
 /* ------------------------------------------------------------------ */
-static double wall_seconds(struct timespec *t0, struct timespec *t1)
+#ifndef __MVS__
+#include <time.h>
+static double now_s(void)
 {
-    return (double)(t1->tv_sec - t0->tv_sec) +
-           (double)(t1->tv_nsec - t0->tv_nsec) / 1.0e9;
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + (double)t.tv_nsec / 1.0e9;
 }
+#else
+static double now_s(void) { return 0.0; }
+#endif
 
 /* ------------------------------------------------------------------ */
 /*  main                                                               */
@@ -177,7 +185,7 @@ int main(int argc, char *argv[])
     struct irx_wkblk_int *wk;
     char tw_out[CAPBUF];
     char bc_out[CAPBUF];
-    struct timespec t0, t1;
+    double t0;
     double tw_wall, bc_wall;
     int rc;
     int exit_rc = 0;
@@ -235,10 +243,9 @@ int main(int argc, char *argv[])
     /* ---- Token-walk run ------------------------------------------- */
     cap_reset();
     wk->wkbi_use_bytecode = 0;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    t0 = now_s();
     rc = irx_exec_run(src, src_len, NULL, 0, &exit_rc, env);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    tw_wall = wall_seconds(&t0, &t1);
+    tw_wall = now_s() - t0;
     memcpy(tw_out, g_cap, (size_t)(g_cap_len + 1));
     if (rc != 0)
     {
@@ -252,11 +259,10 @@ int main(int argc, char *argv[])
     /* ---- Bytecode run --------------------------------------------- */
     cap_reset();
     wk->wkbi_use_bytecode = 1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    t0 = now_s();
     rc = irx_exec_run(src, src_len, NULL, 0, &exit_rc, env);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
+    bc_wall = now_s() - t0;
     wk->wkbi_use_bytecode = 0;
-    bc_wall = wall_seconds(&t0, &t1);
     memcpy(bc_out, g_cap, (size_t)(g_cap_len + 1));
     if (rc != 0)
     {
@@ -270,21 +276,25 @@ int main(int argc, char *argv[])
     irxterm(env);
 
     /* ---- Results -------------------------------------------------- */
-    printf("REXXCPS kernel: %d iterations\n", iterations);
+    printf("=== TSTRXCPS: REXXCPS kernel, %d iterations ===\n", iterations);
+#ifndef __MVS__
     printf("  token-walk  : %.3f s\n", tw_wall);
     printf("  bytecode    : %.3f s\n", bc_wall);
     if (bc_wall > 0.0)
     {
         printf("  speedup     : %.2fx\n", tw_wall / bc_wall);
     }
+#endif
 
+    /* Correctness gate: the token-walk and bytecode paths must produce the
+     * identical output for the same exec (the timing above is diagnostic). */
     if (strcmp(tw_out, bc_out) != 0)
     {
-        fprintf(stderr, "FAIL: output mismatch\n");
-        fprintf(stderr, "  token-walk: [%s]\n", tw_out);
-        fprintf(stderr, "  bytecode:   [%s]\n", bc_out);
+        printf("  FAIL: token-walk and bytecode output match\n");
+        fprintf(stderr, "  token-walk: [%s]\n  bytecode:   [%s]\n",
+                tw_out, bc_out);
         return 1;
     }
-    printf("  output      : match\n");
+    printf("  PASS: token-walk and bytecode output match\n");
     return 0;
 }
