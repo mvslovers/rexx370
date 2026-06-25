@@ -6,6 +6,16 @@ type = "application"
 [build]
 cflags = ["-std=gnu99", "-I", "include"]
 
+# Host build (`make test-host`): the dual test/mvs/*.c tests run natively for a
+# fast inner loop. lstring370 is linked from source on the host (the staged
+# .mbt/deps .a is the cc370 cross build); -Wall -Wextra to catch more.
+[host]
+cflags = ["-Wall", "-Wextra"]
+sources = ["../lstring370/src/lstr#*.c"]
+# is_tso() resolves to the asm CSECT on MVS (asm/istso.asm) but to a stub on
+# the host (src/irx#env.c, #ifndef __MVS__). Swap it for the native build.
+replace = { "asm/istso.asm" = "src/irx#env.c" }
+
 # crent370 is provided by the cc370 sysroot (libc370) in v2, so it is no
 # longer a declared dependency (same as the ufsd/ftpd v2 migrations).
 # lstring370 is staged via .mbt/deps (local path override until it ships a
