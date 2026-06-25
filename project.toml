@@ -1984,3 +1984,67 @@ sources = [
   "src/irx#arith.c",
   "asm/istso.asm",
 ]
+
+# ---------------------------------------------------------------
+# TSTFLIP - REXX370_BYTECODE env-var override (was test/host/tstbc_flip).
+# Dual: setenv/getenv work on crent370, so the toggle is exercised on MVS too.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTFLIP"
+startup = "crt1"
+sources = [
+  "test/tstflip.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTRXCPS - REXXCPS token-walk vs bytecode equivalence (was tstbc_rexxcps).
+# Gates on identical output from both paths; reports CPS timing on the host.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTRXCPS"
+startup = "crt1"
+sources = [
+  "test/tstrxcps.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
