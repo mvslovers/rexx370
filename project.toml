@@ -1802,15 +1802,15 @@ startup = false
 sources = ["test/mvs/asm/ttermvl.asm"]
 
 # ---------------------------------------------------------------
-# TISTSO - Live MVS test caller for ISTSO (EXTRACT-based TSO detect).
-# Pure HLASM; ISTSO is NCAL-linked in so L R15,=V(ISTSO) resolves.
-# Invocation:
-#   Batch : EXEC PGM=TISTSO  (see test/mvs/jcl/tistso.jcl)
-#   TSO   : CALL 'hlq.LOAD(TISTSO)'
-# WP-I1c.6 / GitHub mvslovers/rexx370#93.
+# TISTSO - self-validating test for ISTSO (EXTRACT-based TSO detect).
+# is_tso()'s correct result depends on the environment, so the runner passes
+# the EXPECTED value per leg (batch -> "0", TSO/IKJEFT01 -> "1") and the test
+# asserts is_tso() matches. C test (reads argv) + asm/istso.asm (the ISTSO
+# CSECT that is_tso() resolves to). WP-I1c.6 / GitHub mvslovers/rexx370#93.
 # ---------------------------------------------------------------
 [[test]]
 name = "TISTSO"
-entry = "TISTSO"
-startup = false
-sources = ["test/mvs/asm/tistso.asm", "asm/istso.asm"]
+startup = "crt1"
+sources = ["test/mvs/tistso.c", "asm/istso.asm"]
+parm_batch = "0"
+parm_tso = "1"
