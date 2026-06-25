@@ -124,12 +124,15 @@ static void test_compile_exit(struct envblock *env)
     CHECK(bc->const_count == 0, "const_count == 0");
     CHECK(bc->symbol_count == 0, "symbol_count == 0");
 
-    /* exit -> OP_NEWCLAUSE + OP_EXIT */
-    CHECK(bc->code_length == 2, "code_length == 2 (OP_NEWCLAUSE + OP_EXIT)");
+    /* exit -> OP_NEWCLAUSE + OP_EXIT + trailing OP_EXIT terminator
+     * (the compiler appends an implicit OP_EXIT so a fall-through exits). */
+    CHECK(bc->code_length == 3,
+          "code_length == 3 (NEWCLAUSE + EXIT + trailing EXIT)");
 
     code = IRXBC_CODE(bc);
     CHECK(code[0] == OP_NEWCLAUSE, "bytecode[0] == OP_NEWCLAUSE");
     CHECK(code[1] == OP_EXIT, "bytecode[1] == OP_EXIT");
+    CHECK(code[2] == OP_EXIT, "bytecode[2] == OP_EXIT (trailing terminator)");
 
     {
         void *p = bc;
@@ -144,8 +147,11 @@ static void test_compile_unsupported(struct envblock *env)
 
     printf("  [compile: unsupported construct]\n");
 
-    /* CALL is not yet handled by the bytecode compiler. */
-    rc = irx_bc_compile(env, "CALL foo", (int)strlen("CALL foo"), &bc, NULL, NULL);
+    /* INTERPRET cannot be statically bytecode-compiled (it generates and runs
+     * code at run time), so it stays on the token-walk fallback path.  (CALL,
+     * which this test used to check, is now compiled -- see TSTBCAL.) */
+    rc = irx_bc_compile(env, "interpret x", (int)strlen("interpret x"),
+                        &bc, NULL, NULL);
     CHECK(rc == IRXBC_ERR_UNSUP,
           "compile returns IRXBC_ERR_UNSUP for unsupported construct");
     CHECK(bc == NULL, "bc is NULL on error");

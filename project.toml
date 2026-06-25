@@ -6,7 +6,7 @@ type = "application"
 [build]
 cflags = ["-std=gnu99", "-I", "include"]
 
-# Host build (`make test-host`): the dual test/mvs/*.c tests run natively for a
+# Host build (`make test-host`): the dual test/*.c tests run natively for a
 # fast inner loop. lstring370 is linked from source on the host (the staged
 # .mbt/deps .a is the cc370 cross build); -Wall -Wextra to catch more.
 [host]
@@ -325,7 +325,7 @@ sources = [
 name = "TSTANCH"
 startup = "crt1"
 sources = [
-  "test/mvs/tstanch.c",
+  "test/tstanch.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -351,7 +351,7 @@ sources = [
 
 # ---------------------------------------------------------------
 # TSTTOKN - WP-10 tokenizer unit tests (pilot MVS test load module).
-# Standalone load module built from test/mvs/tsttokn.c. Runs the
+# Standalone load module built from test/tsttokn.c. Runs the
 # tokenizer test suite on MVS. Same dep_includes rationale as TSTANCH.
 #
 # Invocation:
@@ -363,12 +363,12 @@ sources = [
 [[test]]
 name = "TSTTOKN"
 startup = "crt1"
-sources = ["test/mvs/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
+sources = ["test/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
 # MVS test load modules (follow-ups to the TSTTOKN pilot).
 #
-# Each test translation unit in test/mvs/ becomes its own standalone
+# Each test translation unit in test/ becomes its own standalone
 # load module. The include list is the full Phase 1 + Phase 2 + EXEC
 # + ARIT chain (same as TSTANCH / IRXJCL) because irx#bifs.c pulls in
 # arithmetic and parser entry points even for tests that don't use
@@ -384,7 +384,7 @@ sources = ["test/mvs/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 name = "TSTPHAS1"
 startup = "crt1"
 sources = [
-  "test/mvs/tstphas1.c",
+  "test/tstphas1.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -412,7 +412,7 @@ sources = [
 name = "TSTANRM"
 startup = "crt1"
 sources = [
-  "test/mvs/tstanrm.c",
+  "test/tstanrm.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -451,7 +451,7 @@ sources = [
 [[test]]
 name = "TSTANSL"
 startup = "crt1"
-sources = ["test/mvs/tstansl.c", "src/irx#anch.c"]
+sources = ["test/tstansl.c", "src/irx#anch.c"]
 
 # ---------------------------------------------------------------
 # TSTINIT - WP-I1c.1 IRXINIT INITENVB C-Core unit tests.
@@ -468,7 +468,7 @@ sources = ["test/mvs/tstansl.c", "src/irx#anch.c"]
 name = "TSTINIT"
 startup = "crt1"
 sources = [
-  "test/mvs/tstinit.c",
+  "test/tstinit.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -508,7 +508,7 @@ sources = [
 name = "TSTFIND"
 startup = "crt1"
 sources = [
-  "test/mvs/tstfind.c",
+  "test/tstfind.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -548,7 +548,7 @@ sources = [
 name = "TSTTERM"
 startup = "crt1"
 sources = [
-  "test/mvs/tstterm.c",
+  "test/tstterm.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -576,7 +576,7 @@ sources = [
 name = "TSTLSTR"
 startup = "crt1"
 sources = [
-  "test/mvs/tstlstr.c",
+  "test/tstlstr.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -604,7 +604,7 @@ sources = [
 name = "TSTVPOL"
 startup = "crt1"
 sources = [
-  "test/mvs/tstvpol.c",
+  "test/tstvpol.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -632,7 +632,7 @@ sources = [
 name = "TSTPRSR"
 startup = "crt1"
 sources = [
-  "test/mvs/tstprsr.c",
+  "test/tstprsr.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -660,7 +660,7 @@ sources = [
 name = "TSTSAY"
 startup = "crt1"
 sources = [
-  "test/mvs/tstsay.c",
+  "test/tstsay.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -688,7 +688,7 @@ sources = [
 name = "TSTCTRL"
 startup = "crt1"
 sources = [
-  "test/mvs/tstctrl.c",
+  "test/tstctrl.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -716,7 +716,7 @@ sources = [
 name = "TSTHELO"
 startup = "crt1"
 sources = [
-  "test/mvs/tsthelo.c",
+  "test/tsthelo.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -750,7 +750,7 @@ sources = [
 name = "TSTEXEC"
 startup = "crt1"
 sources = [
-  "test/mvs/tstexec.c",
+  "test/tstexec.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -778,7 +778,7 @@ sources = [
 name = "TSTPARSE"
 startup = "crt1"
 sources = [
-  "test/mvs/tstparse.c",
+  "test/tstparse.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -806,7 +806,7 @@ sources = [
 name = "TSTPROC"
 startup = "crt1"
 sources = [
-  "test/mvs/tstproc.c",
+  "test/tstproc.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -834,7 +834,7 @@ sources = [
 name = "TSTARIT"
 startup = "crt1"
 sources = [
-  "test/mvs/tstarit.c",
+  "test/tstarit.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -862,7 +862,7 @@ sources = [
 name = "TSTAREXT"
 startup = "crt1"
 sources = [
-  "test/mvs/tstarext.c",
+  "test/tstarext.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -890,7 +890,7 @@ sources = [
 name = "TSTBIF"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbif.c",
+  "test/tstbif.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -918,7 +918,7 @@ sources = [
 name = "TSTBIFS"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbifs.c",
+  "test/tstbifs.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -946,7 +946,7 @@ sources = [
 name = "TSTTIM"
 startup = "crt1"
 sources = [
-  "test/mvs/tsttim.c",
+  "test/tsttim.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -986,7 +986,7 @@ sources = [
 name = "TSTBCTL"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbctl.c",
+  "test/tstbctl.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1027,7 +1027,7 @@ sources = [
 name = "TSTBCAL"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbcal.c",
+  "test/tstbcal.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1067,7 +1067,7 @@ sources = [
 name = "TSTBPSE"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbpse.c",
+  "test/tstbpse.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1107,7 +1107,7 @@ sources = [
 name = "TSTBPRO"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbpro.c",
+  "test/tstbpro.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1147,7 +1147,7 @@ sources = [
 name = "TSTBCOM"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbcom.c",
+  "test/tstbcom.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1189,7 +1189,7 @@ sources = [
 name = "TSTBCRXC"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbcrxc.c",
+  "test/tstbcrxc.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1229,7 +1229,7 @@ sources = [
 name = "TSTBSIG"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbsig.c",
+  "test/tstbsig.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1261,7 +1261,7 @@ sources = [
 name = "TSTBTRP"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbtrp.c",
+  "test/tstbtrp.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1303,7 +1303,7 @@ sources = [
 name = "TSTBTRA"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbtra.c",
+  "test/tstbtra.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1345,7 +1345,7 @@ sources = [
 name = "TSTBSEM"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbsem.c",
+  "test/tstbsem.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1390,7 +1390,7 @@ sources = [
 name = "TSTBARG"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbarg.c",
+  "test/tstbarg.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1434,7 +1434,7 @@ sources = [
 name = "TSTBCONT"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbcont.c",
+  "test/tstbcont.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1479,7 +1479,7 @@ sources = [
 name = "TSTBCAT"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbcat.c",
+  "test/tstbcat.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1524,7 +1524,7 @@ sources = [
 name = "TSTBDQ"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbdq.c",
+  "test/tstbdq.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1569,7 +1569,7 @@ sources = [
 name = "TSTBCMP"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbcmp.c",
+  "test/tstbcmp.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1615,7 +1615,7 @@ sources = [
 name = "TSTBCNUM"
 startup = "crt1"
 sources = [
-  "test/mvs/tstbcnum.c",
+  "test/tstbcnum.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1656,7 +1656,7 @@ sources = [
 [[test]]
 name = "TSTLOAD"
 startup = "crt1"
-sources = ["test/mvs/tstload.c", "src/irx#load.c", "src/irx#stor.c"]
+sources = ["test/tstload.c", "src/irx#load.c", "src/irx#stor.c"]
 # On MVS the LOAD path reads members from real DDs (the host build self-
 # provisions /tmp dirs under #ifndef __MVS__). Pre-load the members and add the
 # DDs so the runner's batch + TSO steps can resolve them.
@@ -1685,7 +1685,7 @@ members = ["test/fixtures/tstload/ALTM"]
 name = "TSTJCL"
 startup = "crt1"
 sources = [
-  "test/mvs/tstjcl.c",
+  "test/tstjcl.c",
   "src/irx#jcl.c",
   "src/irx#load.c",
   "src/irx#exec.c",
@@ -1724,7 +1724,7 @@ members = [
 name = "TSTTRACE"
 startup = "crt1"
 sources = [
-  "test/mvs/tsttrace.c",
+  "test/tsttrace.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1752,7 +1752,7 @@ sources = [
 name = "TSTADDR"
 startup = "crt1"
 sources = [
-  "test/mvs/tstaddr.c",
+  "test/tstaddr.c",
   "src/irx#init.c",
   "src/irx#term.c",
   "src/irx#stor.c",
@@ -1785,7 +1785,7 @@ sources = [
 # pull-in, so the test exercises the real production load module.
 #
 # Invocation:
-#   Batch  :  EXEC PGM=TINITVL  (see test/mvs/jcl/tinitvl.jcl)
+#   Batch  :  EXEC PGM=TINITVL  (see test/jcl/tinitvl.jcl)
 #
 # WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#87.
 # ---------------------------------------------------------------
@@ -1793,7 +1793,7 @@ sources = [
 name = "TINITVL"
 entry = "TINITVL"
 startup = false
-sources = ["test/mvs/asm/tinitvl.asm"]
+sources = ["test/asm/tinitvl.asm"]
 
 # ---------------------------------------------------------------
 # TTERMVL - Live MVS test caller for IRXINIT INITENVB + IRXTERM.
@@ -1801,7 +1801,7 @@ sources = ["test/mvs/asm/tinitvl.asm"]
 # IRXTERM both resolved at run time via LOAD EP= from STEPLIB.
 #
 # Invocation:
-#   Batch  :  EXEC PGM=TTERMVL  (see test/mvs/jcl/ttermvl.jcl)
+#   Batch  :  EXEC PGM=TTERMVL  (see test/jcl/ttermvl.jcl)
 #
 # WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#87.
 # ---------------------------------------------------------------
@@ -1809,7 +1809,7 @@ sources = ["test/mvs/asm/tinitvl.asm"]
 name = "TTERMVL"
 entry = "TTERMVL"
 startup = false
-sources = ["test/mvs/asm/ttermvl.asm"]
+sources = ["test/asm/ttermvl.asm"]
 
 # ---------------------------------------------------------------
 # TISTSO - self-validating test for ISTSO (EXTRACT-based TSO detect).
@@ -1821,6 +1821,166 @@ sources = ["test/mvs/asm/ttermvl.asm"]
 [[test]]
 name = "TISTSO"
 startup = "crt1"
-sources = ["test/mvs/tistso.c", "asm/istso.asm"]
+sources = ["test/tistso.c", "asm/istso.asm"]
 parm_batch = "0"
 parm_tso = "1"
+
+# ---------------------------------------------------------------
+# TSTBCLN - WP-BC: bytecode cleanup/free internals (was test/host/tstbc_clean).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCLN"
+startup = "crt1"
+sources = [
+  "test/tstbcln.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTBCCMP - WP-BC: bytecode compiler internals (was test/host/tstbc_compile).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCCMP"
+startup = "crt1"
+sources = [
+  "test/tstbccmp.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTBCEXE - WP-BC: bytecode VM execute internals (was test/host/tstbc_execute).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCEXE"
+startup = "crt1"
+sources = [
+  "test/tstbcexe.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTBCXPR - WP-BC: bytecode expression internals (was test/host/tstbc_expr).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCXPR"
+startup = "crt1"
+sources = [
+  "test/tstbcxpr.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
+# TSTPOOL - WP-PERF: Lstring allocator pool stress (was test/host/tstpool).
+# Dual: runs natively (make test-host) and on MVS (make test-mvs).
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTPOOL"
+startup = "crt1"
+sources = [
+  "test/tstpool.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
