@@ -65,16 +65,9 @@ int irx_jcl_dispatch_main(const char *member,
                           int arg_len)
 {
 #ifdef __MVS__
-    /* ---- Step 0: redirect stdout to SYSTSPRT ------------------------ */
-    /* crent370 @@start opens stdout on *SYSPRINT (dynamic SYSOUT).
-     * Redirect it to the JCL-allocated SYSTSPRT DD so SAY/TRACE output
-     * lands in a named spool dataset.  Falls back silently if the DD is
-     * absent — output still goes to the dynamic SYSOUT stream. */
-    FILE *systsprt_fp = fopen("DD:SYSTSPRT", "w");
-    if (systsprt_fp != NULL)
-    {
-        stdout = systsprt_fp;
-    }
+    /* SYSTSPRT redirect state (set up after validation, in Step 3). */
+    FILE *systsprt_fp = NULL;
+    FILE *saved_stdout = NULL;
 #endif
 
     /* ---- Step 1: validate member ------------------------------------ */
@@ -131,6 +124,22 @@ int irx_jcl_dispatch_main(const char *member,
             own_env = 1;
         }
     }
+
+#ifdef __MVS__
+    /* Redirect stdout to the JCL-allocated SYSTSPRT DD so the exec's SAY/TRACE
+     * output lands in a named spool dataset (crent370 @@start opens stdout on
+     * *SYSPRINT dynamic SYSOUT).  Done here -- after validation/env so the
+     * BADPARM/NOENV early returns leave stdout untouched -- and ALWAYS restored
+     * before the FILE is closed in cleanup: leaving stdout pointing at a closed
+     * FILE crashes the caller's next printf (S0C4).  Falls back silently if the
+     * DD is absent. */
+    saved_stdout = stdout;
+    systsprt_fp = fopen("DD:SYSTSPRT", "w");
+    if (systsprt_fp != NULL)
+    {
+        stdout = systsprt_fp;
+    }
+#endif
 
     /* ---- Step 4: EXECBLK on stack ---------------------------------- */
     struct execblk eb;
@@ -200,8 +209,13 @@ cleanup_env:
         irxterm(env);
     }
 #ifdef __MVS__
+    /* Restore stdout BEFORE closing the SYSTSPRT FILE -- otherwise stdout is
+     * left pointing at a closed FILE and the caller's next printf S0C4s (the
+     * IRXJCL batch entry calls this once and exits, so it never bit there;
+     * a caller that loops -- e.g. the test harness -- does). */
     if (systsprt_fp != NULL)
     {
+        stdout = saved_stdout;
         fclose(systsprt_fp);
     }
 #endif
