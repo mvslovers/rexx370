@@ -3671,3 +3671,59 @@ int irx_bif_register_all(struct envblock *env, struct irx_bif_registry *reg)
      * built-ins. */
     return irx_bif_register(env, reg, "ARG", 0, 2, irx_pars_bif_arg);
 }
+
+/* ================================================================== */
+/*  irx_bif_find_local — resolve a BIF to a handler in THIS module     */
+/*                                                                    */
+/*  Issue #200: BIF dispatch must call the handler compiled into the   */
+/*  module that runs the VM (IRXEXEC), not the cross-module pointer    */
+/*  stored in the env registry — that registry is populated by IRXINIT */
+/*  and its handlers point into IRXINIT's copy of this file, so calling */
+/*  them from a separately-linked IRXEXEC wild-branches (S0C1).  These  */
+/*  static tables are re-linked into every module, so this always      */
+/*  resolves to a local, callable handler.  Covers g_bifstr_table plus */
+/*  ARG (handler in irx#pars.c, linked into the same load module).     */
+/* ================================================================== */
+
+/* ARG(): handler lives in irx#pars.c but links into this same module. */
+static const struct irx_bif_entry g_bif_arg_entry = {"ARG", 0, 2,
+                                                     irx_pars_bif_arg};
+
+/* Exact, length-delimited match (mirrors irx#bif.c's ebcdic_eq); BIF
+ * names reach dispatch already upper-cased. */
+static int bif_name_match(const char *tbl, const unsigned char *name,
+                          size_t len)
+{
+    size_t i;
+    for (i = 0; i < len; i++)
+    {
+        if ((unsigned char)tbl[i] != name[i])
+        {
+            return 0;
+        }
+    }
+    return tbl[len] == '\0';
+}
+
+const struct irx_bif_entry *irx_bif_find_local(const unsigned char *name,
+                                               size_t len)
+{
+    int i;
+
+    if (name == NULL || len == 0 || len >= IRX_BIF_NAME_MAX)
+    {
+        return NULL;
+    }
+    for (i = 0; i < BIFSTR_COUNT; i++)
+    {
+        if (bif_name_match(g_bifstr_table[i].name, name, len))
+        {
+            return &g_bifstr_table[i];
+        }
+    }
+    if (bif_name_match(g_bif_arg_entry.name, name, len))
+    {
+        return &g_bif_arg_entry;
+    }
+    return NULL;
+}

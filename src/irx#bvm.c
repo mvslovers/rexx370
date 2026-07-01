@@ -76,21 +76,15 @@ struct bc_call_frame
 };
 
 /* ================================================================== */
-/*  BIF registry access (WP-BC-04)                                   */
+/*  BIF dispatch (WP-BC-04; local resolution per issue #200)          */
+/*                                                                    */
+/*  Handlers are resolved with irx_bif_find_local() (irx#bifs.c),      */
+/*  which returns an entry whose handler is linked into THIS module —  */
+/*  never the env registry's stored pointer, which is cross-module     */
+/*  when IRXINIT built the env and IRXEXEC runs the exec (wild branch  */
+/*  -> S0C1).  The env registry is still built (irxinit) and used by   */
+/*  the public irx_bif_find() API, just not for VM dispatch.           */
 /* ================================================================== */
-
-static const struct irx_bif_registry *
-bvm_get_bif_registry(struct envblock *envblock)
-{
-    struct irx_wkblk_int *wk;
-
-    if (envblock == NULL || envblock->envblock_workblok_ext == NULL)
-    {
-        return NULL;
-    }
-    wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
-    return (const struct irx_bif_registry *)wk->wkbi_bif_registry;
-}
 
 /* ================================================================== */
 /*  Read a little-endian u16 from the bytecode stream.               */
@@ -196,8 +190,10 @@ bvm_resolve_bif(struct envblock *envblock, const char *sym_base,
     int valid_idx = (bif_cache != NULL && sym_idx >= 0 && sym_idx < n_syms);
 
     *bad_idx = 0;
+    (void)envblock; /* handlers are resolved locally, not via the env
+                     * registry's cross-module pointers (issue #200) */
 
-    /* Hot path: previously resolved — no symbol lookup, no registry walk. */
+    /* Hot path: previously resolved — no symbol lookup, no table walk. */
     if (valid_idx && bif_cache[sym_idx] != NULL)
     {
         return bif_cache[sym_idx];
@@ -210,8 +206,7 @@ bvm_resolve_bif(struct envblock *envblock, const char *sym_base,
         return NULL;
     }
 
-    const struct irx_bif_entry *bife = irx_bif_find(
-        bvm_get_bif_registry(envblock),
+    const struct irx_bif_entry *bife = irx_bif_find_local(
         (const unsigned char *)name_data, (size_t)name_len);
 
     if (bife != NULL && valid_idx)
