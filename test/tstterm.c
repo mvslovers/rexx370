@@ -322,7 +322,7 @@ static void test_t7_irxterm_minimal_init(void)
 
     /* wkbi is NULL (not set by irx_init_initenvb), IRXEXTE is a
      * placeholder.  irxterm must handle both gracefully. */
-    CHECK(envblk->envblock_userfield == NULL,
+    CHECK(envblk->envblock_workblok_ext == NULL,
           "pre-term: no wkbi (irx_init_initenvb path)");
 
     rc = irxterm(envblk);
@@ -358,8 +358,8 @@ static void test_t8_irxterm_full_init(void)
         return;
     }
 
-    /* irxinit installs the Work Block (wkbi) via envblock_userfield. */
-    CHECK(envblk->envblock_userfield != NULL,
+    /* irxinit installs the Work Block (wkbi) via envblock_workblok_ext. */
+    CHECK(envblk->envblock_workblok_ext != NULL,
           "pre-term: wkbi installed by irxinit");
 
     rc = irxterm(envblk);

@@ -22,13 +22,13 @@
 void irx_cond_raise(struct envblock *env, int code, int subcode,
                     const char *desc)
 {
-    if (env == NULL || env->envblock_userfield == NULL)
+    if (env == NULL || env->envblock_workblok_ext == NULL)
     {
         return;
     }
 
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)env->envblock_userfield;
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
     struct irx_condition_info *ci = wk->wkbi_last_condition;
 
     if (ci == NULL)

@@ -342,7 +342,7 @@ static int run_expect_fail(const char *src, int want_code,
     int code = 0;
     int subcode = 0;
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)fx.env->envblock_userfield;
+        (struct irx_wkblk_int *)fx.env->envblock_workblok_ext;
     if (wk != NULL && wk->wkbi_last_condition != NULL &&
         wk->wkbi_last_condition->valid)
     {

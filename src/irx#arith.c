@@ -101,10 +101,10 @@ static void get_numeric(struct envblock *env,
     *digits = NUMERIC_DIGITS_DEFAULT;
     *fuzz = NUMERIC_FUZZ_DEFAULT;
     *form = NUMFORM_SCIENTIFIC;
-    if (env != NULL && env->envblock_userfield != NULL)
+    if (env != NULL && env->envblock_workblok_ext != NULL)
     {
         struct irx_wkblk_int *wk =
-            (struct irx_wkblk_int *)env->envblock_userfield;
+            (struct irx_wkblk_int *)env->envblock_workblok_ext;
         *digits = wk->wkbi_digits;
         *fuzz = wk->wkbi_fuzz;
         *form = wk->wkbi_form;

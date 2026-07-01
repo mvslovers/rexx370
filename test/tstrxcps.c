@@ -163,6 +163,7 @@ static int capture_io(int function, PLstr data, struct envblock *envblock)
 /* ------------------------------------------------------------------ */
 #ifndef __MVS__
 #include <time.h>
+
 static double now_s(void)
 {
     struct timespec t;
@@ -170,7 +171,10 @@ static double now_s(void)
     return (double)t.tv_sec + (double)t.tv_nsec / 1.0e9;
 }
 #else
-static double now_s(void) { return 0.0; }
+static double now_s(void)
+{
+    return 0.0;
+}
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -227,7 +231,7 @@ int main(int argc, char *argv[])
     }
 
     /* Install output capture */
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         fprintf(stderr, "tstbc_rexxcps: no work block\n");

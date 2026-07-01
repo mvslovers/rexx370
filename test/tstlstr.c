@@ -241,7 +241,7 @@ static void test_allocator_bridge(void)
     alloc2 = irx_lstr_init(env);
     CHECK(alloc2 == alloc, "second irx_lstr_init returns cached pointer");
 
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     CHECK(wkbi != NULL && wkbi->wkbi_lstr_alloc == alloc,
           "wkbi->wkbi_lstr_alloc points at the allocator");
 

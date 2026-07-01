@@ -1010,6 +1010,63 @@ int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code)
 /*  Unknown function code: RC=20, RSN=12.                            */
 /* ================================================================== */
 
+/* ================================================================== */
+/*  irx_init_finish — attach the interpreter state to a fresh env      */
+/*                                                                    */
+/*  irx_init_initenvb() builds only the IBM control blocks (ENVBLOCK, */
+/*  PARMBLOCK, IRXEXTE, ECTENVBK anchor).  IRXEXEC additionally needs */
+/*  the interpreter Work Block (anchored in envblock_workblok_ext,    */
+/*  +0x18 — the IBM Work Block Extension slot), the SUBCOMTB and the  */
+/*  BIF registry; without them irx_lstr_init() finds no wkblk and     */
+/*  IRXEXEC fails RC=20.  Shared by the compat irxinit() wrapper and, */
+/*  via irx_init_dispatch(), by the standalone IRXINIT load module —  */
+/*  so both env-creation paths yield an env IRXEXEC can run (the      */
+/*  module path previously skipped this, which is WP-VLIST-WPOOL's    */
+/*  root cause).  WP-VLIST-WPOOL / TSK-279.                           */
+/* ================================================================== */
+static int irx_init_finish(struct envblock *envblk)
+{
+    struct subcomtb_header *subcmd = NULL;
+    struct irx_wkblk_int *wkbi = NULL;
+    struct irx_bif_registry *reg = NULL;
+    int rc;
+
+    /* SUBCOMTB (host command environments). */
+    rc = init_subcomtb(&subcmd, (struct parmblock *)envblk->envblock_parmblock,
+                       envblk);
+    if (rc != 0)
+    {
+        return 20;
+    }
+
+    /* Internal Work Block (interpreter state).  Anchored in the IBM
+     * Work Block Extension slot (envblock_workblok_ext, +0x18) so
+     * envblock_userfield (+0x14) stays free for the caller / exits, as
+     * the spec intends and as consumers (e.g. httprexx) rely on. */
+    rc = init_wkblk_int(&wkbi, envblk);
+    if (rc != 0)
+    {
+        return 20;
+    }
+    envblk->envblock_workblok_ext = wkbi;
+
+    /* BIF registry and core registrations (WP-21a). */
+    rc = irx_bif_create(envblk, &reg);
+    if (rc != 0)
+    {
+        return 20;
+    }
+    wkbi->wkbi_bif_registry = reg;
+
+    rc = irx_bif_register_all(envblk, reg);
+    if (rc != 0)
+    {
+        return 20;
+    }
+
+    return 0;
+}
+
 int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
                       struct envblock *prev_envblock,
                       struct parmblock *caller_parmblock,
@@ -1028,8 +1085,14 @@ int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
 
     if (memcmp(funccode, "INITENVB", 8) == 0)
     {
-        return irx_init_initenvb(prev_envblock, caller_parmblock,
-                                 user_field, envblock_inout, out_reason_code);
+        int rc = irx_init_initenvb(prev_envblock, caller_parmblock,
+                                   user_field, envblock_inout,
+                                   out_reason_code);
+        if (rc == 0)
+        {
+            rc = irx_init_finish(*envblock_inout);
+        }
+        return rc;
     }
 
     if (memcmp(funccode, "FINDENVB", 8) == 0)
@@ -1072,9 +1135,6 @@ int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
 int irxinit(void *parms, struct envblock **envblock_ptr)
 {
     struct envblock *envblk = NULL;
-    struct workblok_ext *wkext = NULL;
-    struct subcomtb_header *subcmd = NULL;
-    struct irx_wkblk_int *wkbi = NULL;
     int reason = 0;
     int rc;
 
@@ -1095,57 +1155,18 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
         return 20;
     }
 
-    /* Allocate the Work Block Extension (IBM standard control block). */
-    {
-        void *storage = NULL;
-        rc = irxstor(RXSMGET, (int)sizeof(struct workblok_ext),
-                     &storage, envblk);
-        if (rc != 0)
-        {
-            goto cleanup;
-        }
-        wkext = (struct workblok_ext *)storage;
-    }
-    envblk->envblock_workblok_ext = wkext;
-
     /* IRXEXTE default routine pointers (irxuid, irxmsgid, irxinout_host|mvs)
      * are installed by irx_init_initenvb() step 6. Compat-wrapper-specific
      * IRXEXTE overrides — e.g. self-references to the irxinit / irxterm
      * symbols for Phase 6 — would go here. None today. */
 
-    /* SUBCOMTB (host command environments). */
-    {
-        struct parmblock *pb = (struct parmblock *)envblk->envblock_parmblock;
-        rc = init_subcomtb(&subcmd, pb, envblk);
-        if (rc != 0)
-        {
-            goto cleanup;
-        }
-    }
-
-    /* Internal Work Block (interpreter state). */
-    rc = init_wkblk_int(&wkbi, envblk);
+    /* Attach SUBCOMTB + interpreter Work Block + BIF registry (the same
+     * step the standalone IRXINIT load module runs via
+     * irx_init_dispatch → irx_init_finish). */
+    rc = irx_init_finish(envblk);
     if (rc != 0)
     {
         goto cleanup;
-    }
-    envblk->envblock_userfield = wkbi;
-
-    /* BIF registry and core registrations (WP-21a). */
-    {
-        struct irx_bif_registry *reg = NULL;
-        rc = irx_bif_create(envblk, &reg);
-        if (rc != 0)
-        {
-            goto cleanup;
-        }
-        wkbi->wkbi_bif_registry = reg;
-
-        rc = irx_bif_register_all(envblk, reg);
-        if (rc != 0)
-        {
-            goto cleanup;
-        }
     }
 
     /* Host-only: mirror MVS step 8 ECTENVBK semantics on the

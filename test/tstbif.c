@@ -213,7 +213,7 @@ static void test_core_bifs_registered(void)
 
     printf("\n--- BIF#7: irxinit registers core BIFs ---\n");
     CHECK(irxinit(NULL, &env) == 0, "irxinit OK");
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     CHECK(wk != NULL && wk->wkbi_bif_registry != NULL,
           "wkbi_bif_registry populated");
     reg = (struct irx_bif_registry *)wk->wkbi_bif_registry;

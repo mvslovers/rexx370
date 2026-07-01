@@ -160,7 +160,7 @@ static int var_eq(struct fixture *f, const char *name, const char *want)
 static int wk_address_eq(struct fixture *f, const char *want8)
 {
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)f->env->envblock_userfield;
+        (struct irx_wkblk_int *)f->env->envblock_workblok_ext;
     if (wk == NULL)
     {
         return 0;
@@ -173,7 +173,7 @@ static int wk_address_eq(struct fixture *f, const char *want8)
 static void wk_address_snap(struct fixture *f, char *out)
 {
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)f->env->envblock_userfield;
+        (struct irx_wkblk_int *)f->env->envblock_workblok_ext;
     if (wk != NULL)
     {
         memcpy(out, wk->wkbi_address, sizeof(wk->wkbi_address));
@@ -184,7 +184,7 @@ static void wk_address_snap(struct fixture *f, char *out)
 static int wk_address_eq_buf(struct fixture *f, const char *buf)
 {
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)f->env->envblock_userfield;
+        (struct irx_wkblk_int *)f->env->envblock_workblok_ext;
     if (wk == NULL)
     {
         return 0;

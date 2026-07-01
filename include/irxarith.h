@@ -93,7 +93,7 @@ int irx_arith_compare(struct envblock *env,
 /*  irx_number stays internal to irx#arith.c. All signatures use      */
 /*  struct envblock * for consistency with irx_arith_op /             */
 /*  irx_arith_compare; the parser-side wk is reachable through        */
-/*  env->envblock_userfield when needed.                              */
+/*  env->envblock_workblok_ext when needed.                              */
 /* ================================================================== */
 
 /* TRUNC(number, decimals): truncate (no rounding) to exactly

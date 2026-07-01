@@ -152,7 +152,7 @@ static void test_single_env(void)
     }
 
     /* Validate internal Work Block */
-    wkbi = (struct irx_wkblk_int *)envblk->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)envblk->envblock_workblok_ext;
     CHECK(wkbi != NULL, "internal wkblk is linked via userfield");
     if (wkbi != NULL)
     {
