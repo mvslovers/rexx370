@@ -315,12 +315,15 @@ WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
 WPREV    DS    F                   saved R0 in (previous-env hint)
 WPARMS   DS    7F                  bare addresses parsed from VLIST
 WCPLIST  DS    6F                  parameter list for IRXIDISP call
-*  Stack pool for nested c2asm370 PDPPRLG frames. Sized for typical
-*  IRXIDISP call depth (5-10 nested frames @ 88-300 bytes each); 8 KB
-*  has comfortable margin. Intentionally not zero-filled — c2asm370-
-*  emitted code SAVE-writes R14-R12 before reading any frame slot, so
-*  XC initialization would cost 8 KB without functional benefit.
-WPOOL    DS    2048F               8 KB scratchpad
+*  Stack pool for nested c2asm370 PDPPRLG frames.  IRXINIT's own path
+*  is shallow (env setup, no tokenizing), but all four VLIST wrappers
+*  carry one uniform 64 KB pool (WP-VLIST-WPOOL): it costs only
+*  transient GETMAIN region, keeps one value/one pattern across the
+*  family, and future-proofs a wrapper that later grows a deep path.
+*  Intentionally not zero-filled — c2asm370-emitted code SAVE-writes
+*  R14-R12 before reading any frame slot, so XC init would cost 64 KB
+*  without functional benefit.
+WPOOL    DS    16384F              64 KB scratchpad (WP-VLIST-WPOOL)
 WALEN    EQU   *-WAREA
 *
          END   IRXINIT
