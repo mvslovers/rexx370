@@ -127,7 +127,7 @@ Open items:
   path; one fix covers both quote kinds (`'` and `"`). This was a silent
   wrong-output divergence, not a `BC_FAIL_UNSUP` fallback gate. Token-walk (the
   correct reference here) is unchanged per CON-18; equivalence proven in
-  `test/mvs/tstbdq.c`.
+  `test/tstbdq.c`.
 - **WP-CPS-09a-FU** — SIGNAL/CALL condition-trap *activation* (the parser-only
   baseline is done via #131; the runtime trap machinery — NOVALUE hook,
   condition dispatcher, SIGL/RC/CONDITION updates, CALL ON/OFF — is open).
@@ -204,7 +204,6 @@ Candidates to verify (not a committed work list until inventoried):
 - **Test & build cleanup** — `docs/workpackages.md` and the CLAUDE.md status
   block are stale; the test suite (~34 test modules vs 26 product modules) could
   be tiered. CI ratchet: `clang-format --dry-run --Werror` on every PR.
-  TSTANSL registration in `tstall.jcl`.
 
 ---
 
@@ -228,7 +227,9 @@ The Notion Issues & Tasks database holds the per-task detail. After the
 WP-I epic series (WP-I, WP-I1a-d, WP-I2/I3/I4) is closed — that work migrated
 into the WP-CPS-* series during the REXXCPS pivot.
 
-**Recurring rules** (also in CLAUDE.md): every new `test/mvs/` test needs an
-entry in *both* `test/mvs/tstall.jcl` and `project.toml`. Commits carry no
-AI/Co-Authored-By references (project policy). Diagnose before fix; measure
-before optimize; verify against the spec, not against the token-walk.
+**Recurring rules** (also in CLAUDE.md): a new test is a `[[test]]` block in
+`project.toml` (`test/tst*.c`); mbt generates its run JCL, and only pure-HLASM
+VLIST-wrapper edge cases (tinitvl, ttermvl, tistso) also need a hand-written
+`test/jcl/<name>.jcl`. Commits carry no AI/Co-Authored-By references (project
+policy). Diagnose before fix; measure before optimize; verify against the
+spec, not against the token-walk.
