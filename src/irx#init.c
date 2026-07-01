@@ -42,7 +42,8 @@
 #include "irxwkblk.h"
 
 #ifdef __MVS__
-#include <clibos.h> /* __load(), __delete() — crent370 */
+#include <clibos.h>  /* __load(), __delete() — crent370 */
+#include <clibppa.h> /* __PPAGET() — C-runtime presence check */
 #endif
 
 /* Lock the CON-1 §3.1 ENVBLOCK size on MVS — the IBM-reserved tail
@@ -219,6 +220,30 @@ static int env_eq_ci(const char *a, const char *b)
 }
 
 /* ================================================================== */
+/*  Shared helper: env_get_safe                                       */
+/*                                                                    */
+/*  getenv() reaches the environment through @@GRTGET -> @@CRTGET,    */
+/*  which requires an established C runtime (a CLIBCRT registered in  */
+/*  the PPA).  On the module-entry path — IRXINIT reached via BALR    */
+/*  from IRXTMPW or the VLIST wrappers, not via @@CRT0 — no CRT is    */
+/*  set up, so a plain getenv() logs a spurious                       */
+/*  "__CRTGET ... not found in PPA(00000000)" at every call.  Skip it */
+/*  when no PPA exists (the production default is correct there);     */
+/*  on the host and in @@CRT0-bootstrapped modules a PPA exists and    */
+/*  getenv() works normally.                                          */
+/* ================================================================== */
+static const char *env_get_safe(const char *name)
+{
+#ifdef __MVS__
+    if (__PPAGET() == NULL)
+    {
+        return NULL;
+    }
+#endif
+    return getenv(name);
+}
+
+/* ================================================================== */
 /*  Shared helper: init_wkblk_int                                     */
 /* ================================================================== */
 
@@ -267,7 +292,7 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
      * run after irxinit() returns. */
     wk->wkbi_use_bytecode = 1;
     {
-        const char *e = getenv("REXX370_BYTECODE");
+        const char *e = env_get_safe("REXX370_BYTECODE");
         if (e != NULL)
         {
             if (e[0] == '0' || env_eq_ci(e, "false") ||
@@ -289,7 +314,7 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
      * Default off; no output, no overhead when not set. */
     wk->wkbi_bc_debug = 0;
     {
-        const char *e = getenv("REXX370_BCDEBUG");
+        const char *e = env_get_safe("REXX370_BCDEBUG");
         if (e != NULL)
         {
             if (e[0] == '1' || env_eq_ci(e, "true") ||
