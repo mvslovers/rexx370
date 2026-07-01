@@ -357,7 +357,7 @@ static void test_t7_irxinit_compat_wrapper(void)
         }
 
         /* Compat wrapper installs interpreter Work Block. */
-        CHECK(envblk->envblock_userfield != NULL,
+        CHECK(envblk->envblock_workblok_ext != NULL,
               "compat wrapper installed internal Work Block");
 
         rc = irxterm(envblk);

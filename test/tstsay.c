@@ -130,7 +130,7 @@ static int run_source(struct envblock *env, const char *src)
     }
 
     /* Obtain (or create) the variable pool from the work block */
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     pool = (struct irx_vpool *)wk->wkbi_varpool;
     if (pool == NULL)
     {

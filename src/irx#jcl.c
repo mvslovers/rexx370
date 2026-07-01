@@ -114,8 +114,8 @@ int irx_jcl_dispatch_main(const char *member,
         if (irx_init_findenvb(&env, &rsn) != 0)
         {
             /* No existing env on this TCB — auto-init a full Phase 2 env.
-             * Must use irxinit() (not irx_init_initenvb) because
-             * irx_exec_run() accesses envblock->envblock_userfield as
+             * Must use irxinit() (not bare irx_init_initenvb) because
+             * irx_exec_run() accesses envblock->envblock_workblok_ext as
              * struct irx_wkblk_int *, which irxinit() populates. */
             if (irxinit(NULL, &env) != 0)
             {

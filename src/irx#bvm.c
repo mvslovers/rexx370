@@ -84,11 +84,11 @@ bvm_get_bif_registry(struct envblock *envblock)
 {
     struct irx_wkblk_int *wk;
 
-    if (envblock == NULL || envblock->envblock_userfield == NULL)
+    if (envblock == NULL || envblock->envblock_workblok_ext == NULL)
     {
         return NULL;
     }
-    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+    wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
     return (const struct irx_bif_registry *)wk->wkbi_bif_registry;
 }
 
@@ -596,10 +596,10 @@ static int try_arith_fast(struct bc_stack_slot *dst,
  * work block is reachable (e.g. a bare batch VM run). */
 static int bc_numeric_fuzz(struct envblock *envblock)
 {
-    if (envblock != NULL && envblock->envblock_userfield != NULL)
+    if (envblock != NULL && envblock->envblock_workblok_ext != NULL)
     {
         const struct irx_wkblk_int *wk =
-            (const struct irx_wkblk_int *)envblock->envblock_userfield;
+            (const struct irx_wkblk_int *)envblock->envblock_workblok_ext;
         return wk->wkbi_fuzz;
     }
     return NUMERIC_FUZZ_DEFAULT;
@@ -618,10 +618,10 @@ static int bc_numeric_fuzz(struct envblock *envblock)
  * NUMERIC DIGITS 20 program would get wrong int32 results. */
 static int bc_numeric_digits(struct envblock *envblock)
 {
-    if (envblock != NULL && envblock->envblock_userfield != NULL)
+    if (envblock != NULL && envblock->envblock_workblok_ext != NULL)
     {
         const struct irx_wkblk_int *wk =
-            (const struct irx_wkblk_int *)envblock->envblock_userfield;
+            (const struct irx_wkblk_int *)envblock->envblock_workblok_ext;
         return wk->wkbi_digits;
     }
     return NUMERIC_DIGITS_DEFAULT;
@@ -2648,7 +2648,7 @@ int irx_bc_execute(struct envblock *envblock,
                     sp = 0;
 
                     /* SIGL — line tracking not yet available; set to 0 */
-                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         wk->wkbi_sigl = 0;
@@ -2742,7 +2742,7 @@ int irx_bc_execute(struct envblock *envblock,
                     sp = 0;
 
                     /* SIGL — line tracking not yet available; set to 0 */
-                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         wk->wkbi_sigl = 0;
@@ -2786,7 +2786,7 @@ int irx_bc_execute(struct envblock *envblock,
                 {
                     /* Bare TRACE: toggle wkbi_interactive, keep letter. */
                     struct irx_wkblk_int *wk =
-                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                        (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         wk->wkbi_interactive ^= 1;
@@ -2804,7 +2804,7 @@ int irx_bc_execute(struct envblock *envblock,
                     unsigned char mode = *pc++;
                     int letter_idx = (int)(mode & 0x0Fu);
                     struct irx_wkblk_int *wk =
-                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                        (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         wk->wkbi_trace =
@@ -2836,7 +2836,7 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_UNSUP;
                         goto done;
                     }
-                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         wk->wkbi_trace = (int)new_letter;
@@ -2849,7 +2849,7 @@ int irx_bc_execute(struct envblock *envblock,
                 {
                     /* Bare ADDRESS: swap current and previous environment. */
                     struct irx_wkblk_int *wk =
-                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                        (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         char tmp[8];
@@ -2876,7 +2876,7 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_OPCODE;
                         goto done;
                     }
-                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         n = (env_len > 8) ? 8 : env_len;
@@ -2905,7 +2905,7 @@ int irx_bc_execute(struct envblock *envblock,
                         goto done;
                     }
                     sp--;
-                    wk = (struct irx_wkblk_int *)envblock->envblock_userfield;
+                    wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     if (wk != NULL)
                     {
                         src = (const char *)Lpstr(stack[sp].str);
@@ -2934,7 +2934,7 @@ int irx_bc_execute(struct envblock *envblock,
                      * SYNTAX can trap it. */
                     unsigned char sub = *pc++;
                     struct irx_wkblk_int *wk =
-                        (struct irx_wkblk_int *)envblock->envblock_userfield;
+                        (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
                     long n;
 
                     if (sub == NUMSUB_FORM_SCI)
@@ -3379,10 +3379,10 @@ int irx_bc_execute(struct envblock *envblock,
                     char tmp[12];
                     int blen = 0, n;
                     if (envblock != NULL &&
-                        envblock->envblock_userfield != NULL)
+                        envblock->envblock_workblok_ext != NULL)
                     {
                         wk = (struct irx_wkblk_int *)
-                                 envblock->envblock_userfield;
+                                 envblock->envblock_workblok_ext;
                         digits = wk->wkbi_digits;
                         fuzz = wk->wkbi_fuzz;
                         form = wk->wkbi_form;
@@ -3648,7 +3648,7 @@ int irx_bc_execute(struct envblock *envblock,
             proxy_parser->call_argc = 0;
             sp = 0;
 
-            wk_t = (struct irx_wkblk_int *)envblock->envblock_userfield;
+            wk_t = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
             if (wk_t != NULL)
             {
                 /* SIGL: line tracking deferred (no trace-map yet) */

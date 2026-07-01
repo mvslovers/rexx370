@@ -327,8 +327,14 @@ WPARMS   DS    10F                 bare addresses from 10-slot VLIST
 WFLAGS   DS    F                   parse flags (X'80' = P10 present)
 WDP10    DS    F                   saved P10 bare address
 WCPLIST  DS    11F                 C plist: 10 dispatch args + sentinel
-*  Stack pool for nested c2asm370 PDPPRLG frames.
-WPOOL    DS    2048F               8 KB scratchpad
+*  Stack pool for nested c2asm370 PDPPRLG frames.  A real exec's
+*  recursive-descent compile (bc_exp0..bc_exp8, ~9 frames/level) plus
+*  the VM + Lstr chain nests well past 8 KB — WP-VLIST-WPOOL measured
+*  a modest 14-level nested expression at a ~16.2 KB high-water, and
+*  8 KB overflowed into the adjacent GETMAIN storage -> S0C4.  WAREA is
+*  GETMAIN'd and FREEMAIN'd per call, so the larger pool costs only
+*  transient region, not static module storage.  WP-VLIST-WPOOL.
+WPOOL    DS    16384F              64 KB scratchpad (WP-VLIST-WPOOL)
 WALEN    EQU   *-WAREA
 *
          END   IRXEXEC

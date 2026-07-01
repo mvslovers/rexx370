@@ -503,11 +503,11 @@ static struct irx_bif_registry *get_bif_registry(struct irx_parser *p)
     struct irx_wkblk_int *wk;
 
     if (p == NULL || p->envblock == NULL ||
-        p->envblock->envblock_userfield == NULL)
+        p->envblock->envblock_workblok_ext == NULL)
     {
         return NULL;
     }
-    wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+    wk = (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
     return (struct irx_bif_registry *)wk->wkbi_bif_registry;
 }
 
@@ -3191,9 +3191,9 @@ static int kw_numeric(struct irx_parser *p)
     int kn;
 
     /* Get the work block for updating NUMERIC settings */
-    if (p->envblock != NULL && p->envblock->envblock_userfield != NULL)
+    if (p->envblock != NULL && p->envblock->envblock_workblok_ext != NULL)
     {
-        wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+        wk = (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
     }
 
     /* exec_clause already consumed the NUMERIC keyword token. */
@@ -3474,10 +3474,10 @@ static int kw_parse(struct irx_parser *p)
         advance_tok(p);
 
         if (p->envblock != NULL &&
-            p->envblock->envblock_userfield != NULL)
+            p->envblock->envblock_workblok_ext != NULL)
         {
             struct irx_wkblk_int *wkbi =
-                (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+                (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
             digits = wkbi->wkbi_digits;
             fuzz = wkbi->wkbi_fuzz;
             form = wkbi->wkbi_form;
@@ -3621,9 +3621,9 @@ static int kw_trace(struct irx_parser *p)
     const struct irx_token *t;
     struct irx_wkblk_int *wk = NULL;
 
-    if (p->envblock != NULL && p->envblock->envblock_userfield != NULL)
+    if (p->envblock != NULL && p->envblock->envblock_workblok_ext != NULL)
     {
-        wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+        wk = (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
     }
 
     t = cur_tok(p);
@@ -3759,9 +3759,9 @@ static int kw_address(struct irx_parser *p)
     const struct irx_token *t;
     struct irx_wkblk_int *wk = NULL;
 
-    if (p->envblock != NULL && p->envblock->envblock_userfield != NULL)
+    if (p->envblock != NULL && p->envblock->envblock_workblok_ext != NULL)
     {
-        wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+        wk = (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
     }
 
     t = cur_tok(p);

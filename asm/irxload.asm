@@ -227,8 +227,12 @@ WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
 *  Wrapper-local storage.
 WPARMS   DS    5F                  bare addresses from 5-slot VLIST
 WCPLIST  DS    5F                  parameter list for IRXLDISP call
-*  Stack pool for nested c2asm370 PDPPRLG frames (see irxinit.asm).
-WPOOL    DS    2048F               8 KB scratchpad
+*  Stack pool for nested c2asm370 PDPPRLG frames.  IRXLOAD's LOAD path
+*  reads REXX source and tokenizes it (irx_load_load), the same deep
+*  C-call tree as IRXEXEC, so it is sized identically to 64 KB — 8 KB
+*  overflows into adjacent GETMAIN storage on a real exec (S0C4).
+*  WAREA is GETMAIN'd/FREEMAIN'd per call.  WP-VLIST-WPOOL.
+WPOOL    DS    16384F              64 KB scratchpad (WP-VLIST-WPOOL)
 WALEN    EQU   *-WAREA
 *
          END   IRXLOAD

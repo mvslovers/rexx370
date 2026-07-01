@@ -365,7 +365,7 @@ static int run_expect_fail(const char *src, int want_code,
     rc = run_src(&fx, src);
 
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)fx.env->envblock_userfield;
+        (struct irx_wkblk_int *)fx.env->envblock_workblok_ext;
     if (wk != NULL && wk->wkbi_last_condition != NULL &&
         wk->wkbi_last_condition->valid)
     {
@@ -495,7 +495,7 @@ static void test_find_phrase_cap(void)
     }
     int rc = run_src(&fx, buf);
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)fx.env->envblock_userfield;
+        (struct irx_wkblk_int *)fx.env->envblock_workblok_ext;
     int code = 0;
     int subcode = 0;
     if (wk != NULL && wk->wkbi_last_condition != NULL &&
@@ -1627,7 +1627,7 @@ static void sourceline_set_retention(struct fixture *fx,
                                      const char *src)
 {
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)fx->env->envblock_userfield;
+        (struct irx_wkblk_int *)fx->env->envblock_workblok_ext;
     wk->wkbi_source = (void *)src;
     wk->wkbi_source_len = (int)strlen(src);
 }
@@ -1704,7 +1704,7 @@ static void test_phase_f_sourceline(void)
         int rc = run_src(&fx, "y = SOURCELINE(3)\n");
         CHECK(rc != IRXPARS_OK, "SOURCELINE(3) on 2-line source rejects");
         struct irx_wkblk_int *wk =
-            (struct irx_wkblk_int *)fx.env->envblock_userfield;
+            (struct irx_wkblk_int *)fx.env->envblock_workblok_ext;
         int code = (wk && wk->wkbi_last_condition &&
                     wk->wkbi_last_condition->valid)
                        ? wk->wkbi_last_condition->code
@@ -1832,7 +1832,7 @@ static void test_phase_f_sourceline(void)
 
         /* Verify wkbi_source was cleared after exec_run returned. */
         struct irx_wkblk_int *wk =
-            (struct irx_wkblk_int *)env->envblock_userfield;
+            (struct irx_wkblk_int *)env->envblock_workblok_ext;
         CHECK(wk->wkbi_source == NULL,
               "SOURCELINE: wkbi_source cleared on cleanup");
         CHECK(wk->wkbi_source_len == 0,

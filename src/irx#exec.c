@@ -162,7 +162,7 @@ int irx_exec_dispatch(struct execblk *execblk,
                       (int)sizeof(execblk->exec_subcom)))
     {
         struct irx_wkblk_int *wk =
-            (struct irx_wkblk_int *)env->envblock_userfield;
+            (struct irx_wkblk_int *)env->envblock_workblok_ext;
         if (wk != NULL)
         {
             memcpy(wk->wkbi_address, execblk->exec_subcom,
@@ -329,7 +329,7 @@ int irx_exec_run(const char *source, int source_len,
      * clobber an outer invocation's retention. */
     {
         struct irx_wkblk_int *wk =
-            (struct irx_wkblk_int *)envblock->envblock_userfield;
+            (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
         if (wk != NULL)
         {
             saved_source = wk->wkbi_source;
@@ -343,7 +343,7 @@ int irx_exec_run(const char *source, int source_len,
     /* 3. Bytecode path (default-on; opt-out via REXX370_BYTECODE=0) - */
     {
         struct irx_wkblk_int *wk =
-            (struct irx_wkblk_int *)envblock->envblock_userfield;
+            (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
         if (wk != NULL && wk->wkbi_use_bytecode)
         {
             struct irx_bc_execblk *bc = NULL;
@@ -494,7 +494,7 @@ cleanup:
     if (retention_saved && envblock != NULL)
     {
         struct irx_wkblk_int *wk =
-            (struct irx_wkblk_int *)envblock->envblock_userfield;
+            (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
         if (wk != NULL)
         {
             wk->wkbi_source = saved_source;

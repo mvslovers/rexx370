@@ -1362,9 +1362,9 @@ static int bif_random(struct irx_parser *p, int argc, PLstr *argv,
     }
 
     struct irx_wkblk_int *wk = NULL;
-    if (p->envblock != NULL && p->envblock->envblock_userfield != NULL)
+    if (p->envblock != NULL && p->envblock->envblock_workblok_ext != NULL)
     {
-        wk = (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+        wk = (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
     }
 
     if (have_seed)
@@ -2668,11 +2668,11 @@ static int bif_symbol(struct irx_parser *p, int argc, PLstr *argv,
  * the documented defaults (9 / 0 / SCIENTIFIC) apply. */
 static struct irx_wkblk_int *wkbi_from_parser(struct irx_parser *p)
 {
-    if (p->envblock == NULL || p->envblock->envblock_userfield == NULL)
+    if (p->envblock == NULL || p->envblock->envblock_workblok_ext == NULL)
     {
         return NULL;
     }
-    return (struct irx_wkblk_int *)p->envblock->envblock_userfield;
+    return (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
 }
 
 static int bif_digits(struct irx_parser *p, int argc, PLstr *argv,

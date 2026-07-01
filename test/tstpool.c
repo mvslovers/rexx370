@@ -89,7 +89,7 @@ static void test_pool_basic(void)
     CHECK(env != NULL, "env created");
 
     a = irx_lstr_init(env);
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
 
     CHECK(a != NULL, "lstr allocator initialized");
     CHECK(wkbi != NULL, "wkbi reachable");
@@ -133,7 +133,7 @@ static void test_pool_grow_path(void)
     printf("\n[test_pool_grow_path]\n");
 
     a = irx_lstr_init(env);
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
 
     /* Alloc a 16-byte buffer and deposit it in the pool. */
     Lzeroinit(&s);
@@ -182,7 +182,7 @@ static void test_pool_100k_cycles(void)
     printf("\n[test_pool_100k_cycles]\n");
 
     a = irx_lstr_init(env);
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
 
     for (i = 0; i < 100000; i++)
     {
@@ -231,7 +231,7 @@ static void test_pool_max_items(void)
     printf("\n[test_pool_max_items]\n");
 
     a = irx_lstr_init(env);
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
 
     /* Allocate n items, then free them all — the pool takes the first
      * LSTR_POOL_MAX_PER_BUCKET and the remaining 10 fall through to
@@ -267,7 +267,7 @@ static void test_pool_teardown(void)
     printf("\n[test_pool_teardown]\n");
 
     a = irx_lstr_init(env);
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
 
     /* Deposit one item into each of buckets 0, 1, 2. */
     Lzeroinit(&s);

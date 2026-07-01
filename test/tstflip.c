@@ -43,7 +43,7 @@
 #include "irxwkblk.h"
 
 #ifdef __MVS__
-#include <clibenv.h>   /* setenv/unsetenv on crent370 (host gets them from
+#include <clibenv.h> /* setenv/unsetenv on crent370 (host gets them from
                           <stdlib.h> via _POSIX_C_SOURCE above) */
 #endif
 
@@ -84,7 +84,7 @@ static int wkbi_flag_after_init(void)
     {
         return -1;
     }
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk != NULL)
     {
         flag = wk->wkbi_use_bytecode;
@@ -224,7 +224,7 @@ static void test_setter_wins_over_env(void)
         return;
     }
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         printf("  FAIL: wk is NULL\n");
@@ -275,7 +275,7 @@ static void test_setter_zero_wins_over_env(void)
         return;
     }
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         printf("  FAIL: wk is NULL\n");

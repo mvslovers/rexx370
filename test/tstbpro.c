@@ -104,7 +104,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     char bc_out[CAPBUF_SIZE];
     char label[128];
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         printf("  FAIL: %s — no work block\n", tag);
@@ -152,7 +152,7 @@ static int bc_only(struct envblock *env, const char *src,
     int exit_rc = 0;
     char label[128];
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         printf("  FAIL: %s — no work block\n", tag);

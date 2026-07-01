@@ -122,7 +122,7 @@ static int capture_io(int function, PLstr data, struct envblock *envblock)
 
 static int equiv(struct envblock *env, const char *src, const char *tag)
 {
-    struct irx_wkblk_int *wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    struct irx_wkblk_int *wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     int src_len = (int)strlen(src);
     int exit_rc = 0;
     char tw_out[CAPBUF_SIZE];
@@ -171,7 +171,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
 static int bc_exact(struct envblock *env, const char *src,
                     const char *expected, const char *tag)
 {
-    struct irx_wkblk_int *wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    struct irx_wkblk_int *wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     int src_len = (int)strlen(src);
     int exit_rc = 0;
     int rc;

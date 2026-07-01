@@ -2,7 +2,7 @@
 /*  irxwkblk.h - Internal Work Block Extension                        */
 /*                                                                    */
 /*  Per-environment interpreter runtime state for REXX/370.           */
-/*  Pointed to by envblock_userfield in the IBM-compatible ENVBLOCK.  */
+/*  Pointed to by envblock_workblok_ext in the IBM-compatible ENVBLOCK.  */
 /*                                                                    */
 /*  This block holds all mutable interpreter state that would be      */
 /*  global variables in a non-reentrant interpreter. Every field      */

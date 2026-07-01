@@ -118,7 +118,7 @@ static void *rexx_lstr_alloc(size_t size, void *ctx)
     struct irx_wkblk_int *wkbi;
     int bkt;
 
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wkbi != NULL)
     {
         POOL_BUCKET_FOR((int)size, bkt);
@@ -137,7 +137,7 @@ static void rexx_lstr_dealloc(void *ptr, size_t size, void *ctx)
     struct irx_wkblk_int *wkbi;
     int bkt;
 
-    wkbi = (struct irx_wkblk_int *)env->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wkbi != NULL)
     {
         POOL_BUCKET_FOR((int)size, bkt);
@@ -163,7 +163,7 @@ void irx_lstr_pool_teardown(struct envblock *envblock)
     {
         return;
     }
-    wkbi = (struct irx_wkblk_int *)envblock->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
     if (wkbi == NULL)
     {
         return;
@@ -193,7 +193,7 @@ struct lstr_alloc *irx_lstr_init(struct envblock *envblock)
         return NULL;
     }
 
-    wkbi = (struct irx_wkblk_int *)envblock->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
     if (wkbi == NULL)
     {
         return NULL;

@@ -1812,6 +1812,29 @@ startup = false
 sources = ["test/asm/ttermvl.asm"]
 
 # ---------------------------------------------------------------
+# TEXECVL - Live MVS test caller for IRXINIT + IRXEXEC + IRXTERM.
+# Same shape as TINITVL/TTERMVL: pure HLASM, no C runtime; IRXINIT,
+# IRXEXEC and IRXTERM are all resolved at run time via LOAD EP= from
+# STEPLIB, so the test drives the real production IRXEXEC VLIST wrapper
+# end-to-end with an in-storage REXX exec — coverage the module path
+# never had (only TINITVL/TTERMVL existed). Regression test for both
+# WP-VLIST-WPOOL defects: (A) the standalone IRXINIT never attached the
+# interpreter Work Block (IRXEXEC failed RC=20), and (B) a running deep
+# exec overflowed the 8 KB WPOOL (S0C4). Green only when both are fixed
+# (RC=0, the REXX 'exit 42' echoed as IRXEXEC R15=42).
+#
+# Invocation:
+#   Batch  :  EXEC PGM=TEXECVL  (see test/jcl/texecvl.jcl)
+#
+# WP-VLIST-WPOOL / TSK-279 / consumer: mvslovers/httprexx.
+# ---------------------------------------------------------------
+[[test]]
+name = "TEXECVL"
+entry = "TEXECVL"
+startup = false
+sources = ["test/asm/texecvl.asm"]
+
+# ---------------------------------------------------------------
 # TISTSO - self-validating test for ISTSO (EXTRACT-based TSO detect).
 # is_tso()'s correct result depends on the environment, so the runner passes
 # the EXPECTED value per leg (batch -> "0", TSO/IKJEFT01 -> "1") and the test

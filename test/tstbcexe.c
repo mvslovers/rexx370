@@ -146,7 +146,7 @@ static void test_e2e_bytecode_flag(void)
         return;
     }
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     CHECK(wk != NULL, "work block is present");
     if (wk == NULL)
     {
@@ -186,7 +186,7 @@ static void test_e2e_empty_bytecode(void)
         return;
     }
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         irxterm(env);

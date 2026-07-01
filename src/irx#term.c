@@ -152,7 +152,7 @@ int irxterm(struct envblock *envblk)
     /* 2. Term exit — deferred to Phase 6. */
 
     /* 3. Free internal Work Block. */
-    wkbi = (struct irx_wkblk_int *)envblk->envblock_userfield;
+    wkbi = (struct irx_wkblk_int *)envblk->envblock_workblok_ext;
     if (wkbi != NULL)
     {
         /* TODO Phase 2+: Free variable pool, data stack,
@@ -198,7 +198,7 @@ int irxterm(struct envblock *envblk)
             wkbi->wkbi_bif_registry = NULL;
         }
 
-        envblk->envblock_userfield = NULL;
+        envblk->envblock_workblok_ext = NULL;
         stor_free((void **)&wkbi, envblk);
     }
 
@@ -215,8 +215,10 @@ int irxterm(struct envblock *envblk)
         }
     }
 
-    /* 5. Free Work Block Extension — allocated by IRXEXEC, freed here. */
-    stor_free((void **)&envblk->envblock_workblok_ext, envblk);
+    /* 5. (WP-VLIST-WPOOL) The interpreter Work Block now lives directly
+     * in envblock_workblok_ext (+0x18); it was freed with the other
+     * per-env state at step 3 above, so there is no separate Work Block
+     * Extension control block to release here. */
 
     /* 6. Delegate IRXEXTE + PARMBLOCK + IRXANCHR + ENVBLOCK to C-core.
      * After this call envblk is freed and must not be dereferenced. */

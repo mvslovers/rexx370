@@ -85,7 +85,7 @@ static void run_both(const char *desc, const char *src,
     ok = (irxinit(NULL, &env) == 0 && env != NULL);
     if (ok)
     {
-        wk = (struct irx_wkblk_int *)env->envblock_userfield;
+        wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
         if (wk != NULL)
         {
             wk->wkbi_use_bytecode = 0;
@@ -103,7 +103,7 @@ static void run_both(const char *desc, const char *src,
     ok = (irxinit(NULL, &env) == 0 && env != NULL);
     if (ok)
     {
-        wk = (struct irx_wkblk_int *)env->envblock_userfield;
+        wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
         if (wk != NULL)
         {
             wk->wkbi_use_bytecode = 1;

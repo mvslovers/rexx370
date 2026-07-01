@@ -174,7 +174,7 @@ static void test_equiv(struct envblock *env)
     char tw_out[CAPBUF];
     int tw_len;
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         CHECK(0, "work block available");
@@ -233,7 +233,7 @@ static void test_bc_path(struct envblock *env)
 
     printf("\n[BC-path proof — REXXCPS indirect pattern (AC #6)]\n");
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
         CHECK(0, "work block available");
@@ -299,7 +299,7 @@ static void run_equiv(struct envblock *env, const char *src,
                       const char *label)
 {
     struct irx_wkblk_int *wk =
-        (struct irx_wkblk_int *)env->envblock_userfield;
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
     int src_len = (int)strlen(src);
     int tw_rc;
     int bc_rc;

@@ -741,7 +741,7 @@ static void test_execblk_subcom(void)
 
     CHECK(rc == 0, "SUBCOM override: exit 0 -> RC=0");
 
-    wk = (struct irx_wkblk_int *)env->envblock_userfield;
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk != NULL)
     {
         CHECK(memcmp(wk->wkbi_address, "ISPF    ",

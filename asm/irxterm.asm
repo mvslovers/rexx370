@@ -173,12 +173,14 @@ WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
 *  Wrapper-local storage (after the PDP-DSA proper).
 WCPLIST  DS    2F                  C-call plist for IRXITERM
 WREASON  DS    F                   reason-code OUT cell (discarded)
-*  Stack pool for nested c2asm370 PDPPRLG frames. Sized for typical
-*  IRXIDISP call depth (5-10 nested frames @ 88-300 bytes each); 8 KB
-*  has comfortable margin. Intentionally not zero-filled — c2asm370-
-*  emitted code SAVE-writes R14-R12 before reading any frame slot, so
-*  XC initialization would cost 8 KB without functional benefit.
-WPOOL    DS    2048F               8 KB scratchpad
+*  Stack pool for nested c2asm370 PDPPRLG frames.  IRXTERM's own path
+*  is shallow (env teardown), but all four VLIST wrappers carry one
+*  uniform 64 KB pool (WP-VLIST-WPOOL): it costs only transient GETMAIN
+*  region and keeps one value/one pattern across the family.
+*  Intentionally not zero-filled — c2asm370-emitted code SAVE-writes
+*  R14-R12 before reading any frame slot, so XC init would cost 64 KB
+*  without functional benefit.
+WPOOL    DS    16384F              64 KB scratchpad (WP-VLIST-WPOOL)
 WALEN    EQU   *-WAREA
 *
          END   IRXTERM
