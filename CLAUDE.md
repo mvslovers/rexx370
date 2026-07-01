@@ -54,7 +54,7 @@ them.
 
 ```sh
 clang-tidy --config-file=.clang-tidy src/irx#*.c -- \
-    -Iinclude -Icontrib/lstring370-0.1.0-dev/include -std=gnu99
+    -Iinclude -I../lstring370/include -std=gnu99
 ```
 
 **clang-format at the end of each commit, only on files you changed.**
@@ -158,16 +158,16 @@ if (some_condition) {
 - **Target:** MVS 3.8j, AMODE 24, RMODE 24
 
 ```bash
-mbt build                          # full build
-mbt build --target irxjcl          # specific module
+make                               # full build (all modules)
+make irxjcl                        # specific module (lowercase alias)
 ```
 
 Cross-compile for local testing (Linux/gcc) — see the full recipe in
 the Testing section further down. Quick form:
 
 ```bash
-gcc -I include -I contrib/lstring370-0.1.0-dev/include \
-    -Wall -Wextra -std=gnu99 -o /tmp/tstfoo test/mvs/tstfoo.c \
+gcc -I include -I ../lstring370/include \
+    -Wall -Wextra -std=gnu99 -o /tmp/tstfoo test/tstfoo.c \
     'src/irx#'*.c ../lstring370/src/'lstr#'*.c
 ```
 
@@ -180,7 +180,7 @@ submodule name and maps to a valid PDS member name on MVS.
 
 Headers: `include/name.h` — plain names, no prefix convention.
 
-Tests: `test/mvs/tstname.c` — lowercase, no `#`, stem ≤ 8 chars
+Tests: `test/tstname.c` — lowercase, no `#`, stem ≤ 8 chars
 (PDS member `TSTNAME`). Each test is both a Linux/gcc unit test and
 an MVS standalone load module (entry via `@@CRT0`, `main()` returns
 RC=0/1).
@@ -227,7 +227,7 @@ because of global variables. We do not repeat that mistake.
 - Multiple concurrent REXX environments must be able to coexist
   in the same address space without interfering
 
-**The one exception:** The cross-compile test harness (`test/mvs/tst*.c`)
+**The one exception:** The cross-compile test harness (`test/tst*.c`)
 may define `void *_simulated_ectenvbk` as a global to simulate the
 MVS TCB. This is test-only, never in production code.
 
@@ -324,37 +324,44 @@ source code or comparing characters:
 
 ## Testing
 
-Every work package produces a `test/mvs/tst*.c` source file that
+Every work package produces a `test/tst*.c` source file that
 doubles as (a) a Linux/gcc cross-compile unit test and (b) an MVS
-standalone load module (`TST*` member via `mbt build`). Tests use a
+standalone load module (`TST*` member via `make test`). Tests use a
 simple CHECK macro:
 
 ```c
-#define CHECK(cond, msg) ...  /* see test/mvs/tsttokn.c */
+#define CHECK(cond, msg) ...  /* see test/tsttokn.c */
 ```
 
 ### MVS build
 
 ```bash
-mbt build --target TSTTOKN      # or TSTANCH, TSTVPOL, ..., TSTBIFS
-# Then invoke on MVS:
+make tsttokn     # build one test module (or `make test` for all)
+make test-mvs    # build + deploy the test modules to a TESTLIB + run on MVS
+# Or invoke a single module by hand after building/deploying:
 #   TSO:   CALL 'hlq.LOAD(TSTTOKN)'
 #   Batch: // EXEC PGM=TSTTOKN
 ```
 
-Each test module is declared as a `[[link.module]]` in `project.toml`
-with the full Phase 1 + Phase 2 + EXEC + ARIT chain (TSTTOKN is the
-one exception — minimal dependencies).
+Each test is declared as a `[[test]]` block in `project.toml` (name /
+startup / sources — the full Phase 1 + Phase 2 + EXEC + ARIT chain;
+TSTTOKN is the one exception, minimal dependencies). mbt v2 generates
+the run JCL from that block. Only a few pure-HLASM VLIST-wrapper edge
+cases (tinitvl, ttermvl, tistso) also need a hand-written
+`test/jcl/<name>.jcl`.
 
 ### Linux cross-compile
 
-The superset below links every test correctly. The minimum dep set
+`make test-host` builds and runs the host-runnable dual tests natively
+— the fast inner loop, no MVS round-trip (MVS-only tests such as the
+VLIST wrappers are skipped). To compile a single test by hand, the
+superset below links every test correctly. The minimum dep set
 for a given test is narrower in principle, but `irx#bifs.c` pulls in
 `irx#arith.c` and `irx#pars.c`, and `irx#init.c` pulls in `irx#io.c`,
 so for practical purposes the superset is the right default.
 
 ```bash
-LSTRING_INC="-I contrib/lstring370-0.1.0-dev/include"
+LSTRING_INC="-I ../lstring370/include"
 LSTRING_SRC="../lstring370/src/lstr#cor.c  ../lstring370/src/lstr#cvt.c \
              ../lstring370/src/lstr#fmt.c  ../lstring370/src/lstr#srch.c \
              ../lstring370/src/lstr#sub.c  ../lstring370/src/lstr#wrd.c \
@@ -368,7 +375,7 @@ ALL_SRC="$PHASE1_SRC $PHASE2_SRC src/irx#exec.c src/irx#arith.c $LSTRING_SRC"
 
 run() {
     gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-        -o /tmp/$1 "test/mvs/$1.c" $ALL_SRC && /tmp/$1
+        -o /tmp/$1 "test/$1.c" $ALL_SRC && /tmp/$1
 }
 
 run tstphas1    # Phase 1 smoke tests                (38/38)
@@ -408,7 +415,7 @@ the ROADMAP entry — move a finished item to its axis's "Closed gates"/"Recentl
 shipped" note (Decommission axis) or remove it (other axes), and refresh the
 "Last updated" date. The truth lives in the repo, so a PR that ships the code but
 leaves ROADMAP saying the work is still open has left the source of truth wrong.
-Same class of always-do as the test-registration rule below (`tstall.jcl` +
+Same class of always-do as the test-registration rule (a `[[test]]` block in
 `project.toml`).
 
 `docs/workpackages.md` holds the historical Phase 1-3 per-WP definitions and is
