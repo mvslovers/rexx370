@@ -87,6 +87,14 @@ const struct irx_bif_entry *
 irx_bif_find(const struct irx_bif_registry *reg,
              const unsigned char *name, size_t len) asm("IRXBIFFN");
 
+/* Resolve a BIF by its upper-case name to the handler linked into THIS
+ * module — bypassing the env registry, whose handler pointers are
+ * cross-module when IRXINIT built the env and IRXEXEC runs the exec
+ * (issue #200). Covers the static core-BIF table + ARG. NULL if not a
+ * known BIF. */
+const struct irx_bif_entry *
+irx_bif_find_local(const unsigned char *name, size_t len) asm("IRXBIFFL");
+
 /* Bulk-register every entry in a static table. Stops at the first
  * entry whose name field is empty. */
 int irx_bif_register_table(struct envblock *env,

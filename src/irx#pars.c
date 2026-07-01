@@ -497,20 +497,6 @@ int irx_pars_bif_arg(struct irx_parser *p, int argc, PLstr *argv,
                : fail(p, IRXPARS_NOMEM);
 }
 
-/* Fetch the registry hanging off the parser's environment. */
-static struct irx_bif_registry *get_bif_registry(struct irx_parser *p)
-{
-    struct irx_wkblk_int *wk;
-
-    if (p == NULL || p->envblock == NULL ||
-        p->envblock->envblock_workblok_ext == NULL)
-    {
-        return NULL;
-    }
-    wk = (struct irx_wkblk_int *)p->envblock->envblock_workblok_ext;
-    return (struct irx_bif_registry *)wk->wkbi_bif_registry;
-}
-
 /* ------------------------------------------------------------------ */
 /*  SAY keyword handler (WP-14)                                       */
 /*                                                                    */
@@ -1724,7 +1710,9 @@ static int bif_dispatch(struct irx_parser *p,
 {
     const struct irx_bif_entry *bif;
 
-    bif = irx_bif_find(get_bif_registry(p), name, name_len);
+    /* Resolve to a handler linked into THIS module, not the env
+     * registry's cross-module pointer (issue #200). */
+    bif = irx_bif_find_local(name, name_len);
     if (bif == NULL)
     {
         return -1;

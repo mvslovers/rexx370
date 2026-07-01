@@ -1835,6 +1835,26 @@ startup = false
 sources = ["test/asm/texecvl.asm"]
 
 # ---------------------------------------------------------------
+# TREXXVL - httprexx-shaped reproducer: runs an in-storage EBCDIC exec
+# through the IRXINIT/IRXEXEC VLIST via __linkds (LINK) with an
+# io_routine override for SAY — exactly the mechanism httprexx uses,
+# in C. Complements the pure-HLASM TEXECVL: TEXECVL stresses the WPOOL
+# with a deep exec, TREXXVL mirrors the real consumer's call shape
+# (LINK + io_routine + in-storage INSTBLK) and is the AC#8 proxy.
+#
+# A [[test]] (not a [[module]]): the runner deploys it to the TESTLIB
+# and runs it with STEPLIB = TESTLIB + LINKLIB, so the LINKs to the
+# production IRXINIT/IRXEXEC resolve. It returns RC 0 on success.
+#
+# WP-VLIST-WPOOL / TSK-279 / consumer: mvslovers/httprexx.
+# ---------------------------------------------------------------
+[[test]]
+name = "TREXXVL"
+startup = "crt1"
+host = false                # MVS-only (uses __linkds/LINK); skipped by test-host
+sources = ["test/trexxvl.c"]
+
+# ---------------------------------------------------------------
 # TISTSO - self-validating test for ISTSO (EXTRACT-based TSO detect).
 # is_tso()'s correct result depends on the environment, so the runner passes
 # the EXPECTED value per leg (batch -> "0", TSO/IKJEFT01 -> "1") and the test
