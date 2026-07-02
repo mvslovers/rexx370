@@ -278,6 +278,26 @@ int irx_exec_dispatch(struct execblk *execblk,
     return exit_rc;
 }
 
+/* Bytecode compile-time limitations that the token-walk interpreter can
+ * still run.  Each is raised inside irx_bc_compile() (during bc_program),
+ * BEFORE any bytecode executes, so falling back re-runs the program from a
+ * clean slate with no risk of double side effects:
+ *   UNSUP          - a construct the compiler does not yet handle
+ *   STRTOOLONG     - a literal or symbol exceeds IRXBC_STR_MAX; the bytecode
+ *                    const/symbol table stores its length in a single byte,
+ *                    so 64+ byte strings cannot be represented (the
+ *                    interpreter has no such limit)
+ *   PARSE_COMPOUND - a compound-variable target in a PARSE template
+ * Execute-time errors from irx_bc_execute (OPCODE/ARITH/STACK/IO/...) are
+ * deliberately excluded: that bytecode already ran with side effects and
+ * must stay fatal rather than silently re-run under the interpreter. */
+static int bc_err_is_fallback(int rc)
+{
+    return rc == IRXBC_ERR_UNSUP ||
+           rc == IRXBC_ERR_STRTOOLONG ||
+           rc == IRXBC_ERR_PARSE_COMPOUND;
+}
+
 int irx_exec_run(const char *source, int source_len,
                  const char *args, int args_len,
                  int *rc_out, struct envblock *envblock)
@@ -353,10 +373,12 @@ int irx_exec_run(const char *source, int source_len,
 
             rc = irx_bc_compile(envblock, source, source_len, &bc,
                                 &unsup_reason, &unsup_line);
-            if (rc == IRXBC_ERR_UNSUP)
+            if (bc_err_is_fallback(rc))
             {
-                /* Unsupported construct — release bc and fall through
-                 * to the token-walk path below. */
+                /* A compile-time limitation (unsupported construct, an
+                 * over-long literal/symbol, ...) — release bc and fall
+                 * through to the token-walk path below, which has no such
+                 * limits.  No bytecode ran, so this is side-effect free. */
                 if (bc != NULL)
                 {
                     void *p = bc;

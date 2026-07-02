@@ -37,6 +37,7 @@
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxwkblk.h"
+#include "lstring.h"
 
 #ifndef __MVS__
 void *_simulated_ectenvbk = NULL;
@@ -61,6 +62,29 @@ static int tests_failed = 0;
             printf("  FAIL: %s\n", msg); \
         }                                \
     } while (0)
+
+/* ------------------------------------------------------------------ */
+/*  Mock I/O routine — captures the last SAY line.                    */
+/* ------------------------------------------------------------------ */
+static char g_captured[512];
+static int g_captured_len = 0;
+
+static int capture_io(int function, PLstr data, struct envblock *envblock)
+{
+    (void)envblock;
+    if (function == RXFWRITE && data != NULL && Lpstr(data) != NULL)
+    {
+        int n = (int)Llen(data);
+        if (n > (int)sizeof(g_captured) - 1)
+        {
+            n = (int)sizeof(g_captured) - 1;
+        }
+        memcpy(g_captured, Lpstr(data), (size_t)n);
+        g_captured_len = n;
+        g_captured[n] = '\0';
+    }
+    return 0;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Compile source and execute via the VM directly.                   */
@@ -203,6 +227,69 @@ static void test_e2e_empty_bytecode(void)
     irxterm(env);
 }
 
+/* A string literal longer than IRXBC_STR_MAX (63) cannot be represented in
+ * the bytecode const table (1-byte length prefix), so irx_bc_compile fails
+ * with IRXBC_ERR_STRTOOLONG.  irx_exec_run must fall back to the token-walk
+ * interpreter — which has no such limit — instead of surfacing the error.
+ * Regression for the HTTPREXX .rxp failure "IRXEXEC ... rc=29 rexxrc=29",
+ * where an ordinary HTML line (>63 bytes) inside SAY aborted the exec. */
+static void test_e2e_long_literal_fallback(void)
+{
+    /* 70-byte literal (> IRXBC_STR_MAX) — a typical transpiled HTML line. */
+    static const char *src =
+        "say '<html><head><meta charset=\"utf-8\">"
+        "<title>demo.rxp</title></head>'";
+    static const char *want =
+        "<html><head><meta charset=\"utf-8\">"
+        "<title>demo.rxp</title></head>";
+
+    struct envblock *env = NULL;
+    struct irx_wkblk_int *wk;
+    struct irxexte *exte;
+    unsigned before;
+    int exit_rc = -1;
+    int rc;
+
+    printf("  [e2e: >63-byte literal falls back, no rc=29]\n");
+
+    rc = irxinit(NULL, &env);
+    CHECK(rc == 0 && env != NULL, "irxinit succeeds");
+    if (rc != 0 || env == NULL)
+    {
+        return;
+    }
+
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    CHECK(wk != NULL, "work block is present");
+    if (wk == NULL)
+    {
+        irxterm(env);
+        return;
+    }
+
+    exte = (struct irxexte *)env->envblock_irxexte;
+    if (exte != NULL)
+    {
+        exte->io_routine = (void *)capture_io;
+    }
+
+    wk->wkbi_use_bytecode = 1;
+    before = wk->wkbi_bc_fallback_count;
+    g_captured_len = 0;
+    g_captured[0] = '\0';
+
+    rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, env);
+    CHECK(rc == 0, "irx_exec_run returns 0 (not IRXBC_ERR_STRTOOLONG=29)");
+    CHECK(exit_rc == 0, "exit_rc == 0");
+    CHECK(wk->wkbi_bc_fallback_count == before + 1,
+          "bytecode fell back to the interpreter");
+    CHECK(g_captured_len == (int)strlen(want) &&
+              memcmp(g_captured, want, strlen(want)) == 0,
+          "SAY output is complete and correct");
+
+    irxterm(env);
+}
+
 /* ------------------------------------------------------------------ */
 /*  main                                                              */
 /* ------------------------------------------------------------------ */
@@ -229,6 +316,7 @@ int main(void)
     /* End-to-end tests create their own environments. */
     test_e2e_bytecode_flag();
     test_e2e_empty_bytecode();
+    test_e2e_long_literal_fallback();
 
     printf("\n=== Results: %d/%d passed", tests_passed, tests_run);
     if (tests_failed > 0)
