@@ -1812,6 +1812,17 @@ startup = false
 sources = ["test/asm/ttermvl.asm"]
 
 # ---------------------------------------------------------------
+# TLNKTERM - diagnostic: httprexx's IRXINIT-via-LINK + IRXTERM-via-
+# LOAD/BALR asymmetry reproduced in pure asm (no C runtime), to
+# isolate the LINK-vs-BALR/PRB asymmetry from the crent370 context.
+# ---------------------------------------------------------------
+[[test]]
+name = "TLNKTERM"
+entry = "TLNKTERM"
+startup = false
+sources = ["test/asm/tlnkterm.asm"]
+
+# ---------------------------------------------------------------
 # TEXECVL - Live MVS test caller for IRXINIT + IRXEXEC + IRXTERM.
 # Same shape as TINITVL/TTERMVL: pure HLASM, no C runtime; IRXINIT,
 # IRXEXEC and IRXTERM are all resolved at run time via LOAD EP= from
@@ -1852,7 +1863,7 @@ sources = ["test/asm/texecvl.asm"]
 name = "TREXXVL"
 startup = "crt1"
 host = false                # MVS-only (uses __linkds/LINK); skipped by test-host
-sources = ["test/trexxvl.c"]
+sources = ["test/trexxvl.c", "test/trxcall.asm", "test/trxldc.asm"]
 
 # ---------------------------------------------------------------
 # TISTSO - self-validating test for ISTSO (EXTRACT-based TSO detect).

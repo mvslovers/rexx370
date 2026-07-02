@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-06-03
+Last updated: 2026-07-02
 
 ---
 
@@ -171,6 +171,16 @@ needed for a *complete* REXX.
   IRXBIFS off-stack arrays + BIF_OMITTED_OK flag.
 
 ### Axis 4 — Environment / Anchor (status UNCLEAR — needs inventory)
+
+> **2026-07-02 — IRXTERM-from-C-host crash RESOLVED.** The long-standing
+> "IRXTERM crashes when called from a crent370 C host" report (consumer:
+> httprexx) was root-caused to an as370 assembler pitfall in the caller-side
+> shims — RS-format `LM R0,R12,20(,R13)` silently assembles with BASE=0 and
+> restores registers from PSA low core. Fixed in `test/trxcall.asm`,
+> `test/trxldc.asm` and httprexx `asm/htrxterm.asm`; a second latent bug
+> (`asm/istso.asm` EXTRACT S328 on non-zeroed parameter list) was fixed on
+> the way. Full analysis: `docs/irxterm-c-host-crash.md`. IRXINIT/IRXEXEC/
+> IRXTERM themselves were exonerated; #204 remains open (separate bug).
 
 > ⚠️ **The state of this axis is not currently known.** The core
 > IRXINIT/IRXTERM/IRXANCHR/parameter-module work (WP-I1a-d) was marked done
