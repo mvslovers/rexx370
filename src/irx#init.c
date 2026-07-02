@@ -42,8 +42,11 @@
 #include "irxwkblk.h"
 
 #ifdef __MVS__
-#include <clibos.h>  /* __load(), __delete() — crent370 */
-#include <clibppa.h> /* __PPAGET() — C-runtime presence check */
+#include <clibary.h>  /* arraycount() — walk the PPA CLIBCRT array */
+#include <clibcrt.h>  /* CLIBCRT — per-TCB C-runtime work area */
+#include <cliblock.h> /* lock()/unlock() — shared PPA read latch */
+#include <clibos.h>   /* __load(), __delete() — crent370 */
+#include <clibppa.h>  /* __PPAGET(), CLIBPPA — C-runtime presence check */
 #endif
 
 /* Lock the CON-1 §3.1 ENVBLOCK size on MVS — the IBM-reserved tail
@@ -223,19 +226,73 @@ static int env_eq_ci(const char *a, const char *b)
 /*  Shared helper: env_get_safe                                       */
 /*                                                                    */
 /*  getenv() reaches the environment through @@GRTGET -> @@CRTGET,    */
-/*  which requires an established C runtime (a CLIBCRT registered in  */
-/*  the PPA).  On the module-entry path — IRXINIT reached via BALR    */
-/*  from IRXTMPW or the VLIST wrappers, not via @@CRT0 — no CRT is    */
-/*  set up, so a plain getenv() logs a spurious                       */
-/*  "__CRTGET ... not found in PPA(00000000)" at every call.  Skip it */
-/*  when no PPA exists (the production default is correct there);     */
-/*  on the host and in @@CRT0-bootstrapped modules a PPA exists and    */
-/*  getenv() works normally.                                          */
+/*  which locate the C runtime by matching the *current TCB* against  */
+/*  the CLIBCRT array anchored in the PPA.  When no CLIBCRT matches — */
+/*  asm callers with no runtime of their own, or IRXINIT reached via  */
+/*  LOAD+BALR from a *foreign* C host whose PPA it inherits — @@CRTGET */
+/*  returns NULL and getenv() then dereferences the NULL GRT in low   */
+/*  core: an S0C4 (issue #204).  A non-NULL PPA is therefore not a    */
+/*  safe guard on its own: the PPA can be present but foreign.        */
+/*                                                                    */
+/*  crt_present_for_current_tcb() replays @@CRTGET's own lookup —     */
+/*  same PPA, same PSATOLD, same CLIBCRT-array scan — but silently    */
+/*  (no "__CRTGET ... not found" WTO) and as a bool.  getenv() runs   */
+/*  only when a CLIBCRT for the running TCB actually exists, i.e.     */
+/*  exactly when getenv() can resolve a live runtime instead of       */
+/*  faulting.  On the host (no __MVS__) getenv() is always safe.      */
 /* ================================================================== */
+#ifdef __MVS__
+/* PSATOLD lives at low-core offset 0x21C and holds the address of the
+ * currently dispatched TCB — the same word @@CRTGET keys its CLIBCRT
+ * lookup on.  This mirrors @@CRTGET's body verbatim (minus its
+ * diagnostic WTO) so the "runtime present?" verdict is equivalent by
+ * construction: same __PPAGET(), same shared read latch, same scan. */
+static int crt_present_for_current_tcb(void)
+{
+    int locked = 0;
+    unsigned *psa = 0;
+    void *tcb = (void *)psa[0x21c / 4];
+    CLIBPPA *ppa = __PPAGET();
+    CLIBCRT *crt = (CLIBCRT *)0;
+    unsigned count = 0;
+    unsigned n;
+
+    if (!ppa)
+    {
+        goto quit;
+    }
+
+    locked = lock(ppa, 1); /* 1 = read only (shared) */
+    if (locked != 0)
+    {
+        goto quit;
+    }
+
+    count = arraycount(&ppa->ppacrt);
+
+    for (n = 0; n < count; n++)
+    {
+        if (ppa->ppacrt[n]->crttcb == tcb)
+        {
+            crt = ppa->ppacrt[n];
+            break;
+        }
+    }
+
+    if (locked == 0)
+    {
+        unlock(ppa, 1);
+    }
+
+quit:
+    return crt != (CLIBCRT *)0;
+}
+#endif
+
 static const char *env_get_safe(const char *name)
 {
 #ifdef __MVS__
-    if (__PPAGET() == NULL)
+    if (!crt_present_for_current_tcb())
     {
         return NULL;
     }
