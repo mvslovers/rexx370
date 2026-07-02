@@ -208,6 +208,55 @@ static int run_noexec_term(const char *label)
     return (term_env(label, env) == 0) ? 0 : 12;
 }
 
+/* Case 0d (#204 repro): IRXINIT via __load + BALR (R1 = VLIST, R0 = 0),
+ * then IRXTERM.  Unlike 0c (LINK -> fresh PRB -> PPA = NULL -> getenv
+ * skipped), a BALR from this live crent370 host leaves IRXINIT running
+ * against the *host's* (foreign) PPA.  env_get_safe() must recognise that
+ * no CLIBCRT is registered for the current TCB and skip getenv() rather
+ * than fault (S0C4).  MVS-only: there is no PPA/TCB on the host build. */
+static int run_balr_init_term(const char *label)
+{
+    static const char fcode[] = "INITENVB";
+    void *p_parmmod = NULL;
+    void *p_userfld = NULL;
+    void *p_wkblk = NULL;
+    void *p_resv = NULL;
+    struct envblock *env = NULL;
+    int reason = 0;
+    unsigned vinit[7];
+    unsigned int lsize = 0;
+    char lac = 0;
+    void *ep;
+    int rc;
+
+    vinit[0] = (unsigned)fcode;
+    vinit[1] = (unsigned)&p_parmmod;
+    vinit[2] = (unsigned)&p_userfld;
+    vinit[3] = (unsigned)&p_wkblk;
+    vinit[4] = (unsigned)&p_resv;
+    vinit[5] = (unsigned)&env;
+    vinit[6] = (unsigned)&reason | 0x80000000U;
+
+    ep = __load(NULL, "IRXINIT", &lsize, &lac);
+    if (ep == NULL)
+    {
+        wtof("TREXXVL[%s]: IRXINIT __load FAILED", label);
+        return 20;
+    }
+
+    rc = trx_callv(ep, vinit);
+    wtof("TREXXVL[%s]: IRXINIT balr rc=%d reason=%d env=%08X", label, rc,
+         reason, (unsigned)env);
+    __delete("IRXINIT");
+
+    if (rc != 0 || env == NULL)
+    {
+        return 20;
+    }
+
+    return (term_env(label, env) == 0) ? 0 : 12;
+}
+
 int main(void)
 {
     /* Escalating cases, simplest first.  Each runs under its own fresh
@@ -236,6 +285,9 @@ int main(void)
 
     wtof("TREXXVL: === 0c. IRXINIT via __linkds (LINK) -> IRXTERM ===");
     rc |= run_noexec_term("linkds");
+
+    wtof("TREXXVL: === 0d. IRXINIT via __load+BALR (foreign PPA #204) ===");
+    rc |= run_balr_init_term("balr");
 
     wtof("TREXXVL: === 1. plain say ===");
     rc |= run_lines("say", c_say, 1);

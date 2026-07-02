@@ -180,7 +180,12 @@ needed for a *complete* REXX.
 > `test/trxldc.asm` and httprexx `asm/htrxterm.asm`; a second latent bug
 > (`asm/istso.asm` EXTRACT S328 on non-zeroed parameter list) was fixed on
 > the way. Full analysis: `docs/irxterm-c-host-crash.md`. IRXINIT/IRXEXEC/
-> IRXTERM themselves were exonerated; #204 remains open (separate bug).
+> IRXTERM themselves were exonerated. The related **#204** (`env_get_safe`
+> S0C4 when IRXINIT is reached via LOAD+BALR from a foreign C host) is now
+> fixed: `env_get_safe()` gates `getenv()` on a CLIBCRT being registered for
+> the current TCB — a silent replay of `@@CRTGET`'s lookup — rather than a
+> bare non-NULL-PPA check. On-target repro: TREXXVL case 0d (pending
+> `make test-mvs`).
 
 > ⚠️ **The state of this axis is not currently known.** The core
 > IRXINIT/IRXTERM/IRXANCHR/parameter-module work (WP-I1a-d) was marked done

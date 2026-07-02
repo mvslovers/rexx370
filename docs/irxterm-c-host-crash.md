@@ -3,7 +3,8 @@
 **Status:** RESOLVED — root cause found, fixed, full test matrix green.
 **Date opened:** 2026-07-02 · **Date resolved:** 2026-07-02
 **Related:** mvslovers/rexx370#204 (separate `env_get_safe` foreign-PPA bug,
-still open), mvslovers/httprexx (the consumer that hit this).
+fixed on the `issue-204-foreign-ppa-getenv` branch — pending `make test-mvs`),
+mvslovers/httprexx (the consumer that hit this).
 
 ---
 
@@ -94,8 +95,11 @@ also wrong — EXTRACT is SVC 40.)
    above.
 2. **httprexx:** commit the `htrxterm.asm` fix, remove the "IRXTERM
    temporarily DISABLED" workaround (`src/httprexx.c` ~L331), retest.
-3. **#204** (`env_get_safe` foreign-PPA on the IRXINIT-BALR path) remains
-   open and unrelated; `test/trxldc.asm` (`TRXCALLV`) is kept for that work.
+3. **#204** (`env_get_safe` foreign-PPA on the IRXINIT-BALR path) is **fixed**:
+   `env_get_safe()` now gates `getenv()` on a CLIBCRT being registered for the
+   current TCB (a silent replay of `@@CRTGET`'s lookup) instead of merely
+   checking for a non-NULL PPA. `test/trxldc.asm` (`TRXCALLV`) now drives
+   TREXXVL case 0d, the on-target repro (pending `make test-mvs`).
 4. **mbt:** `submit_jcl` polls max 120 s — a full 110-step runner exceeds it
    ("FAIL NO RC" with an empty spool). Consider a configurable timeout.
    The `//SYSUDUMP DD SYSOUT=*` added to test steps proved valuable — keep.
