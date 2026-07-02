@@ -50,9 +50,16 @@ ISTSO    CSECT
          LR    R13,R1
          USING WAREA,R13
 *
-* --- EXTRACT: MF=E fills parm list + issues SVC 9 ---
+* --- EXTRACT: MF=E fills parm list + issues SVC 40 ---
+*  The workarea is GETMAIN'd WITHOUT zero-fill and the E-form only
+*  stores the answer-area address and the FIELDS bytes -- it leaves
+*  the TCB slot (list+4) untouched.  Residual garbage there makes
+*  EXTRACT abend S328 ("invalid TCB address"), so clear the list
+*  (and the answer area) explicitly first.
+         XC    WEXTANS(8),WEXTANS
+         XC    WEXTLST(WEXTLEN),WEXTLST
          EXTRACT WEXTANS,FIELDS=(TSO,PSB),MF=(E,WEXTLST)
-*        NOTE: R15 is NOT tested - SVC 9 does not set it reliably
+*        NOTE: R15 is NOT tested - SVC 40 does not set it reliably
 *
 * --- evaluate answer area ---
          LM    R2,R3,WEXTANS         R2->TSO byte  R3->PSB (or 0)
@@ -83,6 +90,7 @@ WDNEXT   DS    F                  +8  forward chain
          DS    15F               +12..+71 R14-R12 save slots
 WEXTANS  DS    2F                 EXTRACT answer area: TSO+PSB ptrs
 WEXTLST  EXTRACT MF=L             EXTRACT parm list (sized by macro)
+WEXTLEN  EQU   *-WEXTLST          parm list length (for the XC)
 WALEN    EQU   *-WAREA
 *
          END   ISTSO
