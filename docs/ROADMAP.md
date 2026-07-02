@@ -184,8 +184,9 @@ needed for a *complete* REXX.
 > S0C4 when IRXINIT is reached via LOAD+BALR from a foreign C host) is now
 > fixed: `env_get_safe()` gates `getenv()` on a CLIBCRT being registered for
 > the current TCB — a silent replay of `@@CRTGET`'s lookup — rather than a
-> bare non-NULL-PPA check. On-target repro: TREXXVL case 0d (pending
-> `make test-mvs`).
+> bare non-NULL-PPA check. Verified on MVS: TREXXVL case 0d (IRXINIT via
+> `__load`+BALR) returns rc=0 with no S0C4, and TSTFLIP (`setenv`/`getenv`
+> on a legitimate runtime) stays green.
 
 > ⚠️ **The state of this axis is not currently known.** The core
 > IRXINIT/IRXTERM/IRXANCHR/parameter-module work (WP-I1a-d) was marked done
