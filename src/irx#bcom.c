@@ -197,8 +197,8 @@ static int emit_byte(struct bcom_ctx *ctx, unsigned char op)
 {
     if (ctx->code_len >= BCOM_MAX_CODE)
     {
-        ctx->rc = IRXBC_ERR_STOR;
-        return IRXBC_ERR_STOR;
+        ctx->rc = IRXBC_ERR_CAPACITY;
+        return IRXBC_ERR_CAPACITY;
     }
     ctx->code[ctx->code_len++] = op;
     return IRXBC_OK;
@@ -208,8 +208,8 @@ static int emit_u16(struct bcom_ctx *ctx, int idx)
 {
     if (ctx->code_len + 2 > BCOM_MAX_CODE)
     {
-        ctx->rc = IRXBC_ERR_STOR;
-        return IRXBC_ERR_STOR;
+        ctx->rc = IRXBC_ERR_CAPACITY;
+        return IRXBC_ERR_CAPACITY;
     }
     ctx->code[ctx->code_len++] = (unsigned char)(idx & 0xFF);
     ctx->code[ctx->code_len++] = (unsigned char)((idx >> 8) & 0xFF);
@@ -221,8 +221,8 @@ static int emit_i16(struct bcom_ctx *ctx, int offset)
     unsigned int v = (unsigned int)(short)(offset);
     if (ctx->code_len + 2 > BCOM_MAX_CODE)
     {
-        ctx->rc = IRXBC_ERR_STOR;
-        return IRXBC_ERR_STOR;
+        ctx->rc = IRXBC_ERR_CAPACITY;
+        return IRXBC_ERR_CAPACITY;
     }
     ctx->code[ctx->code_len++] = (unsigned char)(v & 0xFF);
     ctx->code[ctx->code_len++] = (unsigned char)((v >> 8) & 0xFF);
@@ -453,7 +453,7 @@ static int add_const(struct bcom_ctx *ctx, const char *text, int len)
     }
     if (ctx->const_count >= BCOM_MAX_CONSTS)
     {
-        ctx->rc = IRXBC_ERR_STOR;
+        ctx->rc = IRXBC_ERR_CAPACITY;
         return -1;
     }
     i = ctx->const_count++;
@@ -484,7 +484,7 @@ static int add_sym(struct bcom_ctx *ctx, const char *name)
     }
     if (ctx->sym_count >= BCOM_MAX_SYMS)
     {
-        ctx->rc = IRXBC_ERR_STOR;
+        ctx->rc = IRXBC_ERR_CAPACITY;
         return -1;
     }
     i = ctx->sym_count++;
