@@ -288,6 +288,11 @@ int irx_exec_dispatch(struct execblk *execblk,
  *                    so 64+ byte strings cannot be represented (the
  *                    interpreter has no such limit)
  *   PARSE_COMPOUND - a compound-variable target in a PARSE template
+ *   CAPACITY       - the program overflows one of the compiler's fixed
+ *                    tables (code / constants / symbols); the interpreter
+ *                    has no such limits.  This is a *capacity* limit, kept
+ *                    distinct from IRXBC_ERR_STOR (a real irxstor failure,
+ *                    which stays fatal — see irx#bcom.c).
  * Execute-time errors from irx_bc_execute (OPCODE/ARITH/STACK/IO/...) are
  * deliberately excluded: that bytecode already ran with side effects and
  * must stay fatal rather than silently re-run under the interpreter. */
@@ -295,7 +300,8 @@ static int bc_err_is_fallback(int rc)
 {
     return rc == IRXBC_ERR_UNSUP ||
            rc == IRXBC_ERR_STRTOOLONG ||
-           rc == IRXBC_ERR_PARSE_COMPOUND;
+           rc == IRXBC_ERR_PARSE_COMPOUND ||
+           rc == IRXBC_ERR_CAPACITY;
 }
 
 int irx_exec_run(const char *source, int source_len,

@@ -395,7 +395,7 @@
 /* ================================================================== */
 
 #define IRXBC_OK                 0  /* success                               */
-#define IRXBC_ERR_STOR           20 /* irxstor allocation failed             */
+#define IRXBC_ERR_STOR           20 /* irxstor allocation failed (fatal)     */
 #define IRXBC_ERR_TOKN           21 /* tokenizer returned an error           */
 #define IRXBC_ERR_UNSUP          22 /* unsupported construct                 */
 #define IRXBC_ERR_OPCODE         23 /* unknown opcode encountered by VM      */
@@ -408,5 +408,6 @@
 #define IRXBC_ERR_STRTOOLONG     29 /* literal/symbol exceeds IRXBC_STR_MAX  */
 #define IRXBC_ERR_CALL           30 /* CALL stack overflow (IRXBC_CALL_DEPTH)    */
 #define IRXBC_ERR_PARSE_COMPOUND 31 /* compound-variable target in PARSE template */
+#define IRXBC_ERR_CAPACITY       33 /* compile-time fixed-table overflow (fallback) */
 
 #endif /* IRXBOPS_H */

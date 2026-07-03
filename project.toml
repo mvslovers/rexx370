@@ -1594,6 +1594,49 @@ sources = [
 ]
 
 # ---------------------------------------------------------------
+# TSTBCAP - issue #212: bytecode fixed-table overflow falls back.
+# A program that overflows a fixed compiler table (code/constants/
+# symbols) now returns IRXBC_ERR_CAPACITY (distinct from the fatal
+# IRXBC_ERR_STOR for real allocation failures); irx_exec_run treats
+# it as fallback-eligible and re-runs under the token-walk
+# interpreter instead of aborting.  Verifies the compile return
+# codes and the end-to-end fallback (RC=0, correct output).
+#
+# Invocation:
+#   TSO    :  CALL 'hlq.LOAD(TSTBCAP)'
+#   Batch  :  EXEC PGM=TSTBCAP
+#
+# Expected: CC=0
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCAP"
+startup = "crt1"
+sources = [
+  "test/tstbcap.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
 # TSTBCNUM - WP-BC-NUMERIC: NUMERIC DIGITS/FUZZ/FORM statement.
 # Verifies the bytecode compiler + VM implement the NUMERIC
 # statement (OP_SET_NUMERIC) — closing the first decommission gate
