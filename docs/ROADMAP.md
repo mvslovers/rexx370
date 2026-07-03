@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 
 ---
 
@@ -128,6 +128,16 @@ Open items:
   wrong-output divergence, not a `BC_FAIL_UNSUP` fallback gate. Token-walk (the
   correct reference here) is unchanged per CON-18; equivalence proven in
   `test/tstbdq.c`.
+- ~~**#208 — long string-literal chunking**~~ — a string literal `>` IRXBC_STR_MAX
+  (63) bytes no longer forces the whole exec onto the interpreter via
+  `IRXBC_ERR_STRTOOLONG` (the #207 fallback). **Done** (2026-07-03): `bc_exp8`'s
+  `TOK_STRING` branch now splits an over-long literal into `<=63`-byte const
+  entries rejoined at run time with `OP_CONCAT` (abuttal — byte-exact), so
+  HTTPREXX `.rxp` pages (near-all long HTML `SAY` literals) stay on the bytecode
+  fast path. No format change, no `IRXBC_VERSION` bump. Long *symbols* still can't
+  be chunked and keep relying on the #207 fallback (pathological, by design); the
+  fallback itself remains the safety net. Chunk equivalence + no-fallback proven
+  in `test/tstbcln.c` and `test/tstbcexe.c`.
 - **WP-CPS-09a-FU** — SIGNAL/CALL condition-trap *activation* (the parser-only
   baseline is done via #131; the runtime trap machinery — NOVALUE hook,
   condition dispatcher, SIGL/RC/CONDITION updates, CALL ON/OFF — is open).

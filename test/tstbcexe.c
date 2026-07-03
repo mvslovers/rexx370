@@ -227,15 +227,17 @@ static void test_e2e_empty_bytecode(void)
     irxterm(env);
 }
 
-/* A string literal longer than IRXBC_STR_MAX (63) cannot be represented in
- * the bytecode const table (1-byte length prefix), so irx_bc_compile fails
- * with IRXBC_ERR_STRTOOLONG.  irx_exec_run must fall back to the token-walk
- * interpreter — which has no such limit — instead of surfacing the error.
- * Regression for the HTTPREXX .rxp failure "IRXEXEC ... rc=29 rexxrc=29",
- * where an ordinary HTML line (>63 bytes) inside SAY aborted the exec. */
-static void test_e2e_long_literal_fallback(void)
+/* A string literal longer than IRXBC_STR_MAX (63) is split at compile time
+ * into <=63-byte const-table chunks rejoined with OP_CONCAT (issue #208), so
+ * it stays on the bytecode fast path and emits byte-exact output — no
+ * token-walk fallback.  Regression for the HTTPREXX .rxp performance case:
+ * an ordinary HTML line (>63 bytes) inside SAY used to force the whole exec
+ * onto the interpreter (correct, via #207, but slow); it now runs on the VM.
+ * (The #207 fallback remains as the safety net for constructs that still
+ * cannot be represented in bytecode — e.g. over-long symbols.) */
+static void test_e2e_long_literal_bytecode(void)
 {
-    /* 70-byte literal (> IRXBC_STR_MAX) — a typical transpiled HTML line. */
+    /* ~64-byte literal (> IRXBC_STR_MAX) — a typical transpiled HTML line. */
     static const char *src =
         "say '<html><head><meta charset=\"utf-8\">"
         "<title>demo.rxp</title></head>'";
@@ -246,11 +248,12 @@ static void test_e2e_long_literal_fallback(void)
     struct envblock *env = NULL;
     struct irx_wkblk_int *wk;
     struct irxexte *exte;
-    unsigned before;
+    int fb_before;
+    int ex_before;
     int exit_rc = -1;
     int rc;
 
-    printf("  [e2e: >63-byte literal falls back, no rc=29]\n");
+    printf("  [e2e: >63-byte literal stays on bytecode, byte-exact]\n");
 
     rc = irxinit(NULL, &env);
     CHECK(rc == 0 && env != NULL, "irxinit succeeds");
@@ -274,18 +277,91 @@ static void test_e2e_long_literal_fallback(void)
     }
 
     wk->wkbi_use_bytecode = 1;
-    before = wk->wkbi_bc_fallback_count;
+    fb_before = wk->wkbi_bc_fallback_count;
+    ex_before = wk->wkbi_bc_exec_count;
     g_captured_len = 0;
     g_captured[0] = '\0';
 
     rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, env);
     CHECK(rc == 0, "irx_exec_run returns 0 (not IRXBC_ERR_STRTOOLONG=29)");
     CHECK(exit_rc == 0, "exit_rc == 0");
-    CHECK(wk->wkbi_bc_fallback_count == before + 1,
-          "bytecode fell back to the interpreter");
+    CHECK(wk->wkbi_bc_fallback_count == fb_before,
+          "no token-walk fallback (long literal stays on bytecode)");
+    CHECK(wk->wkbi_bc_exec_count == ex_before + 1,
+          "ran on the bytecode path");
     CHECK(g_captured_len == (int)strlen(want) &&
               memcmp(g_captured, want, strlen(want)) == 0,
           "SAY output is complete and correct");
+
+    irxterm(env);
+}
+
+/* A long single-quoted literal that ALSO contains doubled quotes (''):
+ * the compiler must de-double the whole string first, THEN chunk it, so
+ * a '' pair can never straddle a chunk boundary (issue #208, doubled-
+ * quote path — the heap-scratch branch of emit_push_str_dbl).  Both the
+ * raw literal and the de-doubled value exceed IRXBC_STR_MAX, so this
+ * exercises the scratch de-double AND multi-chunk emit together.  HTML
+ * apostrophes (it''s) make this a real HTTPREXX case, not a corner. */
+static void test_e2e_long_dq_literal_bytecode(void)
+{
+    /* Raw literal (between the outer quotes) is >63 bytes and holds two
+     * '' escapes; the de-doubled value ("it's ... isn't ...") is also
+     * >63 bytes, forcing multiple chunks. */
+    static const char *src =
+        "say '<p>it''s a fairly long paragraph, "
+        "isn''t it, definitely over sixty-three bytes</p>'";
+    static const char *want =
+        "<p>it's a fairly long paragraph, "
+        "isn't it, definitely over sixty-three bytes</p>";
+
+    struct envblock *env = NULL;
+    struct irx_wkblk_int *wk;
+    struct irxexte *exte;
+    int fb_before;
+    int ex_before;
+    int exit_rc = -1;
+    int rc;
+
+    printf("  [e2e: long doubled-quote literal, de-double then chunk]\n");
+
+    rc = irxinit(NULL, &env);
+    CHECK(rc == 0 && env != NULL, "irxinit succeeds");
+    if (rc != 0 || env == NULL)
+    {
+        return;
+    }
+
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    CHECK(wk != NULL, "work block is present");
+    if (wk == NULL)
+    {
+        irxterm(env);
+        return;
+    }
+
+    exte = (struct irxexte *)env->envblock_irxexte;
+    if (exte != NULL)
+    {
+        exte->io_routine = (void *)capture_io;
+    }
+
+    wk->wkbi_use_bytecode = 1;
+    fb_before = wk->wkbi_bc_fallback_count;
+    ex_before = wk->wkbi_bc_exec_count;
+    g_captured_len = 0;
+    g_captured[0] = '\0';
+
+    rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, env);
+    CHECK(rc == 0, "irx_exec_run returns 0");
+    CHECK(exit_rc == 0, "exit_rc == 0");
+    CHECK(wk->wkbi_bc_fallback_count == fb_before,
+          "no token-walk fallback (stays on bytecode)");
+    CHECK(wk->wkbi_bc_exec_count == ex_before + 1,
+          "ran on the bytecode path");
+    CHECK(g_captured_len == (int)strlen(want) &&
+              memcmp(g_captured, want, strlen(want)) == 0,
+          "SAY output de-doubled ('' -> ') and byte-exact");
 
     irxterm(env);
 }
@@ -316,7 +392,8 @@ int main(void)
     /* End-to-end tests create their own environments. */
     test_e2e_bytecode_flag();
     test_e2e_empty_bytecode();
-    test_e2e_long_literal_fallback();
+    test_e2e_long_literal_bytecode();
+    test_e2e_long_dq_literal_bytecode();
 
     printf("\n=== Results: %d/%d passed", tests_passed, tests_run);
     if (tests_failed > 0)

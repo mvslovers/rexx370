@@ -2,7 +2,8 @@
 /*  test/host/tstbc_clean.c — WP-BC-CLEAN tests                       */
 /*                                                                    */
 /*  Covers:                                                           */
-/*    - Long-literal rejection (IRXBC_ERR_STRTOOLONG)                */
+/*    - Long-literal chunking (issue #208): >63-byte literals split   */
+/*      into <=63-byte chunks + OP_CONCAT, byte-exact, no fallback     */
 /*    - DO COUNT: zero iterations, negative count, exactly 1,        */
 /*      small count (5), variable count, nested loops                */
 /*    - Integer fast-path: literals, variable round-trips             */
@@ -126,50 +127,130 @@ static void run_both(const char *desc, const char *src,
 #define EQUIV(desc, src, expected) run_both(desc, src, expected, expected)
 
 /* ------------------------------------------------------------------ */
-/*  Long-literal rejection                                            */
+/*  Long-literal chunking (issue #208)                                */
+/*                                                                    */
+/*  A literal longer than IRXBC_STR_MAX (63) bytes is no longer       */
+/*  rejected: the compiler splits it into <=63-byte chunks joined by  */
+/*  OP_CONCAT, so long-literal programs stay on the bytecode fast     */
+/*  path.  Long *symbols* still fall back (they cannot be chunked).   */
 /* ------------------------------------------------------------------ */
 
-static void test_strtoolong(struct envblock *env)
+/* Build "SAY '<n copies of ch>'" into buf; returns its length. */
+static int build_say_lit(char *buf, int n, char ch)
 {
-    /* Construct a literal of exactly 64 bytes (one over IRXBC_STR_MAX=63) */
-    char src[128];
-    struct irx_bc_execblk *bc = NULL;
-    int rc;
+    int len = 5;
+    memcpy(buf, "SAY '", 5);
+    memset(buf + len, ch, (size_t)n);
+    len += n;
+    buf[len++] = '\'';
+    buf[len] = '\0';
+    return len;
+}
 
-    memset(src, 0, sizeof(src));
-    /* SAY 'AAAA...A' where string is 64 'A's */
-    strcpy(src, "SAY '");
-    memset(src + 5, 'A', 64);
-    src[69] = '\'';
-    src[70] = '\0';
+static void test_literal_boundaries(struct envblock *env)
+{
+    /* Lengths straddling the old 63/64 slot boundary and several chunk
+     * widths (127 = 2 full + 1, 189 = 3 full).  Each must now COMPILE
+     * (no STRTOOLONG). */
+    static const int lengths[] = {62, 63, 64, 126, 127, 189};
+    char src[256];
+    struct irx_bc_execblk *bc;
+    int rc, i, len;
+    char msg[80];
 
-    printf("  [long literal (64 bytes) rejected]\n");
-    rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
-    CHECK(rc == IRXBC_ERR_STRTOOLONG, "compile returns IRXBC_ERR_STRTOOLONG");
-    CHECK(bc == NULL, "bc is NULL on strtoolong error");
-
-    if (bc != NULL)
+    printf("  [long string literals compile (chunked)]\n");
+    for (i = 0; i < (int)(sizeof(lengths) / sizeof(lengths[0])); i++)
     {
-        void *p = bc;
-        irxstor(RXSMFRE, 0, &p, env);
+        len = build_say_lit(src, lengths[i], 'A');
+        bc = NULL;
+        rc = irx_bc_compile(env, src, len, &bc, NULL, NULL);
+        snprintf(msg, sizeof(msg), "%d-byte literal compiles OK", lengths[i]);
+        CHECK(rc == IRXBC_OK && bc != NULL, msg);
+        if (bc != NULL)
+        {
+            void *p = bc;
+            irxstor(RXSMFRE, 0, &p, env);
+        }
     }
 
-    /* A literal of exactly 63 bytes should succeed */
-    printf("  [literal at max (63 bytes) accepted]\n");
-    memset(src, 0, sizeof(src));
-    strcpy(src, "SAY '");
-    memset(src + 5, 'B', 63);
-    src[68] = '\'';
-    src[69] = '\0';
-
+    /* A symbol (variable name) longer than IRXBC_STR_MAX cannot be
+     * chunked and must still fall back via STRTOOLONG (by design). */
+    printf("  [over-long symbol still returns STRTOOLONG]\n");
+    memcpy(src, "SAY ", 4);
+    len = 4;
+    memset(src + len, 'A', 70); /* 70-char bareword variable name */
+    len += 70;
+    src[len] = '\0';
     bc = NULL;
-    rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
-    CHECK(rc == IRXBC_OK, "63-byte literal compiles OK");
+    rc = irx_bc_compile(env, src, len, &bc, NULL, NULL);
+    CHECK(rc == IRXBC_ERR_STRTOOLONG, "70-byte symbol -> STRTOOLONG");
     if (bc != NULL)
     {
         void *p = bc;
         irxstor(RXSMFRE, 0, &p, env);
     }
+}
+
+/* A 127-byte literal (three chunks: 63 'A' + 63 'B' + 'C') must run
+ * byte-exact on the bytecode path WITHOUT falling back.  The exit
+ * expression is a checksum sensitive to both content and chunk order:
+ * a reversed or dropped chunk changes LENGTH or the probed bytes. */
+static void test_long_lit_bytecode(void)
+{
+    static const char *tail =
+        "'\nEXIT (LENGTH(s)=127) + (LEFT(s,1)='A')"
+        " + (SUBSTR(s,64,1)='B') + (RIGHT(s,1)='C')";
+    struct envblock *env = NULL;
+    struct irx_wkblk_int *wk;
+    char src[256];
+    int tlen = (int)strlen(tail);
+    int len, rc, exit_rc = -999;
+
+    memcpy(src, "s = '", 5);
+    len = 5;
+    memset(src + len, 'A', 63);
+    len += 63;
+    memset(src + len, 'B', 63);
+    len += 63;
+    src[len++] = 'C';
+    memcpy(src + len, tail, (size_t)tlen);
+    len += tlen;
+
+    printf("  [127-byte literal runs byte-exact on bytecode, no fallback]\n");
+    if (irxinit(NULL, &env) != 0 || env == NULL)
+    {
+        CHECK(0, "irxinit for long-literal bytecode test");
+        return;
+    }
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    wk->wkbi_use_bytecode = 1;
+    wk->wkbi_bc_fallback_count = 0;
+    wk->wkbi_bc_exec_count = 0;
+
+    rc = irx_exec_run(src, len, NULL, 0, &exit_rc, env);
+    CHECK(rc == 0, "long-literal exec_run returns 0");
+    CHECK(exit_rc == 4, "checksum == 4 (length + 3 positional bytes)");
+    CHECK(wk->wkbi_bc_fallback_count == 0, "no token-walk fallback");
+    CHECK(wk->wkbi_bc_exec_count == 1, "ran on the bytecode path");
+
+    irxterm(env);
+}
+
+/* Cross-check bytecode vs token-walk on a 100-byte (2-chunk) literal. */
+static void test_long_lit_equiv(void)
+{
+    char src[256];
+    int len;
+
+    memcpy(src, "s = '", 5);
+    len = 5;
+    memset(src + len, 'X', 100);
+    len += 100;
+    memcpy(src + len, "'\nEXIT LENGTH(s)", 16);
+    len += 16;
+    src[len] = '\0';
+
+    run_both("long_lit_len", src, 100, 100);
 }
 
 /* ------------------------------------------------------------------ */
@@ -335,10 +416,14 @@ int main(void)
         return 1;
     }
 
-    test_strtoolong(env);
+    test_literal_boundaries(env);
 
     irxterm(env);
     env = NULL;
+
+    /* Long-literal chunking (issue #208) — own envblocks */
+    test_long_lit_bytecode();
+    test_long_lit_equiv();
 
     /* Equivalence tests — each creates its own envblocks */
     test_do_zero();
