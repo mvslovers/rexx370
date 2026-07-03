@@ -1069,6 +1069,113 @@ static int bpse_dedouble(const char *raw, int raw_len,
     return out_len;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Long string literals — compile-time chunking (issue #208)         */
+/*                                                                    */
+/*  A constant table entry stores its length in one byte, so a single */
+/*  entry holds at most IRXBC_STR_MAX (63) bytes.  Rather than reject  */
+/*  a longer literal (which forces the whole exec onto the token-walk  */
+/*  fallback — see #207), split it into <=63-byte chunks and rejoin    */
+/*  at run time with OP_CONCAT.  Concatenation is abuttal (no          */
+/*  separator), so the reconstructed value is byte-exact:              */
+/*                                                                    */
+/*      PUSH_LIT chunk0                                               */
+/*      PUSH_LIT chunk1                                               */
+/*      CONCAT              ; chunk0 || chunk1                         */
+/*      PUSH_LIT chunk2                                               */
+/*      CONCAT              ; (chunk0 || chunk1) || chunk2            */
+/*                                                                    */
+/*  A literal that fits one entry emits a bare PUSH_LIT, identical to  */
+/*  the pre-#208 path — no format change, no IRXBC_VERSION bump.  Long */
+/*  *symbols* cannot be chunked and keep relying on the #207 fallback. */
+/* ------------------------------------------------------------------ */
+
+/* Emit one chunk: PUSH_LIT <const>, plus an OP_CONCAT to fold it into
+ * the running value unless it is the first chunk.  *first is cleared
+ * after the first chunk is emitted. */
+static void emit_lit_chunk(struct bcom_ctx *ctx, const char *text, int len,
+                           int *first)
+{
+    int ci = add_const(ctx, text, len);
+    if (ci < 0)
+    {
+        return;
+    }
+    emit_byte(ctx, OP_PUSH_LIT);
+    emit_u16(ctx, ci);
+    if (!*first)
+    {
+        emit_byte(ctx, OP_CONCAT);
+    }
+    *first = 0;
+}
+
+/* Push a string constant, splitting it into <=IRXBC_STR_MAX chunks
+ * joined by OP_CONCAT when it does not fit one table entry.  len may
+ * be 0 (emits a single empty constant, matching the old path). */
+static void emit_push_str(struct bcom_ctx *ctx, const char *text, int len)
+{
+    int off = 0;
+    int first = 1;
+
+    do
+    {
+        int chunk = len - off;
+        if (chunk > IRXBC_STR_MAX)
+        {
+            chunk = IRXBC_STR_MAX;
+        }
+        emit_lit_chunk(ctx, text + off, chunk, &first);
+        if (ctx->rc != IRXBC_OK)
+        {
+            return;
+        }
+        off += chunk;
+    } while (off < len);
+}
+
+/* Push a doubled-quote string literal: de-double once (collapsing the
+ * escaped quote pairs via bpse_dedouble), then chunk exactly as
+ * emit_push_str.  De-doubling only shrinks the text, so a raw literal
+ * that already fits one entry needs no heap; a longer one de-doubles
+ * into a transient scratch buffer (sized to the raw length so it can
+ * never overflow), freed before returning. */
+static void emit_push_str_dbl(struct bcom_ctx *ctx, const char *raw,
+                              int raw_len)
+{
+    void *scratch = NULL;
+    void *p;
+    int tlen;
+
+    if (raw_len <= IRXBC_STR_MAX)
+    {
+        char tmp[IRXBC_STR_MAX + 1];
+        tlen = bpse_dedouble(raw, raw_len, tmp, IRXBC_STR_MAX);
+        /* De-doubled length <= raw_len <= IRXBC_STR_MAX, so tlen >= 0. */
+        emit_push_str(ctx, tmp, tlen);
+        return;
+    }
+
+    if (irxstor(RXSMGET, raw_len, &scratch, ctx->env) != 0)
+    {
+        ctx->rc = IRXBC_ERR_STOR;
+        return;
+    }
+    tlen = bpse_dedouble(raw, raw_len, (char *)scratch, raw_len);
+    if (tlen >= 0)
+    {
+        emit_push_str(ctx, (char *)scratch, tlen);
+    }
+    else
+    {
+        /* Unreachable: de-doubling only shrinks, so it cannot exceed
+         * raw_len.  Defensive — fall back rather than emit garbage. */
+        ctx->rc = IRXBC_ERR_STRTOOLONG;
+    }
+    p = scratch;
+    irxstor(RXSMFRE, 0, &p, ctx->env);
+}
+
 static void bc_parse_template(struct bcom_ctx *ctx)
 {
     struct bpse_item items[BPSE_MAX_ITEMS];
@@ -1886,34 +1993,27 @@ static void bc_exp8(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_STRING)
     {
-        char tmp[IRXBC_STR_MAX + 1];
-        int ci;
-        /* Doubled quotes inside a literal escape a single quote
+        /* Literals longer than IRXBC_STR_MAX are split into <=63-byte
+         * chunks joined by OP_CONCAT so they stay on the bytecode fast
+         * path instead of forcing a token-walk fallback (issue #208).
+         *
+         * Doubled quotes inside a literal escape a single quote
          * ('p''q''r' -> p'q'r).  The tokenizer stores the body raw and
          * only flags it (TOKF_QUOTE_DBL); de-doubling is the consumer's
          * job — mirror the PARSE-template path in bc_parse_template(). */
         if (t->tok_flags & TOKF_QUOTE_DBL)
         {
-            int tlen = bpse_dedouble(t->tok_text, (int)t->tok_length, tmp,
-                                     IRXBC_STR_MAX);
-            if (tlen < 0)
-            {
-                ctx->rc = IRXBC_ERR_STRTOOLONG;
-                return;
-            }
-            ci = add_const(ctx, tmp, tlen);
+            emit_push_str_dbl(ctx, t->tok_text, (int)t->tok_length);
         }
         else
         {
-            ci = add_const(ctx, t->tok_text, (int)t->tok_length);
+            emit_push_str(ctx, t->tok_text, (int)t->tok_length);
         }
-        if (ci < 0)
+        if (ctx->rc != IRXBC_OK)
         {
             return;
         }
         ctx->pos++;
-        emit_byte(ctx, OP_PUSH_LIT);
-        emit_u16(ctx, ci);
         return;
     }
 
