@@ -1966,8 +1966,29 @@ static int bc_compound_tails(struct bcom_ctx *ctx,
 
 static void bc_exp8(struct bcom_ctx *ctx)
 {
-    const struct irx_token *t = tok_at(ctx, 0);
+    const struct irx_token *t;
 
+    if (ctx->rc != IRXBC_OK)
+    {
+        return;
+    }
+
+    /* A continuation-comma sitting where an operand is expected is a
+     * physical-line join (SC28-1883-0 §3.2): the comma ended a line
+     * mid-expression, so its introduced blank is insignificant next to
+     * the pending operator and the operand continues on the joined
+     * line.  Skip it here and read the operand.  The between-terms case
+     * (a comma separating two COMPLETE sub-expressions) never reaches
+     * this leaf — bc_exp3 breaks on the comma and bc_expr folds it into
+     * a blank concatenation instead.  Argument boundaries are handled by
+     * bc_funcall / bc_call_stmt before they descend, so a separator comma
+     * never arrives here either (GitHub #203). */
+    while (tok_is_cont_comma(ctx, 0))
+    {
+        ctx->pos++;
+    }
+
+    t = tok_at(ctx, 0);
     if (t == NULL || ctx->rc != IRXBC_OK)
     {
         return;
