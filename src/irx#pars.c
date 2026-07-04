@@ -4190,9 +4190,27 @@ done:
 
 static int parse_primary(struct irx_parser *p, PLstr out)
 {
-    const struct irx_token *t = cur_tok(p);
+    const struct irx_token *t;
     int rc;
 
+    /* A continuation-comma sitting where an operand is expected is a
+     * physical-line join (SC28-1883-0 §3.2): the comma ended a line
+     * mid-expression, so its introduced blank is insignificant next to
+     * the pending operator and the operand continues on the joined
+     * line.  Skip it and read the operand.  The between-terms case (a
+     * comma separating two COMPLETE sub-expressions) never reaches this
+     * leaf — parse_concat breaks on the comma and irx_pars_eval_expr
+     * folds it into a blank concatenation instead.  Argument-separator
+     * commas are handled by parse_function_call / kw_call before they
+     * descend, so a separator comma never arrives here either
+     * (GitHub #203). */
+    while ((t = cur_tok(p)) != NULL && t->tok_type == TOK_COMMA &&
+           (t->tok_flags & TOKF_CONTINUATION) != 0)
+    {
+        advance_tok(p);
+    }
+
+    t = cur_tok(p);
     if (t == NULL || tok_ends_clause(t))
     {
         return fail(p, IRXPARS_SYNTAX);

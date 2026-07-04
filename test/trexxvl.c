@@ -273,6 +273,9 @@ int main(void)
     static const char *c_do[] = {"do i = 1 to 3",
                                  "say 'i=' || i",
                                  "end"};
+    /* #203: a trailing comma continues the clause onto the next
+     * physical line; the || binds its right operand across the join. */
+    static const char *c_cont[] = {"b = 'x' || ,", "'y'", "say b"};
     static const char *c_hello[] = {
         "parse arg name; if name = '' then name = 'World'",
         "say '<h1>Hello, ' || (name) || '!</h1>'",
@@ -305,6 +308,8 @@ int main(void)
     rc |= run_lines("do", c_do, 3);
     wtof("TREXXVL: === 8. full transpiled hello.rxp ===");
     rc |= run_lines("hello", c_hello, 6);
+    wtof("TREXXVL: === 9. line continuation (trailing comma) ===");
+    rc |= run_lines("cont", c_cont, 3);
 
     wtof("TREXXVL: all cases done rc=%d", rc);
     return rc ? 8 : 0;
