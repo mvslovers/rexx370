@@ -4751,6 +4751,14 @@ static int match_comparison(struct irx_parser *p, int *out_op)
             advance_tok(p);
             return 1;
         }
+        /* `><` is an alternate spelling of the not-equal operator. */
+        if (tok_is_op_char(t1, TOK_COMPARISON, '<'))
+        {
+            *out_op = CMP_NE;
+            advance_tok(p);
+            advance_tok(p);
+            return 1;
+        }
         *out_op = CMP_GT;
         advance_tok(p);
         return 1;
@@ -4761,6 +4769,14 @@ static int match_comparison(struct irx_parser *p, int *out_op)
         if (tok_is_op_char(t1, TOK_COMPARISON, '='))
         {
             *out_op = CMP_LE;
+            advance_tok(p);
+            advance_tok(p);
+            return 1;
+        }
+        /* `<>` is an alternate spelling of the not-equal operator. */
+        if (tok_is_op_char(t1, TOK_COMPARISON, '>'))
+        {
+            *out_op = CMP_NE;
             advance_tok(p);
             advance_tok(p);
             return 1;

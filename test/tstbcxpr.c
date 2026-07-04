@@ -322,6 +322,36 @@ static void test_equiv_cmp_le(void)
     EQUIV("cmp_le", "EXIT (3 <= 3)", 1);
 }
 
+/* `<>` and `><` are alternate spellings of the not-equal operator (#209). */
+static void test_equiv_cmp_ne_ltgt(void)
+{
+    EQUIV("cmp_ne_ltgt_true", "EXIT (3 <> 4)", 1);
+    EQUIV("cmp_ne_ltgt_false", "EXIT (3 <> 3)", 0);
+    /* Non-strict (= \=): '1' and '1.0' compare numerically equal, so
+     * <> is false.  A strict not-equal would compare bytes and yield 1. */
+    EQUIV("cmp_ne_ltgt_nonstrict", "EXIT ('1' <> '1.0')", 0);
+}
+
+static void test_equiv_cmp_ne_gtlt(void)
+{
+    EQUIV("cmp_ne_gtlt_true", "EXIT (3 >< 4)", 1);
+    EQUIV("cmp_ne_gtlt_false", "EXIT (3 >< 3)", 0);
+}
+
+static void test_equiv_cmp_ne_ltgt_if(void)
+{
+    /* The reported repro: `<>` in an IF/THEN condition. */
+    EQUIV("ne_ltgt_if_true", "if 'a' <> 'b' then exit 1\nexit 0", 1);
+    EQUIV("ne_ltgt_if_false", "if 'a' <> 'a' then exit 1\nexit 0", 0);
+    EQUIV("ne_gtlt_if_true", "if 'a' >< 'b' then exit 1\nexit 0", 1);
+}
+
+static void test_equiv_cmp_ne_do_while(void)
+{
+    /* The reported repro: `<>` in a DO WHILE condition. */
+    EQUIV("ne_ltgt_do_while", "x=3\ndo while x <> 0\nx=x-1\nend\nexit x", 0);
+}
+
 static void test_equiv_strict_eq(void)
 {
     EQUIV("strict_eq_true", "EXIT ('abc' == 'abc')", 1);
@@ -435,6 +465,10 @@ int main(void)
     test_equiv_cmp_ne();
     test_equiv_cmp_ge();
     test_equiv_cmp_le();
+    test_equiv_cmp_ne_ltgt();
+    test_equiv_cmp_ne_gtlt();
+    test_equiv_cmp_ne_ltgt_if();
+    test_equiv_cmp_ne_do_while();
     test_equiv_strict_eq();
     test_equiv_logical_and();
     test_equiv_logical_or();
