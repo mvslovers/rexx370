@@ -327,6 +327,9 @@ static void test_equiv_cmp_ne_ltgt(void)
 {
     EQUIV("cmp_ne_ltgt_true", "EXIT (3 <> 4)", 1);
     EQUIV("cmp_ne_ltgt_false", "EXIT (3 <> 3)", 0);
+    /* Non-strict (= \=): '1' and '1.0' compare numerically equal, so
+     * <> is false.  A strict not-equal would compare bytes and yield 1. */
+    EQUIV("cmp_ne_ltgt_nonstrict", "EXIT ('1' <> '1.0')", 0);
 }
 
 static void test_equiv_cmp_ne_gtlt(void)
