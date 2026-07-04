@@ -2484,6 +2484,23 @@ static void bc_exp2(struct bcom_ctx *ctx)
         op = OP_LE;
         ctx->pos += 2;
     }
+    /* `><` and `<>` are alternate spellings of the not-equal operator. */
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '>' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '<')
+    {
+        op = OP_NE;
+        ctx->pos += 2;
+    }
+    else if (tok_type_at(ctx, 0, TOK_COMPARISON) &&
+             tok_ch(ctx, 0) == '<' &&
+             tok_type_at(ctx, 1, TOK_COMPARISON) &&
+             tok_ch(ctx, 1) == '>')
+    {
+        op = OP_NE;
+        ctx->pos += 2;
+    }
     else if (tok_type_at(ctx, 0, TOK_NOT) &&
              tok_type_at(ctx, 1, TOK_COMPARISON) &&
              tok_ch(ctx, 1) == '=' &&
