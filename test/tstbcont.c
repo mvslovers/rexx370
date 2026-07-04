@@ -333,6 +333,53 @@ static void test_arg_separator_preserved(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Continuation-comma immediately after a binary operator.            */
+/*                                                                    */
+/*  When the comma follows an operator that still needs its right      */
+/*  operand (|| + - * etc.), the physical-line join drops the comma    */
+/*  and the operator binds across the line.  The introduced blank is   */
+/*  insignificant next to the operator, so `'x' || ,<nl>'y'` is a      */
+/*  direct concatenation ("xy"), not a blank concatenation ("x y").    */
+/*  GitHub mvslovers/rexx370#203.                                      */
+/* ------------------------------------------------------------------ */
+
+static void test_operator_continuation(struct envblock *env)
+{
+    printf("\n[continuation-comma after a binary operator]\n");
+
+    /* The issue #203 reproducer: || right operand on the next line. */
+    equiv(env, "b = 'x' || ,\n'y'\nsay b", "b = 'x' || ,<nl>'y'");
+    no_fallback(env, "b = 'x' || ,\n'y'\nsay b", "xy\n",
+                "|| across continuation -> 'xy' (direct concat)");
+
+    /* Arithmetic operators bind across the continuation too. */
+    equiv(env, "n = 1 +,\n2\nsay n", "n = 1 +,<nl>2");
+    no_fallback(env, "n = 1 +,\n2\nsay n", "3\n",
+                "+ across continuation -> 3");
+
+    equiv(env, "n = 6 *,\n7\nsay n", "n = 6 *,<nl>7");
+    no_fallback(env, "n = 6 *,\n7\nsay n", "42\n",
+                "* across continuation -> 42");
+
+    /* Prefix (unary) operator across the continuation. */
+    no_fallback(env, "n = -,\n5\nsay n", "-5\n",
+                "prefix - across continuation -> -5");
+
+    /* Comparison operator across the continuation. */
+    no_fallback(env, "say 1 =,\n1", "1\n",
+                "= across continuation -> 1");
+
+    /* Logical operator across the continuation. */
+    no_fallback(env, "say 1 &,\n1", "1\n",
+                "& across continuation -> 1");
+
+    /* A bare continuation line (just a comma) between operator and
+     * operand still joins correctly. */
+    no_fallback(env, "b = 'x' ||,\n,\n'y'\nsay b", "xy\n",
+                "double continuation-comma -> 'xy'");
+}
+
+/* ------------------------------------------------------------------ */
 /*  The REXXCPS line 166-167 clause shape.                            */
 /*  Output-agnostic (ran_bc): the clause contains zero-space           */
 /*  funcall+string abuttal (format(total,,1)'s)') whose output may     */
@@ -386,6 +433,7 @@ int main(void)
 
     test_say_continuation(env);
     test_other_expr_continuation(env);
+    test_operator_continuation(env);
     test_arg_separator_preserved(env);
     test_rexxcps_shape(env);
 
