@@ -84,10 +84,44 @@ struct irx_vpool
     int exposed_stem_cap;
     struct lstr_alloc *alloc; /* injected allocator   */
 
+    /* Bumped whenever a cached entry pointer could go stale: entry
+     * free (DROP / stem-drop), EXPOSE, resize. NOT bumped on the
+     * assignment update path - vpool_set_buf writes in place on the
+     * same entry object, so a cached pointer reads the new value
+     * live. See vpool_get_cached(). Wraps at 2^32; the events are
+     * rare enough (thousands per run) that this is unreachable. */
+    unsigned long generation;
+
     /* NEXT cursor. Do not mutate the pool while iterating. */
     int next_bucket;
     struct vpool_entry *next_entry;
     int next_started;
+};
+
+/* ================================================================== */
+/*  Resolution cache                                                  */
+/* ================================================================== */
+
+/* One cache slot per bytecode operand site (per symbol-table index).
+ * Caches the bucket entry a simple-variable name resolved to, so a
+ * repeat read skips hash + bucket index + bucket walk.
+ *
+ * The cached pointer is the PRE-resolve bucket entry, not the target
+ * resolve_ref() lands on: its lifetime is then tied to exactly the
+ * pool whose generation is checked here, which makes a hit no more
+ * dangling-prone than the uncached path. resolve_ref() runs on every
+ * hit - a flag test plus at most one hop.
+ *
+ * A slot is valid only while `pool` and `gen` both still match. The
+ * owner must additionally zero its slots whenever the active pool
+ * changes: vpool_destroy() + vpool_create() can return the same
+ * address, and a fresh pool starts at generation 0, so the pair could
+ * otherwise match a dead pool by coincidence. */
+struct vpool_cache_slot
+{
+    struct irx_vpool *pool;    /* pool the entry was resolved in   */
+    unsigned long gen;         /* pool->generation at resolve time */
+    struct vpool_entry *entry; /* bucket entry, before resolve_ref */
 };
 
 /* ================================================================== */
@@ -139,6 +173,24 @@ int vpool_get_buf(struct irx_vpool *pool,
                   PLstr value,
                   int32_t *type_cache_out,
                   int32_t *int_cache_out) asm("VPOOLGTB");
+
+/* As vpool_get_buf(), but consults `slot` first and fills it on a
+ * miss. Falls straight through to the uncached path - without ever
+ * touching the slot - for any name containing a dot, so compound
+ * lookups, the stem-default fallback and exposed-stem delegation
+ * keep today's behaviour exactly.
+ *
+ * That dotless restriction is what makes skipping matches_exposed_stem()
+ * on a hit correct: every caller of vpool_expose_stem() admits only
+ * names ending in '.', and name_matches_stem() compares the stem's
+ * full length including that dot, so a dotless name can never match
+ * an exposed stem. */
+int vpool_get_cached(struct irx_vpool *pool,
+                     const char *name_data, int name_len,
+                     PLstr value,
+                     int32_t *type_cache_out,
+                     int32_t *int_cache_out,
+                     struct vpool_cache_slot *slot) asm("VPOOLGTC");
 
 int vpool_set_buf(struct irx_vpool *pool,
                   const char *name_data, int name_len,
