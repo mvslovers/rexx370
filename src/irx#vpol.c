@@ -289,6 +289,10 @@ static int maybe_resize(struct irx_vpool *pool)
     pool->next_bucket = 0;
     pool->next_entry = NULL;
 
+    /* Entries are re-linked, not moved, so cached pointers stay
+     * valid across a resize. Bumping anyway is free insurance. */
+    pool->generation++;
+
     return VPOOL_OK;
 }
 
@@ -377,6 +381,7 @@ static void unlink_entry(struct irx_vpool *pool, int idx,
                 prev->next = cur->next;
             }
             pool->entry_count--;
+            pool->generation++; /* frees the entry - cached ptrs die */
             return;
         }
         prev = cur;
@@ -670,6 +675,7 @@ int vpool_expose_var(struct irx_vpool *pool, const PLstr name)
     child_e->flags |= VPOOL_EXPOSED_REF;
     child_e->exposed_ref = parent_e;
 
+    pool->generation++; /* resolution target moved scope */
     return link_entry(pool, child_e);
 }
 
@@ -718,6 +724,7 @@ int vpool_expose_stem(struct irx_vpool *pool, const PLstr stem_name)
         return VPOOL_NOMEM;
     }
     pool->exposed_stem_count++;
+    pool->generation++; /* stem access now delegates to the parent */
     return VPOOL_OK;
 }
 
@@ -899,6 +906,95 @@ int vpool_get_buf(struct irx_vpool *pool, const char *name_data, int name_len,
     }
 
     return VPOOL_NOT_FOUND;
+}
+
+/* Copy an entry's value + integer caches out to the caller. Shared by
+ * the cached hit path and vpool_get_cached()'s miss path. */
+static int copy_entry_out(struct irx_vpool *pool, struct vpool_entry *tgt,
+                          PLstr value, int32_t *tc_out, int32_t *ic_out)
+{
+    if (Lstrcpy(pool->alloc, value, &tgt->value) != LSTR_OK)
+    {
+        return VPOOL_NOMEM;
+    }
+    if (tc_out != NULL)
+    {
+        *tc_out = tgt->type_cache;
+    }
+    if (ic_out != NULL)
+    {
+        *ic_out = tgt->int_cache;
+    }
+    return VPOOL_OK;
+}
+
+int vpool_get_cached(struct irx_vpool *pool, const char *name_data,
+                     int name_len, PLstr value, int32_t *tc_out,
+                     int32_t *ic_out, struct vpool_cache_slot *slot)
+{
+    Lstr name;
+    int idx;
+    struct vpool_entry *e;
+    struct vpool_entry *tgt;
+
+    if (pool == NULL || name_data == NULL || value == NULL || slot == NULL)
+    {
+        return VPOOL_BADARG;
+    }
+
+    /* Compounds keep the uncached path verbatim: the stem-default
+     * fallback and exposed-stem delegation both need the full body,
+     * and a per-operand slot cannot cache a name whose tail is
+     * re-derived on every reference. */
+    for (int i = 0; i < name_len; i++)
+    {
+        if (name_data[i] == '.')
+        {
+            return vpool_get_buf(pool, name_data, name_len, value, tc_out,
+                                 ic_out);
+        }
+    }
+
+    /* Hit: skip hash + bucket index + bucket walk + exposed-stem scan.
+     * resolve_ref() still runs - the slot holds the pre-resolve entry. */
+    if (slot->pool == pool && slot->gen == pool->generation &&
+        slot->entry != NULL)
+    {
+        tgt = resolve_ref(slot->entry);
+        if (tgt != NULL && !(tgt->flags & VPOOL_UNSET))
+        {
+            return copy_entry_out(pool, tgt, value, tc_out, ic_out);
+        }
+        /* Entry went UNSET behind the cache (EXPOSE placeholder that
+         * was never assigned) - fall through and re-resolve. */
+    }
+
+    name.pstr = (unsigned char *)name_data;
+    name.len = (size_t)name_len;
+    name.maxlen = (size_t)name_len;
+    name.type = LSTRING_TY;
+
+    idx = bucket_index(pool, &name);
+    e = find_in_bucket(pool->buckets[idx], &name);
+    if (e == NULL)
+    {
+        return VPOOL_NOT_FOUND;
+    }
+
+    tgt = resolve_ref(e);
+    if (tgt == NULL || (tgt->flags & VPOOL_UNSET))
+    {
+        return VPOOL_NOT_FOUND;
+    }
+
+    /* Only positive resolutions are cached. A miss re-resolves every
+     * time, so an entry created later is picked up without needing a
+     * generation bump on the create path. */
+    slot->pool = pool;
+    slot->gen = pool->generation;
+    slot->entry = e;
+
+    return copy_entry_out(pool, tgt, value, tc_out, ic_out);
 }
 
 int vpool_set_buf(struct irx_vpool *pool, const char *name_data, int name_len,
