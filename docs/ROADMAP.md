@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-07-03
+Last updated: 2026-08-15
 
 ---
 
@@ -24,27 +24,57 @@ Two execution paths exist:
 
 **Two existential goals drive everything:**
 
-1. **Approach BREXX/370 performance.** BREXX runs REXXCPS at ~89,878 cps on
-   MVS/CE (System A). We are at ~20,899 cps (System A, post OC-ARITH) =
-   **factor ~4.3× slower**, down from 6.3× at the start of the bytecode phase.
+1. **Approach BREXX/370 performance.** Across the bytecode phase the gap to
+   BREXX narrowed from 6.3× to 4.3×. Both those figures come from System A,
+   which no longer exists — see the note under Performance history. The current
+   machine has one datapoint (17,144 cps with #218) and no BREXX reference yet,
+   so **there is no defensible factor to quote right now**; re-baselining is the
+   first Axis 1 task.
 2. **Decommission the token-walk path.** Bytecode as the sole execution path.
    Requires the bytecode VM to be (a) functionally complete and (b) broadly
    correctness-verified. Tracked in CON-20.
 
-### Performance history (System A — Docker/WSL, the "work" machine)
+### Performance history — historical, on hardware that no longer exists
 
-| Milestone | cps (System A) | factor to BREXX |
+> ⚠️ **System A and System B are both gone** (2026-08-15). `mvsdev.lan` is now
+> Proxmox directly, without Docker. Every figure in the table below was taken on
+> one of the retired machines, so **none of it is comparable to a measurement
+> taken today** — including the 4.3× factor to BREXX, whose BREXX number came
+> from System A as well. Treat the table as a record of *relative* progress
+> across the bytecode phase, not as a baseline to measure against.
+
+| Milestone | cps (System A, retired) | factor to BREXX (then) |
 |---|---|---|
 | Bytecode baseline | 14,280 | 6.3× |
 | + OC-09 (BIF dispatch) | 17,274 | 5.2× |
 | + OC-ARITH (integer op fast-path) | 20,899 | 4.3× |
-| **BREXX/370 target** | **89,878** | 1.0× |
+| **BREXX/370 reference** | **89,878** | 1.0× |
 
-> **Measurement discipline:** Two MVS systems exist — System A (Docker/WSL,
-> notebook) and System B (Docker/Proxmox-VM, home). Identical code gives
-> different cps (A ≈ 1.4× B). Always compare before/after on the *same* system,
-> and never accept a cps number without a verified `[bc] exec=1 fallback=0` line.
-> Details in CON-12.
+### Current system (`mvsdev.lan`, Proxmox direct — since 2026-08-15)
+
+| Milestone | cps | note |
+|---|---|---|
+| + varcache (#218) | **17,144** | median of 2, min 16,920 / max 17,144 |
+| pre-varcache (`cb0ebdb`) | *not yet measured* | mvsMF went down before the run |
+| BREXX/370 reference | *not yet measured* | needed before quoting any factor |
+
+**#218's MVS gain is therefore still unmeasured** — the AFTER figure has nothing
+on this machine to compare against. Host wall-clock on the `tstrxcps` kernel
+showed 1.184s → 1.093s (~7.7 %, 3 runs per side), which is an iteration signal
+only, not the metric.
+
+> **Measurement discipline:** always compare before/after on the *same* system,
+> and never accept a cps number without a verified `[bc] exec=1 fallback=0`
+> line. Details in CON-12.
+>
+> **How to run it** (undocumented until now, both parts are easy to lose a run
+> to): REXXCPS self-calibrates to ~590 s, so the step needs **`TIME=1440`** —
+> the default class limit kills it with **S322** at about 1m34, after which
+> SYSTSPRT is empty and the run looks like a program fault. The `[bc]` gate line
+> needs `REXX370_BCDEBUG=1`, passed via a **`SYSENV` DD** (libc370 `@@start.c`
+> calls `loadenv("dd:SYSENV")`, falling back to `ENVIRON`). JCL lines are
+> columns 1-71 — a JOB card one character over is rejected as "no valid JOB
+> card found".
 
 ---
 
@@ -62,6 +92,15 @@ roughly halved, not gone); cluster B (variable pool) was untouched as designed
 and is **now the #1 cluster (~27 % flat self)**.
 
 Next candidates, ranked by the new profile (share ≠ lever — see the doc):
+- ~~**Variable-resolution (pointer) cache**~~ — **built** (#218, 2026-08-15).
+  First cut is simple variables with a coarse pool generation, exactly as the
+  diag recommended. The generation is bumped only by entry frees (`DROP`,
+  stem-drop), `EXPOSE` and resize — never by assignment, which is what the
+  44.8-reads/invalidation figure rests on. Compounds fall through to the
+  uncached path untouched and remain open as a separate, lower-payoff design.
+  A latent defect was fixed on the way: `vpool_drop_stem_all` freed entries
+  without bumping the generation because it splices the bucket chain itself
+  instead of going through `unlink_entry`. Original description follows.
 - **Variable-resolution (pointer) cache** (top recommendation) — cache the
   resolved vpool entry pointer at each bytecode reference *operand site*, for the
   ~88 % **simple-variable** bulk of cluster B. **Invalidation frequency now
