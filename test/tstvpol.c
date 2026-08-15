@@ -712,6 +712,28 @@ static void test_varcache(void)
               lstr_eq_cstr(&out, "parent_y"),
           "varcache: after EXPOSE the cache resolves to the parent value");
 
+    /* (a, cont.) stem-drop frees entries by splicing the bucket chain
+     * itself instead of calling unlink_entry(), so it has to bump the
+     * generation on its own. A dotless slot cannot dangle from it
+     * today - only "STEM." names are freed - but the counter's
+     * invariant is "bumped whenever an entry is freed", and the
+     * compound cache will depend on it. */
+    struct vpool_cache_slot sslot;
+    memset(&sslot, 0, sizeof(sslot));
+    set_lstr(a, &value, "elem");
+    vpool_set_buf(pool, "T.1", 3, &value, 0, 0);
+    set_lstr(a, &value, "plain");
+    vpool_set_buf(pool, "P", 1, &value, 0, 0);
+    CHECK(cached_get(pool, "P", &sslot, &out) == VPOOL_OK,
+          "varcache: P cached before the stem drop");
+    unsigned long sgen = pool->generation;
+    vpool_drop_stem_all(pool, "T.", 2);
+    CHECK(pool->generation != sgen,
+          "varcache: stem-drop bumps the generation");
+    CHECK(cached_get(pool, "P", &sslot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "plain"),
+          "varcache: unrelated simple var survives the stem drop");
+
     /* Compounds must bypass the slot entirely - the stem-default
      * fallback lives in the uncached path. */
     struct vpool_cache_slot dslot;

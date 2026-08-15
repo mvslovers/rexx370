@@ -1135,6 +1135,11 @@ int vpool_drop_stem_all(struct irx_vpool *pool,
                     pool->buckets[b] = next;
                 }
                 pool->entry_count--;
+                /* This path splices the chain itself rather than going
+                 * through unlink_entry(), so it must bump the
+                 * generation on its own - an entry is being freed and
+                 * any cached pointer to it dies with it. */
+                pool->generation++;
                 vp_entry_free(pool->alloc, e);
             }
             else
