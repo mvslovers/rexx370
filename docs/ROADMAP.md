@@ -27,9 +27,9 @@ Two execution paths exist:
 1. **Approach BREXX/370 performance.** Across the bytecode phase the gap to
    BREXX narrowed from 6.3× to 4.3×. Both those figures come from System A,
    which no longer exists — see the note under Performance history. The current
-   machine has one datapoint (17,144 cps with #218) and no BREXX reference yet,
-   so **there is no defensible factor to quote right now**; re-baselining is the
-   first Axis 1 task.
+   machine measures ~16.8-17.1k cps and has no BREXX reference yet, so **there
+   is no defensible factor to quote right now**; measuring BREXX on this system
+   is the first Axis 1 task.
 2. **Decommission the token-walk path.** Bytecode as the sole execution path.
    Requires the bytecode VM to be (a) functionally complete and (b) broadly
    correctness-verified. Tracked in CON-20.
@@ -52,16 +52,36 @@ Two execution paths exist:
 
 ### Current system (`mvsdev.lan`, Proxmox direct — since 2026-08-15)
 
-| Milestone | cps | note |
+| Milestone | cps (n=2, gate verified) | note |
 |---|---|---|
-| + varcache (#218) | **17,144** | median of 2, min 16,920 / max 17,144 |
-| pre-varcache (`cb0ebdb`) | *not yet measured* | mvsMF went down before the run |
+| pre-varcache (`cb0ebdb`) | 16,794 / 16,820 | spread 0.15 % |
+| + varcache (#218) | 16,920 / 17,144 | spread 1.32 % |
 | BREXX/370 reference | *not yet measured* | needed before quoting any factor |
 
-**#218's MVS gain is therefore still unmeasured** — the AFTER figure has nothing
-on this machine to compare against. Host wall-clock on the `tstrxcps` kernel
-showed 1.184s → 1.093s (~7.7 %, 3 runs per side), which is an iteration signal
-only, not the metric.
+**#218 measured: +0.6 % to +2.1 %** (worst case min-after vs max-before, best
+case max-after vs min-before; +1.3 % comparing means). The four runs separate
+cleanly — every AFTER run beat every BEFORE run — so the win is real and
+consistent. But the AFTER spread (1.32 %) is the same size as the effect, so
+with n=2 per side **the range is the result; the point estimate is not
+meaningful.**
+
+> **This is the important entry in this table.** The profile put the removable
+> vpool-lookup self-time at **~18.8 %** (an upper bound), host wall-clock on the
+> `tstrxcps` kernel gained **~7.7 %**, and the Hercules-multiplier heuristic
+> below would have predicted 3-5× of that on MVS. The measured result is
+> **an order of magnitude under all three**. No explanation is recorded here
+> because none has been measured — `-O1` on MVS vs `-O2` on the host is a
+> plausible contributor and nothing more. What is established: **the Hercules
+> multiplier does not generalize to the vpool lookup.** It was validated on
+> WP-PERF-03/04, OC-12 and OC-ARITH, all of which cut memory traffic in the
+> arithmetic and dispatch paths; weigh it accordingly for the next
+> memory-bound candidate, because it now has a counterexample.
+>
+> Cheapest way to close the question, if it is worth closing: instrument
+> hit/miss counters on the cache and read them off an MVS run — that
+> distinguishes "the 18.8 % upper bound was wrong" from "the cache is not
+> hitting on MVS as it did on the host". More cps runs would only tighten a
+> bound that is already known to be small.
 
 > **Measurement discipline:** always compare before/after on the *same* system,
 > and never accept a cps number without a verified `[bc] exec=1 fallback=0`
@@ -137,6 +157,14 @@ optimizations deliver 3-5× their host-measured effect on MVS (validated across
 WP-PERF-03/04, OC-12, OC-ARITH). Weight memory-bound candidates higher than
 pure-CPU ones. The host profile is an *iteration tool*; MVS cps is the target
 metric.
+
+⚠️ **The heuristic now has a counterexample.** #218 (varcache) is
+memory-access-bound by the same reasoning, gained ~7.7 % on the host, and
+delivered **+0.6 % to +2.1 %** on MVS — a *fraction* of its host effect, not a
+multiple. The three validating cases all cut memory traffic in the arithmetic
+and dispatch paths; the vpool lookup evidently does not behave the same way. Do
+not use the multiplier to justify the next candidate without saying which of
+the validated cases it resembles.
 
 ### Axis 2 — Decommission / Correctness (toward token-walk removal)
 
