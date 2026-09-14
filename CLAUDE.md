@@ -451,3 +451,26 @@ design. Useful files to reference:
 
 - All code comments in **English**
 - German only for user-facing documentation (manual, if any)
+
+## SMP4 FMID — one per release
+
+The id is the release: `T` + three product letters + the three version digits.
+One id per release, **spent exactly once**, and each release's SYSMOD deletes
+its predecessor:
+
+```toml
+[distribution.smp]
+fmid   = "TRXX100"
+```
+
+**No version component may ever exceed 9** — a 7-character id has no room for
+a second digit. At patch 9 cut the next minor, at minor 9 the next major;
+rexx370 1.0.10 cannot be expressed and must not be released.
+
+Proposed: **`TRXX100`** for 1.0.0. Nothing has ever been installed, so the first
+level carries no `delete`; every level after it deletes the one before.
+
+Never re-spend an id, and never install a test package under the real one: a
+test needs a throwaway id **and** throwaway module names, because SMP keys
+element ownership on `MOD(name)`, not on the target library. See the root
+`CLAUDE.md` for the full rule and the measurements behind it.
