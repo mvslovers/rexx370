@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-07-03
+Last updated: 2026-08-15
 
 ---
 
@@ -24,27 +24,77 @@ Two execution paths exist:
 
 **Two existential goals drive everything:**
 
-1. **Approach BREXX/370 performance.** BREXX runs REXXCPS at ~89,878 cps on
-   MVS/CE (System A). We are at ~20,899 cps (System A, post OC-ARITH) =
-   **factor ~4.3× slower**, down from 6.3× at the start of the bytecode phase.
+1. **Approach BREXX/370 performance.** Across the bytecode phase the gap to
+   BREXX narrowed from 6.3× to 4.3×. Both those figures come from System A,
+   which no longer exists — see the note under Performance history. The current
+   machine measures ~16.8-17.1k cps and has no BREXX reference yet, so **there
+   is no defensible factor to quote right now**; measuring BREXX on this system
+   is the first Axis 1 task.
 2. **Decommission the token-walk path.** Bytecode as the sole execution path.
    Requires the bytecode VM to be (a) functionally complete and (b) broadly
    correctness-verified. Tracked in CON-20.
 
-### Performance history (System A — Docker/WSL, the "work" machine)
+### Performance history — historical, on hardware that no longer exists
 
-| Milestone | cps (System A) | factor to BREXX |
+> ⚠️ **System A and System B are both gone** (2026-08-15). `mvsdev.lan` is now
+> Proxmox directly, without Docker. Every figure in the table below was taken on
+> one of the retired machines, so **none of it is comparable to a measurement
+> taken today** — including the 4.3× factor to BREXX, whose BREXX number came
+> from System A as well. Treat the table as a record of *relative* progress
+> across the bytecode phase, not as a baseline to measure against.
+
+| Milestone | cps (System A, retired) | factor to BREXX (then) |
 |---|---|---|
 | Bytecode baseline | 14,280 | 6.3× |
 | + OC-09 (BIF dispatch) | 17,274 | 5.2× |
 | + OC-ARITH (integer op fast-path) | 20,899 | 4.3× |
-| **BREXX/370 target** | **89,878** | 1.0× |
+| **BREXX/370 reference** | **89,878** | 1.0× |
 
-> **Measurement discipline:** Two MVS systems exist — System A (Docker/WSL,
-> notebook) and System B (Docker/Proxmox-VM, home). Identical code gives
-> different cps (A ≈ 1.4× B). Always compare before/after on the *same* system,
-> and never accept a cps number without a verified `[bc] exec=1 fallback=0` line.
-> Details in CON-12.
+### Current system (`mvsdev.lan`, Proxmox direct — since 2026-08-15)
+
+| Milestone | cps (n=2, gate verified) | note |
+|---|---|---|
+| pre-varcache (`cb0ebdb`) | 16,794 / 16,820 | spread 0.15 % |
+| + varcache (#218) | 16,920 / 17,144 | spread 1.32 % |
+| BREXX/370 reference | *not yet measured* | needed before quoting any factor |
+
+**#218 measured: +0.6 % to +2.1 %** (worst case min-after vs max-before, best
+case max-after vs min-before; +1.3 % comparing means). The four runs separate
+cleanly — every AFTER run beat every BEFORE run — so the win is real and
+consistent. But the AFTER spread (1.32 %) is the same size as the effect, so
+with n=2 per side **the range is the result; the point estimate is not
+meaningful.**
+
+> **This is the important entry in this table.** The profile put the removable
+> vpool-lookup self-time at **~18.8 %** (an upper bound), host wall-clock on the
+> `tstrxcps` kernel gained **~7.7 %**, and the Hercules-multiplier heuristic
+> below would have predicted 3-5× of that on MVS. The measured result is
+> **an order of magnitude under all three**. No explanation is recorded here
+> because none has been measured — `-O1` on MVS vs `-O2` on the host is a
+> plausible contributor and nothing more. What is established: **the Hercules
+> multiplier does not generalize to the vpool lookup.** It was validated on
+> WP-PERF-03/04, OC-12 and OC-ARITH, all of which cut memory traffic in the
+> arithmetic and dispatch paths; weigh it accordingly for the next
+> memory-bound candidate, because it now has a counterexample.
+>
+> Cheapest way to close the question, if it is worth closing: instrument
+> hit/miss counters on the cache and read them off an MVS run — that
+> distinguishes "the 18.8 % upper bound was wrong" from "the cache is not
+> hitting on MVS as it did on the host". More cps runs would only tighten a
+> bound that is already known to be small.
+
+> **Measurement discipline:** always compare before/after on the *same* system,
+> and never accept a cps number without a verified `[bc] exec=1 fallback=0`
+> line. Details in CON-12.
+>
+> **How to run it** (undocumented until now, both parts are easy to lose a run
+> to): REXXCPS self-calibrates to ~590 s, so the step needs **`TIME=1440`** —
+> the default class limit kills it with **S322** at about 1m34, after which
+> SYSTSPRT is empty and the run looks like a program fault. The `[bc]` gate line
+> needs `REXX370_BCDEBUG=1`, passed via a **`SYSENV` DD** (libc370 `@@start.c`
+> calls `loadenv("dd:SYSENV")`, falling back to `ENVIRON`). JCL lines are
+> columns 1-71 — a JOB card one character over is rejected as "no valid JOB
+> card found".
 
 ---
 
@@ -62,6 +112,15 @@ roughly halved, not gone); cluster B (variable pool) was untouched as designed
 and is **now the #1 cluster (~27 % flat self)**.
 
 Next candidates, ranked by the new profile (share ≠ lever — see the doc):
+- ~~**Variable-resolution (pointer) cache**~~ — **built** (#218, 2026-08-15).
+  First cut is simple variables with a coarse pool generation, exactly as the
+  diag recommended. The generation is bumped only by entry frees (`DROP`,
+  stem-drop), `EXPOSE` and resize — never by assignment, which is what the
+  44.8-reads/invalidation figure rests on. Compounds fall through to the
+  uncached path untouched and remain open as a separate, lower-payoff design.
+  A latent defect was fixed on the way: `vpool_drop_stem_all` freed entries
+  without bumping the generation because it splices the bucket chain itself
+  instead of going through `unlink_entry`. Original description follows.
 - **Variable-resolution (pointer) cache** (top recommendation) — cache the
   resolved vpool entry pointer at each bytecode reference *operand site*, for the
   ~88 % **simple-variable** bulk of cluster B. **Invalidation frequency now
@@ -98,6 +157,14 @@ optimizations deliver 3-5× their host-measured effect on MVS (validated across
 WP-PERF-03/04, OC-12, OC-ARITH). Weight memory-bound candidates higher than
 pure-CPU ones. The host profile is an *iteration tool*; MVS cps is the target
 metric.
+
+⚠️ **The heuristic now has a counterexample.** #218 (varcache) is
+memory-access-bound by the same reasoning, gained ~7.7 % on the host, and
+delivered **+0.6 % to +2.1 %** on MVS — a *fraction* of its host effect, not a
+multiple. The three validating cases all cut memory traffic in the arithmetic
+and dispatch paths; the vpool lookup evidently does not behave the same way. Do
+not use the multiplier to justify the next candidate without saying which of
+the validated cases it resembles.
 
 ### Axis 2 — Decommission / Correctness (toward token-walk removal)
 

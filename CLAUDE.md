@@ -421,14 +421,18 @@ Same class of always-do as the test-registration rule (a `[[test]]` block in
 `docs/workpackages.md` holds the historical Phase 1-3 per-WP definitions and is
 **frozen/stale** — do not treat its status table as current.
 
-Current status (2026-06-03), summarized — see ROADMAP.md for detail:
+Current status (2026-08-15), summarized — see ROADMAP.md for detail:
 - Phases 1-3 (skeleton, core interpreter, arithmetic + BIFs): complete
 - REXXCPS runs end-to-end on the **bytecode VM** (the primary path); the
   token-walk interpreter is frozen (CON-18) as fallback + equivalence reference
-- Active focus: performance toward BREXX (~20.9k vs ~89.9k cps on System A,
-  factor ~4.3×) and token-walk decommission (CON-20)
-- Next performance step: a **fresh bytecode-VM profile** (the old profile is
-  stale after three optimization rounds) before choosing the next optimization
+- Active focus: performance toward BREXX and token-walk decommission (CON-20)
+- The re-profile is **done** (`docs/diag/wp-perf-profile-2.md`, 2026-06-03) —
+  do not run another one before acting on it. It ranked the variable-resolution
+  cache first; that is #218, in progress.
+- **The old System A / System B measuring machines no longer exist.** Every cps
+  figure predating 2026-08-15 (the 20.9k System A baseline, the 4.3× factor)
+  was taken on hardware that is gone and is *not* comparable to a new
+  measurement. Re-baseline on the current system before quoting a factor.
 
 ## Knowledge sources
 

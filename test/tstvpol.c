@@ -595,6 +595,168 @@ static void test_allocator_injection(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  WP-PERF-VARCACHE - resolution cache (#218)                        */
+/* ------------------------------------------------------------------ */
+
+/* Read NAME through `slot` and assert the value. Returns the rc so a
+ * caller can distinguish NOT_FOUND from a value mismatch. */
+static int cached_get(struct irx_vpool *pool, const char *name,
+                      struct vpool_cache_slot *slot, Lstr *out)
+{
+    return vpool_get_cached(pool, name, (int)strlen(name), out, NULL, NULL,
+                            slot);
+}
+
+static void test_varcache(void)
+{
+    struct lstr_alloc *a = lstr_default_alloc();
+    struct irx_vpool *pool = vpool_create(a, NULL);
+    struct vpool_cache_slot slot;
+    Lstr value;
+    Lstr out;
+
+    printf("\n-- WP-PERF-VARCACHE: resolution cache --\n");
+
+    memset(&slot, 0, sizeof(slot));
+    Lzeroinit(&value);
+    Lzeroinit(&out);
+
+    set_lstr(a, &value, "one");
+    vpool_set_buf(pool, "X", 1, &value, 0, 0);
+
+    /* Cold read fills the slot. */
+    CHECK(cached_get(pool, "X", &slot, &out) == VPOOL_OK,
+          "varcache: cold read finds X");
+    CHECK(lstr_eq_cstr(&out, "one"), "varcache: cold read returns 'one'");
+    CHECK(slot.entry != NULL && slot.pool == pool,
+          "varcache: cold read populated the slot");
+
+    /* THE core claim: an assignment must NOT invalidate a pointer
+     * cache, because vpool_set_buf updates in place on the same entry
+     * object. A hit has to observe the new value live. */
+    unsigned long gen_before = pool->generation;
+    set_lstr(a, &value, "two");
+    vpool_set_buf(pool, "X", 1, &value, 0, 0);
+    CHECK(pool->generation == gen_before,
+          "varcache: assignment does not bump the generation");
+    CHECK(cached_get(pool, "X", &slot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "two"),
+          "varcache: cached hit sees the value written in place");
+
+    /* (a) entry free - DROP must invalidate. */
+    vpool_drop_buf(pool, "X", 1);
+    CHECK(pool->generation != gen_before,
+          "varcache: DROP bumps the generation");
+    CHECK(cached_get(pool, "X", &slot, &out) == VPOOL_NOT_FOUND,
+          "varcache: dropped variable is not served from the cache");
+
+    /* A re-created variable is picked up even though nothing bumped
+     * the generation on create - misses are never cached. */
+    set_lstr(a, &value, "three");
+    vpool_set_buf(pool, "X", 1, &value, 0, 0);
+    CHECK(cached_get(pool, "X", &slot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "three"),
+          "varcache: re-created variable resolves again");
+
+    /* A slot carrying a foreign pool must never be honoured. */
+    struct irx_vpool *other = vpool_create(a, NULL);
+    set_lstr(a, &value, "other_x");
+    vpool_set_buf(other, "X", 1, &value, 0, 0);
+    CHECK(cached_get(other, "X", &slot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "other_x"),
+          "varcache: slot from another pool is re-resolved, not reused");
+
+    /* (d) resize - entries are re-linked, not moved, but the bump
+     * must still happen so a stale slot cannot outlive it. */
+    struct irx_vpool *big = vpool_create(a, NULL);
+    struct vpool_cache_slot bslot;
+    memset(&bslot, 0, sizeof(bslot));
+    set_lstr(a, &value, "keep");
+    vpool_set_buf(big, "K", 1, &value, 0, 0);
+    CHECK(cached_get(big, "K", &bslot, &out) == VPOOL_OK,
+          "varcache: K cached before resize");
+    for (int i = 0; i < 200; i++)
+    {
+        char nm[16];
+        sprintf(nm, "F%d", i);
+        set_lstr(a, &value, "filler");
+        vpool_set_buf(big, nm, (int)strlen(nm), &value, 0, 0);
+    }
+    CHECK(cached_get(big, "K", &bslot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "keep"),
+          "varcache: K still correct after the pool resized");
+
+    /* (b) scope switch - EXPOSE changes where a name resolves. */
+    struct irx_vpool *parent = vpool_create(a, NULL);
+    struct irx_vpool *child = vpool_create(a, parent);
+    struct vpool_cache_slot cslot;
+    Lstr nm_y;
+
+    memset(&cslot, 0, sizeof(cslot));
+    Lzeroinit(&nm_y);
+    set_lstr(a, &value, "parent_y");
+    vpool_set_buf(parent, "Y", 1, &value, 0, 0);
+    set_lstr(a, &value, "child_y");
+    vpool_set_buf(child, "Y", 1, &value, 0, 0);
+
+    CHECK(cached_get(child, "Y", &cslot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "child_y"),
+          "varcache: child Y cached as the child's own value");
+
+    set_lstr(a, &nm_y, "Y");
+    unsigned long cgen = child->generation;
+    vpool_expose_var(child, &nm_y);
+    CHECK(child->generation != cgen,
+          "varcache: EXPOSE bumps the child's generation");
+    CHECK(cached_get(child, "Y", &cslot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "parent_y"),
+          "varcache: after EXPOSE the cache resolves to the parent value");
+
+    /* (a, cont.) stem-drop frees entries by splicing the bucket chain
+     * itself instead of calling unlink_entry(), so it has to bump the
+     * generation on its own. A dotless slot cannot dangle from it
+     * today - only "STEM." names are freed - but the counter's
+     * invariant is "bumped whenever an entry is freed", and the
+     * compound cache will depend on it. */
+    struct vpool_cache_slot sslot;
+    memset(&sslot, 0, sizeof(sslot));
+    set_lstr(a, &value, "elem");
+    vpool_set_buf(pool, "T.1", 3, &value, 0, 0);
+    set_lstr(a, &value, "plain");
+    vpool_set_buf(pool, "P", 1, &value, 0, 0);
+    CHECK(cached_get(pool, "P", &sslot, &out) == VPOOL_OK,
+          "varcache: P cached before the stem drop");
+    unsigned long sgen = pool->generation;
+    vpool_drop_stem_all(pool, "T.", 2);
+    CHECK(pool->generation != sgen,
+          "varcache: stem-drop bumps the generation");
+    CHECK(cached_get(pool, "P", &sslot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "plain"),
+          "varcache: unrelated simple var survives the stem drop");
+
+    /* Compounds must bypass the slot entirely - the stem-default
+     * fallback lives in the uncached path. */
+    struct vpool_cache_slot dslot;
+    memset(&dslot, 0, sizeof(dslot));
+    set_lstr(a, &value, "default");
+    vpool_set_buf(pool, "S.", 2, &value, 0, 0);
+    CHECK(cached_get(pool, "S.TAIL", &dslot, &out) == VPOOL_OK &&
+              lstr_eq_cstr(&out, "default"),
+          "varcache: compound falls back to the stem default");
+    CHECK(dslot.entry == NULL && dslot.pool == NULL,
+          "varcache: compound lookup leaves the slot untouched");
+
+    Lfree(a, &nm_y);
+    Lfree(a, &value);
+    Lfree(a, &out);
+    vpool_destroy(child);
+    vpool_destroy(parent);
+    vpool_destroy(big);
+    vpool_destroy(other);
+    vpool_destroy(pool);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -611,6 +773,7 @@ int main(void)
     test_expose_stem();
     test_iteration();
     test_allocator_injection();
+    test_varcache();
 
     printf("\n=== Results: %d/%d passed",
            tests_passed, tests_run);
