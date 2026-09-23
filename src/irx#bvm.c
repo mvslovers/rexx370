@@ -216,6 +216,25 @@ bvm_resolve_bif(struct envblock *envblock, const char *sym_base,
     return bife;
 }
 
+/* Drop every cached variable resolution (WP-PERF-VARCACHE).
+ *
+ * MUST be called after every assignment to `vpool`. A slot is keyed on
+ * (pool address, generation), and neither survives a scope change:
+ * vpool_destroy() followed by vpool_create() can hand back the same
+ * address, and a fresh pool starts at generation 0 - so a slot cached
+ * at generation 0 in the dead pool would match the new one by pure
+ * coincidence and resolve to freed memory. Flushing on the switch is
+ * what closes that window; the per-slot pool/generation check alone
+ * cannot. */
+static void vcache_flush(struct vpool_cache_slot *var_cache, int n_syms)
+{
+    if (var_cache != NULL && n_syms > 0)
+    {
+        memset(var_cache, 0,
+               (size_t)n_syms * sizeof(struct vpool_cache_slot));
+    }
+}
+
 /* ================================================================== */
 /*  Lstr helpers                                                      */
 /* ================================================================== */
@@ -850,7 +869,9 @@ int irx_bc_execute(struct envblock *envblock,
     void *call_frame_mem = NULL;
     void *proxy_parser_mem = NULL;
     void *label_pc_mem = NULL;
-    void *bif_cache_mem = NULL; /* WP-BC-OC09 */
+    void *bif_cache_mem = NULL;                /* WP-BC-OC09 */
+    struct vpool_cache_slot *var_cache = NULL; /* WP-PERF-VARCACHE */
+    void *var_cache_mem = NULL;
     int32_t *const_type_cache = NULL;
     int32_t *const_int_cache = NULL;
     void *const_cache_mem = NULL;
@@ -1004,6 +1025,25 @@ int irx_bc_execute(struct envblock *envblock,
         memset(bif_cache_mem, 0,
                (size_t)n_syms * sizeof(const struct irx_bif_entry *));
         bif_cache = (const struct irx_bif_entry **)bif_cache_mem;
+    }
+
+    /* --- WP-PERF-VARCACHE: per-symbol variable resolution cache ------ */
+    /* One slot per symbol, indexed by sym_idx parallel to bif_cache.    */
+    /* OP_LOAD hands its slot to vpool_get_cached(), which skips the     */
+    /* hash + bucket walk while the slot's pool and generation still     */
+    /* match.  Simple variables only; compounds fall through untouched.  */
+    /* Must be flushed via vcache_flush() on every change of `vpool`.    */
+    if (n_syms > 0)
+    {
+        if (irxstor(RXSMGET, n_syms * (int)sizeof(struct vpool_cache_slot),
+                    &var_cache_mem, envblock) != 0)
+        {
+            vm_rc = IRXBC_ERR_STOR;
+            goto done;
+        }
+        memset(var_cache_mem, 0,
+               (size_t)n_syms * sizeof(struct vpool_cache_slot));
+        var_cache = (struct vpool_cache_slot *)var_cache_mem;
     }
 
     /* --- OC-07: pre-compute integer cache for all constants (WP-BC-06) */
@@ -1285,10 +1325,16 @@ int irx_bc_execute(struct envblock *envblock,
                     }
                     stack[sp].type_cache = 0;
                     stack[sp].int_cache = 0;
-                    vrc = vpool_get_buf(vpool, name_data, name_len,
-                                        stack[sp].str,
-                                        &stack[sp].type_cache,
-                                        &stack[sp].int_cache);
+                    vrc = var_cache != NULL
+                              ? vpool_get_cached(vpool, name_data, name_len,
+                                                 stack[sp].str,
+                                                 &stack[sp].type_cache,
+                                                 &stack[sp].int_cache,
+                                                 &var_cache[idx])
+                              : vpool_get_buf(vpool, name_data, name_len,
+                                              stack[sp].str,
+                                              &stack[sp].type_cache,
+                                              &stack[sp].int_cache);
                     if (vrc == VPOOL_NOT_FOUND)
                     {
                         /* NOVALUE trap: fire if SIGNAL ON NOVALUE is active */
@@ -2458,6 +2504,7 @@ int irx_bc_execute(struct envblock *envblock,
                             vpool_destroy(vpool);
                             vpool = cf->prev_vpool;
                             proxy_parser->vpool = vpool;
+                            vcache_flush(var_cache, n_syms);
                             /* Isolated scope: RESULT in caller's pool is
                              * untouched — matches token-walk kw_return. */
                         }
@@ -2533,6 +2580,7 @@ int irx_bc_execute(struct envblock *envblock,
                             vpool_destroy(vpool);
                             vpool = cf->prev_vpool;
                             proxy_parser->vpool = vpool;
+                            vcache_flush(var_cache, n_syms);
                         }
 
                         vrc = vpool_set_buf(vpool, "RESULT", 6,
@@ -2632,6 +2680,7 @@ int irx_bc_execute(struct envblock *envblock,
                             vpool_destroy(vpool);
                             vpool = cf->prev_vpool;
                             proxy_parser->vpool = vpool;
+                            vcache_flush(var_cache, n_syms);
                         }
                     }
                     call_sp = 0;
@@ -2726,6 +2775,7 @@ int irx_bc_execute(struct envblock *envblock,
                             vpool_destroy(vpool);
                             vpool = cf->prev_vpool;
                             proxy_parser->vpool = vpool;
+                            vcache_flush(var_cache, n_syms);
                         }
                     }
                     call_sp = 0;
@@ -3439,6 +3489,7 @@ int irx_bc_execute(struct envblock *envblock,
                     cf->has_isolated_scope = 1;
                     vpool = new_vpool;
                     proxy_parser->vpool = vpool;
+                    vcache_flush(var_cache, n_syms);
                     break;
                 }
 
@@ -3635,6 +3686,7 @@ int irx_bc_execute(struct envblock *envblock,
                     vpool_destroy(vpool);
                     vpool = cf_t->prev_vpool;
                     proxy_parser->vpool = vpool;
+                    vcache_flush(var_cache, n_syms);
                 }
             }
             call_sp = 0;
@@ -3761,6 +3813,9 @@ done:
                 {
                     vpool_destroy(vpool);
                 }
+                /* No vcache_flush() here, unlike every other vpool
+                 * assignment: this unwinds frames after the dispatch
+                 * loop has ended, so no OP_LOAD can observe a slot. */
                 vpool = cf->prev_vpool;
             }
         }
@@ -3786,6 +3841,11 @@ done:
     if (bif_cache_mem != NULL)
     {
         void *p = bif_cache_mem;
+        irxstor(RXSMFRE, 0, &p, envblock);
+    }
+    if (var_cache_mem != NULL)
+    {
+        void *p = var_cache_mem;
         irxstor(RXSMFRE, 0, &p, envblock);
     }
     if (proxy_parser_mem != NULL)
