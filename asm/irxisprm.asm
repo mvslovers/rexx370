@@ -3,8 +3,8 @@
 *  IRXISPRM - Default PARMBLOCK for TSO+ISPF environments.
 *
 *  Static data module loaded by IRXINIT via LOAD EP=IRXISPRM when
-*  the caller provides no explicit PARMBLOCK (CON-1 §6.3, step 4).
-*  No executable code — DC/DS directives only.
+*  the caller provides no explicit PARMBLOCK (CON-1 sec.6.3, step 4).
+*  No executable code -- DC/DS directives only.
 *
 *  MODNAMET pointer is null (A(0)): IRXINIT inherits MODNAMET from
 *  the parent TSO environment, preserving any replaceable-routine
