@@ -131,6 +131,30 @@ static void trim8(const unsigned char *src, char *out)
 }
 
 /* ================================================================== */
+/*  set_found_dd — record which DD actually answered                  */
+/*                                                                     */
+/*  SC28-1883-0 has instblk_ddname name the DD the exec came from, and */
+/*  REXX surfaces it through PARSE SOURCE.  With a blank exec_ddname    */
+/*  only the search knows the answer, so every site that sets found=1  */
+/*  records it here.  Blank-padded to CL8 like the EXECBLK field.      */
+/* ------------------------------------------------------------------ */
+
+static void set_found_dd(unsigned char *dst8, const char *dd)
+{
+    size_t i = 0;
+
+    while (i < 8 && dd[i] != '\0')
+    {
+        dst8[i] = (unsigned char)dd[i];
+        i++;
+    }
+    while (i < 8)
+    {
+        dst8[i++] = ' ';
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  build_instblk — assemble the final INSTBLK from accumulated data  */
 /*                                                                    */
 /*  Allocates two blocks via irxstor:                                 */
@@ -358,6 +382,8 @@ static int irx_load_load(struct execblk *execblk,
     int n = 0;
     int total = 0;
     int found = 0;
+    /* The DD that actually answered; blank until something is found. */
+    unsigned char found_dd[8] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
     int rc = IRXLOAD_NOTFOUND;
 
     /* Validate EXECBLK. */
@@ -388,6 +414,7 @@ static int irx_load_load(struct execblk *execblk,
             if (sr == 0)
             {
                 found = 1;
+                set_found_dd(found_dd, dd_hint);
             }
             else if (sr == IRXLOAD_NOMEM)
             {
@@ -408,6 +435,7 @@ static int irx_load_load(struct execblk *execblk,
                 if (sr == 0)
                 {
                     found = 1;
+                    set_found_dd(found_dd, dds[di]);
                 }
                 else if (sr == IRXLOAD_NOMEM)
                 {
@@ -524,6 +552,7 @@ static int irx_load_load(struct execblk *execblk,
                             goto cleanup;
                         }
                         found = 1;
+                        set_found_dd(found_dd, try_dds[di]);
                     }
                 }
             }
@@ -539,7 +568,7 @@ static int irx_load_load(struct execblk *execblk,
 
     rc = build_instblk(envblk, instblk_p,
                        execblk->exec_member,
-                       execblk->exec_ddname,
+                       found_dd,
                        lt, n, tsrc, total);
 
 cleanup:
