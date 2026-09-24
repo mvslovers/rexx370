@@ -34,6 +34,13 @@
 
 #ifndef __MVS__
 void *_simulated_ectenvbk = NULL;
+
+/* Capture of what PUTLINE would have been handed, from
+ * src/irx#putl.c. Lets the TSO I/O routine be asserted on the host;
+ * on MVS the same lines reach IKJPUTL. */
+extern char _simulated_putl_buf[];
+extern int _simulated_putl_len;
+extern int _simulated_putl_calls;
 #endif
 
 static int tests_run = 0;
@@ -330,6 +337,93 @@ static void test_sa7_say_no_envblock(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  SA8 - irxinout_tso: the TSO variant (WP-33-TSO)                   */
+/*                                                                    */
+/*  Asserted through the capture stub rather than through a running   */
+/*  exec, because on MVS this routine ends in PUTLINE and there is    */
+/*  nothing to read back. What the host CAN pin is the contract       */
+/*  between irxinout_tso() and tso_put_line(): how many lines go out, */
+/*  with which length. Whether they arrive is measured on MVS.        */
+/* ------------------------------------------------------------------ */
+#ifndef __MVS__
+static void test_sa8_irxinout_tso(void)
+{
+    printf("\n-- SA8: irxinout_tso (TSO variant) --\n");
+
+    /* Same idiom as SA6: no allocation, pstr points at a literal. */
+    Lstr s;
+    Lzeroinit(&s);
+    s.pstr = (unsigned char *)"hello tso";
+    s.len = 9;
+
+    _simulated_putl_calls = 0;
+    _simulated_putl_len = -1;
+    CHECK(irxinout_tso(RXFWRITE, &s, NULL) == 0,
+          "irxinout_tso RXFWRITE returns 0");
+    CHECK(_simulated_putl_calls == 1, "one line goes out");
+    CHECK(_simulated_putl_len == 9, "full length handed over");
+    CHECK(memcmp(_simulated_putl_buf, "hello tso", 9) == 0,
+          "payload reaches tso_put_line unchanged");
+
+    /* TRACE and error output take the same route. */
+    _simulated_putl_calls = 0;
+    CHECK(irxinout_tso(RXFTWRITE, &s, NULL) == 0, "RXFTWRITE returns 0");
+    CHECK(irxinout_tso(RXFWRITERR, &s, NULL) == 0, "RXFWRITERR returns 0");
+    CHECK(_simulated_putl_calls == 2, "both write codes reach tso_put_line");
+
+    /* The empty-SAY contract: SA3 pins that the I/O routine is called
+     * with len 0, and a line must still appear. irxinout_tso sends a
+     * single blank rather than a zero-length data line. */
+    Lstr empty;
+    Lzeroinit(&empty);
+    empty.pstr = (unsigned char *)"";
+    empty.len = 0;
+
+    _simulated_putl_calls = 0;
+    _simulated_putl_len = -1;
+    CHECK(irxinout_tso(RXFWRITE, &empty, NULL) == 0, "empty SAY returns 0");
+    CHECK(_simulated_putl_calls == 1, "empty SAY still sends a line");
+    CHECK(_simulated_putl_len == 1 && _simulated_putl_buf[0] == ' ',
+          "empty SAY sends one blank");
+
+    /* A NULL data pointer must not fault and must not go silent. */
+    _simulated_putl_calls = 0;
+    CHECK(irxinout_tso(RXFWRITE, NULL, NULL) == 0, "NULL data returns 0");
+    CHECK(_simulated_putl_calls == 1, "NULL data still sends a line");
+
+    /* Reads are WP-33b: fail loudly rather than look like empty input. */
+    CHECK(irxinout_tso(RXFREAD, &s, NULL) == IRXIO_TSO_UNSUPPORTED,
+          "RXFREAD not yet supported");
+    CHECK(irxinout_tso(RXFREADP, &s, NULL) == IRXIO_TSO_UNSUPPORTED,
+          "RXFREADP not yet supported");
+    CHECK(irxinout_tso(999, &s, NULL) == IRXIO_TSO_UNSUPPORTED,
+          "unknown function code rejected");
+
+    /* A line longer than TSO_LINE_MAX goes out in pieces: 1000 bytes
+     * are three full pieces and a remainder. */
+    static unsigned char big_buf[1000];
+    memset(big_buf, 'x', sizeof(big_buf));
+    big_buf[sizeof(big_buf) - 1] = 'z';
+    Lstr big;
+    Lzeroinit(&big);
+    big.pstr = big_buf;
+    big.len = (size_t)sizeof(big_buf);
+
+    int pieces = ((int)sizeof(big_buf) + TSO_LINE_MAX - 1) / TSO_LINE_MAX;
+    int last = (int)sizeof(big_buf) - (pieces - 1) * TSO_LINE_MAX;
+
+    _simulated_putl_calls = 0;
+    _simulated_putl_len = -1;
+    CHECK(irxinout_tso(RXFWRITE, &big, NULL) == 0, "long SAY returns 0");
+    CHECK(_simulated_putl_calls == pieces,
+          "long SAY goes out in TSO_LINE_MAX pieces");
+    CHECK(_simulated_putl_len == last &&
+              _simulated_putl_buf[last - 1] == 'z',
+          "last piece carries the remainder, ending in the last byte");
+}
+#endif /* !__MVS__ */
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -344,6 +438,9 @@ int main(void)
     test_sa5_say_multiple();
     test_sa6_irxinout_direct();
     test_sa7_say_no_envblock();
+#ifndef __MVS__
+    test_sa8_irxinout_tso();
+#endif
 
     printf("\n=== %d/%d passed (%d failed) ===\n",
            tests_passed, tests_run, tests_failed);

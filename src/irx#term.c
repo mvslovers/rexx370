@@ -23,6 +23,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef __MVS__
+#include <clibos.h> /* __delete() — give back LOADed replaceable routines */
+#endif
+
 #include "irx.h"
 #include "irx_init.h"
 #include "irxanchr.h"
@@ -31,6 +35,29 @@
 #include "irxfunc.h"
 #include "irxlstr.h"
 #include "irxwkblk.h"
+
+#ifdef __MVS__
+/* Copy a CL8 MODNAMET slot into a NUL-terminated name; 0 when blank.
+ * Mirrors modnamet_slot_name() in irx#init.c -- the two files do not
+ * share a translation unit, and the rule (blank = nothing loaded) has
+ * to read the same in both. */
+static int term_slot_name(const unsigned char slot[8], char out[9])
+{
+    int n = 8;
+    while (n > 0 && slot[n - 1] == ' ')
+    {
+        n--;
+    }
+    if (n == 0)
+    {
+        out[0] = '\0';
+        return 0;
+    }
+    memcpy(out, slot, (size_t)n);
+    out[n] = '\0';
+    return 1;
+}
+#endif /* __MVS__ */
 
 /* Forward-declare the ECTENVBK slot accessor from irx#anch.c. */
 struct envblock **ectenvbk_slot(void);
@@ -78,9 +105,47 @@ int irx_init_term(struct envblock *envblock, int *out_reason_code)
     }
     my_is_tso = (my_slot->flags & IRXANCHR_FLAG_TSO_ATTACHED) != 0;
 
-    /* Step 3: Free IRXEXTE, then PARMBLOCK — reverse of INITENVB
-     * steps 6 and 5.  IRXEXTE freed first so irxstor can still read
-     * the subpool from envblock_parmblock. */
+    /* Step 3: Give back the replaceable routines IRXINIT LOADed, then
+     * free IRXEXTE, then MODNAMET, then PARMBLOCK — the reverse of
+     * INITENVB steps 6 and 5.  IRXEXTE is freed before PARMBLOCK so
+     * irxstor can still read the subpool from envblock_parmblock, and
+     * the DELETEs come first because the names live in the MODNAMET
+     * copy that hangs off the PARMBLOCK.
+     *
+     * A blank slot means nothing was loaded: INITENVB blanks it when a
+     * named module fails to LOAD, so the copy records what is actually
+     * wired and never asks for a DELETE that was never a LOAD. */
+    {
+        struct parmblock *tpb =
+            (struct parmblock *)envblock->envblock_parmblock;
+        struct modnamet *tmnt =
+            (tpb != NULL) ? (struct modnamet *)tpb->parmblock_modnamet
+                          : NULL;
+        if (tmnt != NULL)
+        {
+#ifdef __MVS__
+            /* One DELETE per slot INITENVB may have LOADed. Keep this
+             * list in step with the override table in irx#init.c --
+             * a slot loaded there and not released here is a use-count
+             * leak, and nothing reports it. */
+            unsigned char *slots[] = {
+                tmnt->modnamet_iorout,
+                tmnt->modnamet_exrout,
+            };
+            for (int i = 0; i < (int)(sizeof(slots) / sizeof(slots[0])); i++)
+            {
+                char rtname[9];
+                if (term_slot_name(slots[i], rtname))
+                {
+                    (void)__delete(rtname);
+                }
+            }
+#endif
+            tpb->parmblock_modnamet = NULL;
+            stor_free((void **)&tmnt, envblock);
+        }
+    }
+
     stor_free((void **)&envblock->envblock_irxexte, envblock);
     stor_free((void **)&envblock->envblock_parmblock, envblock);
 

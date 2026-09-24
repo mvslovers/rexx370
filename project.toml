@@ -21,7 +21,7 @@ cflags = ["-Wall", "-Wextra"]
 sources = ["../lstring370/src/lstr#*.c"]
 # is_tso() resolves to the asm CSECT on MVS (asm/istso.asm) but to a stub on
 # the host (src/irx#env.c, #ifndef __MVS__). Swap it for the native build.
-replace = { "asm/istso.asm" = "src/irx#env.c" }
+replace = { "asm/istso.asm" = "src/irx#env.c", "asm/putlin.asm" = "src/irx#putl.c" }
 
 # crent370 is provided by the cc370 sysroot (libc370) in v2, so it is no
 # longer a declared dependency (same as the ufsd/ftpd v2 migrations).
@@ -221,6 +221,28 @@ sources = [
   "src/irx#arith.c",
   "asm/istso.asm",
 ]
+
+# ---------------------------------------------------------------
+# IRXIOTSO - TSO I/O replaceable routine (WP-33-TSO).
+# A load module of its own, not a CSECT linked into everything:
+# SC28-1883-0 Chapter 16 names replaceable routines in MODNAMET and
+# IRXINIT LOADs the one the environment asks for. IRXTSPRM names
+# IRXIOTSO, IRXPARMS leaves the slot blank and keeps the stdio routine
+# in irx#io.c -- so no load module carries a routine it never calls.
+#
+# Writes through PUTLINE (asm/putlin.asm calls IKJPUTL), which reaches
+# the terminal in the foreground and SYSTSPRT in the background TMP.
+# TPUT would not: SVC 93 does nothing in an address space with no TSB.
+# PUTLINE touches no libc state, so it works where no C runtime exists:
+# the TSO address space, where IKJEFT01 and IKJCT430 are assembler.
+#
+# startup = false: it is called, not started. IRXTERM DELETEs it.
+# ---------------------------------------------------------------
+[[module]]
+name = "IRXIOTSO"
+entry = "IRXIOTSO"
+startup = false
+sources = ["src/irx#tsio.c", "asm/putlin.asm"]
 
 # ---------------------------------------------------------------
 # IRXDBG - Debug / Inspection Tool.
@@ -663,10 +685,52 @@ sources = [
   "asm/istso.asm",
 ]
 
+# ---------------------------------------------------------------
+# TSTIOTSO - WP-33-TSO: the I/O routine is chosen per environment.
+# Runs in both legs and asserts the OPPOSITE thing in each: under
+# IKJEFT01 the MODNAMET of IRXTSPRM names IRXIOTSO and IRXINIT must
+# have LOADed it; in plain batch IRXPARMS leaves the slot blank and
+# the stdio routine must still be wired. Asserts the pointer, not the
+# output -- a broken wiring leaves every return code at zero.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTIOTSO"
+startup = "crt1"
+parm_batch = "0"
+parm_tso = "1"
+sources = [
+  "src/irx#tsio.c",
+  "asm/putlin.asm",
+  "test/tstiotso.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
 [[test]]
 name = "TSTSAY"
 startup = "crt1"
 sources = [
+  "src/irx#tsio.c",
+  "asm/putlin.asm",
   "test/tstsay.c",
   "src/irx#init.c",
   "src/irx#term.c",
