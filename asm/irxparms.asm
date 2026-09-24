@@ -3,8 +3,8 @@
 *  IRXPARMS - Default PARMBLOCK for non-TSO (MVS batch) environments.
 *
 *  Static data module loaded by IRXINIT via LOAD EP=IRXPARMS when
-*  the caller provides no explicit PARMBLOCK (CON-1 §6.3, step 4).
-*  No executable code — DC/DS directives only.
+*  the caller provides no explicit PARMBLOCK (CON-1 sec.6.3, step 4).
+*  No executable code -- DC/DS directives only.
 *
 *  Control block sizes (from irx.h):
 *    PARMBLOCK:       64 bytes

@@ -605,12 +605,12 @@ EXIT     DS    0H
 *             WORK_RC     RC from IRXINIT                            *
 *             prints  pre/post ECTENVBK and the output values        *
 *                                                                    *
-*  IRXINIT INITENVB parameter list per CON-1 §3.x / SC28-1883-0:     *
+*  IRXINIT INITENVB parameter list per CON-1 sec.3.x / SC28-1883:    *
 *    P1  function code           (CL8)                               *
 *    P2  parameter module name   (CL8, blank = use system default)   *
 *    P3  caller PARMBLOCK        (A, 0 = use module-supplied)        *
 *    P4  user field              (F)                                 *
-*    P5  reserved — addr of fullword zero (must be non-NULL)         *
+*    P5  reserved -- addr of fullword zero (must be non-NULL)         *
 *    P6  out: ENVBLOCK address   (A)                                 *
 *    P7  out: reason code        (F)                                 *
 **********************************************************************

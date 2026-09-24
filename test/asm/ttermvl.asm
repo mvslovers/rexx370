@@ -4,15 +4,15 @@
 *            followed by IRXTERM end-to-end, exercising both
 *            production load modules from STEPLIB.
 *
-*  Step 1: IRXINIT INITENVB via SC28-1883-0 §14 VLIST (same shape
-*          as TINITVL — see asm/tinitvl.asm prologue for details).
+*  Step 1: IRXINIT INITENVB via SC28-1883-0 sec.14 VLIST (same shape
+*          as TINITVL -- see asm/tinitvl.asm prologue for details).
 *
-*  Step 2: IRXTERM via SC28-1883-0 §15 contract:
+*  Step 2: IRXTERM via SC28-1883-0 sec.15 contract:
 *            R0  in  = ENVBLOCK to terminate
 *            R0  out = predecessor ENVBLOCK (or original on failure)
 *            R15 out = RC (0 ok, 4 warning, 20 bad ENVBLOCK)
 *
-*  WTO output (50-char fixed layout — keeps the source DC inside
+*  WTO output (50-char fixed layout -- keeps the source DC inside
 *  the IFOX00 col-16-to-col-71 operand window):
 *    TTERMVL OK   ENV=xxxxxxxx PRD=xxxxxxxx RC=xxxxxxxx
 *    TTERMVL FAIL ENV=xxxxxxxx PRD=xxxxxxxx RC=xxxxxxxx
@@ -23,7 +23,7 @@
 *     8  LOAD EP= failed for IRXINIT or IRXTERM
 *    20  IRXINIT non-zero, eye-catcher mismatch, or IRXTERM RC=20+
 *
-*  Ref: SC28-1883-0 §14, §15
+*  Ref: SC28-1883-0 sec.14, sec.15
 *  Ref: WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83 / #87
 *
 *  (c) 2026 mvslovers - REXX/370 Project

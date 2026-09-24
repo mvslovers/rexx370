@@ -1,4 +1,4 @@
-         TITLE 'TLNKTERM - LINK IRXINIT + LOAD/BALR IRXTERM (asymmetry)'
+         TITLE 'TLNKTERM - LINK IRXINIT + LOAD/BALR IRXTERM asymmetry'
 *
 *  TLNKTERM - reproduce httprexx's IRXINIT/IRXTERM invocation shape in
 *             PURE ASM, to isolate the LINK-vs-BALR asymmetry from the

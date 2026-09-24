@@ -59,7 +59,7 @@
 *
 *  Refs: z/OS REXX Reference (current edition) - 10-slot VLIST
 *        https://www.ibm.com/docs/en/zos/2.5.0?topic=ir-parameters
-*        SC28-1883-0, Chapter 14 — V1 baseline (shorter VLIST)
+*        SC28-1883-0, Chapter 14 -- V1 baseline (shorter VLIST)
 *        WP-CPS-06 / TSK-218 / GitHub mvslovers/rexx370#120
 *
 *  (c) 2026 mvslovers - REXX/370 Project
@@ -144,7 +144,7 @@ PARSELP  L     R6,0(,R3)           raw VLIST entry (addr | maybe VL)
          LA    R4,4(,R4)           advance WPARMS pointer
          BCT   R2,PARSELP
 *
-*  All 10 slots walked without VL marker — malformed list.
+*  All 10 slots walked without VL marker -- malformed list.
          LA    R15,32              BADPLIST = 32
          B     ERREARLY
 *
@@ -266,7 +266,7 @@ NORP10   EQU   *
          B     EPILOG
 *
 ERREARLY EQU   *
-*  VLIST malformed (VL before P9) — no workarea yet if early exit,
+*  VLIST malformed (VL before P9) -- no workarea yet if early exit,
 *  but we have our workarea here; R3 = RC, P10 never reached.
          LR    R3,R15              R3 = RC
 *        fall through to EPILOG
@@ -329,7 +329,7 @@ WDP10    DS    F                   saved P10 bare address
 WCPLIST  DS    11F                 C plist: 10 dispatch args + sentinel
 *  Stack pool for nested c2asm370 PDPPRLG frames.  A real exec's
 *  recursive-descent compile (bc_exp0..bc_exp8, ~9 frames/level) plus
-*  the VM + Lstr chain nests well past 8 KB — WP-VLIST-WPOOL measured
+*  the VM + Lstr chain nests well past 8 KB -- WP-VLIST-WPOOL measured
 *  a modest 14-level nested expression at a ~16.2 KB high-water, and
 *  8 KB overflowed into the adjacent GETMAIN storage -> S0C4.  WAREA is
 *  GETMAIN'd and FREEMAIN'd per call, so the larger pool costs only
