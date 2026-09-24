@@ -18,11 +18,12 @@
 /*                                                                    */
 /*    (b) Foreign-owned slot — a sentinel pre-seeded into ECTENVBK     */
 /*        is clobbered by TSOFL=1 IRXINIT (matches IBM behaviour).    */
-/*        IRXTERM rolls ECTENVBK to NULL (no TSO predecessor in table).*/
+/*        IRXTERM rolls ECTENVBK back to the TSO predecessor.         */
 /*                                                                    */
 /*    (c) Own-env stacking — a TSOFL=1 IRXINIT for `outer` claims     */
 /*        the slot; a second TSOFL=1 IRXINIT for `inner` overwrites   */
-/*        it. IRXTERM on inner rolls back to outer; outer to NULL.    */
+/*        it. IRXTERM on inner rolls back to outer; outer to the      */
+/*        TSO predecessor.                                            */
 /*                                                                    */
 /*    (d) Non-TSO no-op — TSOFL=0 IRXINIT must not touch the slot,    */
 /*        even when one is reachable. The pre-seeded sentinel must   */
@@ -43,6 +44,12 @@
 /*  direct `_simulated_ectenvbk = ...` writes in cases (b) / (c) /    */
 /*  (d) — they silently no-op on MVS and make the test look like it   */
 /*  passes on host while failing on MVS. See CON-1 §6.1.              */
+/*                                                                    */
+/*  "The TSO predecessor" is NULL on an empty IRXANCHR table. A TMP   */
+/*  that creates and registers an env before the first command (as    */
+/*  IKJEFT01 does on mvsdev) leaves one behind, and a TSOFL=1 IRXTERM */
+/*  correctly rolls back to it. main() records it before any case     */
+/*  seeds the slot, and restores the slot on the way out.             */
 /*                                                                    */
 /*  Cases that require a specific anchor state only run when           */
 /*  ectenvbk_slot() returns non-NULL. In pure MVS batch (EXEC         */
@@ -161,6 +168,26 @@ static struct envblock *_test_get_anchor(void)
 #endif
 }
 
+/* The TSO-attached env IRXTERM rolls ECTENVBK back to once the
+ * case's own envs are gone: the anchor main() found at entry if
+ * rexx370 registered it in IRXANCHR as TSO-attached, NULL otherwise.
+ * A foreign (BREXX) anchor is never a rollback target. */
+static struct envblock *s_tso_pred = NULL;
+
+static struct envblock *tso_predecessor(struct envblock *anchor)
+{
+    if (anchor == NULL)
+    {
+        return NULL;
+    }
+    irxanchr_entry_t *entry = irx_anchor_find_by_envblock(anchor);
+    if (entry == NULL || !(entry->flags & IRXANCHR_FLAG_TSO_ATTACHED))
+    {
+        return NULL;
+    }
+    return anchor;
+}
+
 /* Build a parmblock with the requested TSOFL value, mirroring the
  * helper in tstinit.c. Bitfield writes lay down the right bit on both
  * MVS (MSB-first) and host (LSB-first) int bitfield encodings. */
@@ -201,11 +228,12 @@ static void case_a_empty_slot_baseline(void)
 
     rc = irxterm(env);
     CHECK(rc == 0, "irxterm returns 0");
-    /* TSK-194: single-env IRXTERM rolls ECTENVBK back to NULL (no predecessor). */
+    /* TSK-194: single-env IRXTERM rolls ECTENVBK back to the TSO
+     * predecessor -- NULL unless a TMP registered one. */
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == NULL,
-              "TSO IRXTERM rolls ECTENVBK back to NULL"),
-        "TSO IRXTERM rolls ECTENVBK back to NULL");
+        CHECK(anch_curr() == s_tso_pred,
+              "TSO IRXTERM rolls ECTENVBK back to the TSO predecessor"),
+        "TSO IRXTERM rolls ECTENVBK back to the TSO predecessor");
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,12 +272,13 @@ static void case_b_foreign_slot_clobbered(void)
 
     rc = irxterm(env);
     CHECK(rc == 0, "irxterm returns 0");
-    /* TSK-194: IRXTERM rolls back to predecessor in IRXANCHR (NULL —
-     * the foreign sentinel was never registered, so no predecessor). */
+    /* TSK-194: IRXTERM rolls back to the predecessor in IRXANCHR. The
+     * foreign sentinel was never registered, so it is never the target:
+     * the slot goes to the TSO predecessor, or NULL if there is none. */
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == NULL,
-              "TSO IRXTERM rolls ECTENVBK to NULL (no TSO predecessor)"),
-        "TSO IRXTERM rolls ECTENVBK to NULL");
+        CHECK(anch_curr() == s_tso_pred,
+              "TSO IRXTERM rolls ECTENVBK past the sentinel to the TSO predecessor"),
+        "TSO IRXTERM rolls ECTENVBK past the sentinel");
 }
 
 /* ------------------------------------------------------------------ */
@@ -295,11 +324,11 @@ static void case_c_own_env_stacking(void)
 
     rc = irxterm(outer);
     CHECK(rc == 0, "outer irxterm returns 0");
-    /* TSK-194: outer irxterm rolls ECTENVBK back to NULL (no predecessor). */
+    /* TSK-194: outer irxterm rolls ECTENVBK back to the TSO predecessor. */
     CHECK_IF_REACHABLE(
-        CHECK(anch_curr() == NULL,
-              "outer irxterm rolls ECTENVBK back to NULL"),
-        "outer irxterm rolls back to NULL");
+        CHECK(anch_curr() == s_tso_pred,
+              "outer irxterm rolls ECTENVBK back to the TSO predecessor"),
+        "outer irxterm rolls back to the TSO predecessor");
 }
 
 /* ------------------------------------------------------------------ */
@@ -355,10 +384,19 @@ int main(void)
      * symmetry with _test_set_anchor and future tests. */
     (void)_test_get_anchor;
 
+    /* Record the anchor before any case seeds the slot. */
+    struct envblock *entry_anchor = anch_curr();
+    s_tso_pred = tso_predecessor(entry_anchor);
+    printf("    entry ECTENVBK = %p, TSO predecessor = %p\n",
+           (void *)entry_anchor, (void *)s_tso_pred);
+
     case_a_empty_slot_baseline();
     case_b_foreign_slot_clobbered();
     case_c_own_env_stacking();
     case_d_non_tso_noop();
+
+    /* The cases seed the real slot on MVS; hand it back as found. */
+    _test_set_anchor(entry_anchor);
 
     printf("\n=== Results: passed=%d run=%d skipped=%d",
            tests_passed, tests_run, tests_skipped);
