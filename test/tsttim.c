@@ -265,9 +265,11 @@ static int var_all_alpha(struct fixture *f, const char *name)
     return ok;
 }
 
-/* Return 1 if variable ends with `suffix`. */
-static int var_ends_with(struct fixture *f, const char *name,
-                         const char *suffix)
+/* Return 1 if variable ends with `suffix1` or `suffix2`. Reports the
+ * value only when it ends with neither, so an alternative that did
+ * match is not logged as a miss. */
+static int var_ends_with_either(struct fixture *f, const char *name,
+                                const char *suffix1, const char *suffix2)
 {
     Lstr key;
     Lstr val;
@@ -280,13 +282,22 @@ static int var_ends_with(struct fixture *f, const char *name,
     int rc = vpool_get(f->pool, &key, &val);
     if (rc == VPOOL_OK)
     {
-        size_t slen = strlen(suffix);
-        ok = (val.len >= slen) &&
-             (memcmp(val.pstr + val.len - slen, suffix, slen) == 0);
+        const char *suffixes[] = {suffix1, suffix2};
+        for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
+        {
+            size_t slen = strlen(suffixes[i]);
+            if (val.len >= slen &&
+                memcmp(val.pstr + val.len - slen, suffixes[i], slen) == 0)
+            {
+                ok = 1;
+                break;
+            }
+        }
         if (!ok)
         {
-            printf("    %s = '%.*s' (expected suffix '%s')\n",
-                   name, (int)val.len, (const char *)val.pstr, suffix);
+            printf("    %s = '%.*s' (expected suffix '%s' or '%s')\n",
+                   name, (int)val.len, (const char *)val.pstr,
+                   suffix1, suffix2);
         }
     }
     Lfree(f->alloc, &key);
@@ -515,9 +526,8 @@ static void test_time_civil(void)
         int len = var_len(&fx, "X");
         CHECK(len >= 6, "TIME('C') min length");
         /* ends with am or pm */
-        int ends_am = var_ends_with(&fx, "X", "am");
-        int ends_pm = var_ends_with(&fx, "X", "pm");
-        CHECK(ends_am || ends_pm, "TIME('C') ends am or pm");
+        CHECK(var_ends_with_either(&fx, "X", "am", "pm"),
+              "TIME('C') ends am or pm");
     });
 }
 
