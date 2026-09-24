@@ -8,7 +8,7 @@
 *
 *  WP-VLIST-WPOOL / TSK-279.  This test drives the production IRXINIT
 *  -> IRXEXEC -> IRXTERM VLIST wrappers end-to-end (the path httprexx
-*  uses via LINK), which had NO MVS coverage — only tinitvl / ttermvl
+*  uses via LINK), which had NO MVS coverage -- only tinitvl / ttermvl
 *  existed.  Building it surfaced two stacked defects:
 *
 *    Bug A (prerequisite): the standalone IRXINIT load module reaches
@@ -28,16 +28,16 @@
 *  RED (either bug present): RC=20 or ABEND S0C4.  GREEN (both fixed):
 *  the exec runs to REXX 'exit 42' -> IRXEXEC R15 = 42 -> step RC=0.
 *
-*  Step 1: IRXINIT INITENVB via SC28-1883-0 §14 VLIST (7 slots) —
+*  Step 1: IRXINIT INITENVB via SC28-1883-0 sec.14 VLIST (7 slots) --
 *          same shape as TINITVL/TTERMVL; yields the ENVBLOCK.
 *
 *  Step 2: IRXEXEC via the z/OS 10-slot VLIST form:
-*            P1  EXECBLK   (NULL — source comes from INSTBLK)
-*            P2  ARGTABLE  (NULL — no args)
-*            P3  FLAGS     (0 — wrapper takes NOFLAG; C ignores flags)
+*            P1  EXECBLK   (NULL -- source comes from INSTBLK)
+*            P2  ARGTABLE  (NULL -- no args)
+*            P3  FLAGS     (0 -- wrapper takes NOFLAG; C ignores flags)
 *            P4  INSTBLK   (-> in-storage source, built below)
 *            P5  reserved  (NULL)
-*            P6  EVALBLOCK (NULL — result ignored)
+*            P6  EVALBLOCK (NULL -- result ignored)
 *            P7  WORKAREA  (NULL)
 *            P8  USERFIELD (NULL)
 *            P9  ENVBLOCK  (the env from step 1)
@@ -46,7 +46,7 @@
 *
 *  Step 3: IRXTERM (R0 = ENVBLOCK) to free the environment.
 *
-*  WTO output (50-char fixed layout — keeps the DC inside the IFOX00
+*  WTO output (50-char fixed layout -- keeps the DC inside the IFOX00
 *  col-16-to-col-71 operand window):
 *    TEXECVL OK   ENV=xxxxxxxx RC=xxxxxxxx TRC=xxxxxxxx
 *    TEXECVL FAIL ENV=xxxxxxxx RC=xxxxxxxx TRC=xxxxxxxx
@@ -58,7 +58,7 @@
 *    20  IRXINIT non-zero, eye-catcher mismatch, or IRXEXEC R15 != 42
 *    (a WPOOL overflow ABENDs S0C4 during step 2 and never returns)
 *
-*  Ref: SC28-1883-0 §14; z/OS REXX Reference (IRXEXEC 10-slot form)
+*  Ref: SC28-1883-0 sec.14; z/OS REXX Reference (IRXEXEC 10-slot form)
 *  Ref: WP-VLIST-WPOOL / TSK-279 / consumer: mvslovers/httprexx
 *
 *  (c) 2026 mvslovers - REXX/370 Project

@@ -1,7 +1,7 @@
          TITLE 'IRXINIT - REXX/370 IRXINIT Entry Point Wrapper'
 *
 *  IRXINIT - HLASM entry-point wrapper for the IRXINIT Programming
-*            Service (SC28-1883-0 §14).
+*            Service (SC28-1883-0 sec.14).
 *
 *  Parses the caller VLIST, validates the high-bit endmarker on the
 *  last parameter, extracts the CL8 function code, and delegates to
@@ -35,7 +35,7 @@
 *  c2asm370-compiled callees can use their PDPPRLG bump-allocator
 *  prologue (which reads DSANAB at offset +76 of the caller DSA).
 *  irxstor() routes all storage through GETMAIN/FREEMAIN on MVS so
-*  the CLIBCRT C-runtime is not on the call path — @@CRT0 is not
+*  the CLIBCRT C-runtime is not on the call path -- @@CRT0 is not
 *  required for the dispatch to succeed.
 *
 *  Caveat: crent370 getmain() calls wtof() on its failure path,
@@ -43,9 +43,9 @@
 *  unlikely on a healthy system) would crash secondarily trying
 *  to log. Acceptable tail risk on the bootstrap path. See #85.
 *
-*  Ref: SC28-1883-0 §14 (IRXINIT Programming Service)
+*  Ref: SC28-1883-0 sec.14 (IRXINIT Programming Service)
 *  Ref: WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83
-*  Ref: CON-1 §6.3 (INITENVB algorithm)
+*  Ref: CON-1 sec.6.3 (INITENVB algorithm)
 *  Ref: CON-4 (asm() aliases)
 *
 *  (c) 2026 mvslovers - REXX/370 Project
@@ -77,7 +77,7 @@ IRXINIT  CSECT
          USING *,R12
 *
 *  Capture caller-supplied registers needed across the wrapper body.
-*  R10 must be set BEFORE the NULL-R1 check below — the NULLPLST
+*  R10 must be set BEFORE the NULL-R1 check below -- the NULLPLST
 *  early-exit restores caller R0 from R10 and would otherwise fault.
          LR    R10,R0              R10 = previous-env hint (R0 in)
          LR    R11,R1              R11 = caller VLIST address
@@ -97,7 +97,7 @@ IRXINIT  CSECT
          LR    R8,R1               R8 = workarea ptr (saved for FREE)
 *
 *  Chain DSAs: caller SA <-> our DSA. Offsets +4/+8 are hardcoded
-*  to WDPREV / WDNEXT in the WAREA DSECT — keep in sync.
+*  to WDPREV / WDNEXT in the WAREA DSECT -- keep in sync.
          ST    R13,4(,R1)          our DSA back-chain = caller SA
          ST    R1,8(,R13)          caller forward     = our DSA
          LR    R13,R1
@@ -141,7 +141,7 @@ PARSELP  L     R6,0(,R3)           raw VLIST entry (addr | maybe VL)
 *  Walked all 7 slots without seeing the VL marker. The slot-7
 *  WPARMS entry was filled from VLIST[6], which is past the caller's
 *  actual list end and therefore undefined. We MUST NOT treat it as
-*  a REASON-slot address — go to ERREARLY (no reason write).
+*  a REASON-slot address -- go to ERREARLY (no reason write).
          LA    R15,20
          B     ERREARLY
 *
@@ -149,7 +149,7 @@ PARSEVL  EQU   *
 *  VL marker found; R2 = remaining count (must be 1 if on slot 7).
          CH    R2,=H'1'
          BE    FCCHK
-*  VL on the wrong slot — caller list is short. WPARMS+24 was never
+*  VL on the wrong slot -- caller list is short. WPARMS+24 was never
 *  filled (or holds a stale value); no usable REASON slot reachable.
          LA    R15,20
          B     ERREARLY
@@ -187,9 +187,9 @@ BUILDC   EQU   *
          L     R2,WPREV            R2 = previous-env hint
          ST    R2,WCPLIST+4
 *
-*  P2 (Parameters-Module-Name, WPARMS+4) is ignored for now —
+*  P2 (Parameters-Module-Name, WPARMS+4) is ignored for now --
 *  MODNAMET-resolution lands with WP-I1c.4. The caller's PARMBLOCK
-*  pointer per SC28-1883-0 §14 lives in P3 (In-Storage Parm List
+*  pointer per SC28-1883-0 sec.14 lives in P3 (In-Storage Parm List
 *  Address) at WPARMS+8, and the user field is P4 at WPARMS+12.
 *
          L     R2,WPARMS+8         R2 = addr of P3 (parmblock ptr slot)
@@ -251,7 +251,7 @@ ERREARLY EQU   *
 *  Fall through to EPILOG.
 *
 EPILOG   EQU   *
-*  R3 = output RC, R4 = output R0 — both in safe regs (1..12).
+*  R3 = output RC, R4 = output R0 -- both in safe regs (1..12).
 *  Tear down: restore R13, FREEMAIN, set outputs, return.
 *
          L     R13,WDPREV          R13 = caller SA (back chain in DSA)
@@ -269,7 +269,7 @@ EPILOG   EQU   *
          BR    R14
 *
 NULLPLST DS    0H
-*  Caller passed R1=0 — no VLIST, no REASON slot reachable. We have
+*  Caller passed R1=0 -- no VLIST, no REASON slot reachable. We have
 *  not allocated a workarea yet, so just restore caller R14/R1-R12
 *  from the still-current caller SA (R13 unchanged) and return with
 *  R0 = caller's original R0 (saved into R10 above) and R15 = 20.
@@ -320,7 +320,7 @@ WCPLIST  DS    6F                  parameter list for IRXIDISP call
 *  carry one uniform 64 KB pool (WP-VLIST-WPOOL): it costs only
 *  transient GETMAIN region, keeps one value/one pattern across the
 *  family, and future-proofs a wrapper that later grows a deep path.
-*  Intentionally not zero-filled — c2asm370-emitted code SAVE-writes
+*  Intentionally not zero-filled -- c2asm370-emitted code SAVE-writes
 *  R14-R12 before reading any frame slot, so XC init would cost 64 KB
 *  without functional benefit.
 WPOOL    DS    16384F              64 KB scratchpad (WP-VLIST-WPOOL)

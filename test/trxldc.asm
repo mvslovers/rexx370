@@ -1,4 +1,4 @@
-         TITLE 'TRXLDC - __load-ep BALR caller for IRXINIT (discriminator)'
+         TITLE 'TRXLDC - __load-ep BALR caller for IRXINIT'
 *  ------------------------------------------------------------------
 *  trx_callv(ep, vlist) -- call an entry point obtained from __load
 *  with R1 = VLIST and R0 = 0 (the IRXINIT SC28-1883 convention, the

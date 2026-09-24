@@ -1,7 +1,7 @@
          TITLE 'IRXLOAD - REXX/370 IRXLOAD Entry Point Wrapper'
 *
 *  IRXLOAD - HLASM entry-point wrapper for the IRXLOAD Programming
-*            Service (SC28-1883-0 §14).
+*            Service (SC28-1883-0 sec.14).
 *
 *  Parses the caller VLIST, validates the high-bit endmarker on the
 *  last parameter, validates the CL8 function code, and delegates to
@@ -11,7 +11,7 @@
 *    LOAD  -> irx_load_load()   (reads REXX source, builds INSTBLK)
 *    FREE  -> irx_load_free()   (releases INSTBLK and source pool)
 *
-*  Calling convention (per SC28-1883-0 §14 IRXLOAD):
+*  Calling convention (per SC28-1883-0 sec.14 IRXLOAD):
 *
 *    CALL IRXLOAD,(FCODE,EXECBLK,INSTBLK,ENVBLK,RETCODE),VL
 *
@@ -31,7 +31,7 @@
 *  See irxinit.asm for the rationale behind the bootstrap design
 *  (no @@CRT0 dependency, WPOOL as bump-allocator pool).
 *
-*  Ref: SC28-1883-0 §14 (IRXLOAD Programming Service)
+*  Ref: SC28-1883-0 sec.14 (IRXLOAD Programming Service)
 *  Ref: CON-4 (asm() aliases)
 *  Ref: WP-CPS-07 / TSK-219 / GitHub mvslovers/rexx370#118
 *
@@ -107,7 +107,7 @@ PARSELP  L     R6,0(,R3)           raw VLIST entry (addr | maybe VL)
          LA    R4,4(,R4)
          BCT   R2,PARSELP
 *
-*  All 5 slots walked without a VL marker — malformed list.
+*  All 5 slots walked without a VL marker -- malformed list.
          LA    R15,20
          B     ERREARLY
 *
@@ -115,7 +115,7 @@ PARSEVL  EQU   *
 *  VL found; R2 = remaining count (must be 1 for slot 5).
          CH    R2,=H'1'
          BE    FCCHK
-*  VL on wrong slot — short list; no usable P5 / retval slot.
+*  VL on wrong slot -- short list; no usable P5 / retval slot.
          LA    R15,20
          B     ERREARLY
 *
@@ -229,7 +229,7 @@ WPARMS   DS    5F                  bare addresses from 5-slot VLIST
 WCPLIST  DS    5F                  parameter list for IRXLDISP call
 *  Stack pool for nested c2asm370 PDPPRLG frames.  IRXLOAD's LOAD path
 *  reads REXX source and tokenizes it (irx_load_load), the same deep
-*  C-call tree as IRXEXEC, so it is sized identically to 64 KB — 8 KB
+*  C-call tree as IRXEXEC, so it is sized identically to 64 KB -- 8 KB
 *  overflows into adjacent GETMAIN storage on a real exec (S0C4).
 *  WAREA is GETMAIN'd/FREEMAIN'd per call.  WP-VLIST-WPOOL.
 WPOOL    DS    16384F              64 KB scratchpad (WP-VLIST-WPOOL)

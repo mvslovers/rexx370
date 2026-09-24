@@ -60,7 +60,7 @@ NOANCH   DS    0H
          XC    WENVOUT,WENVOUT
          XC    WREASON,WREASON
 *
-* --- build INITENVB VLIST (SC28-1883-0 §14) ---
+* --- build INITENVB VLIST (SC28-1883-0 sec.14) ---
 *
 *  P3/P4/P5: VLIST slots hold ADDRESSES of fullwords containing
 *  the actual values. IRXINIT does L Rx,VLIST_slot then

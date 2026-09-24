@@ -1,7 +1,7 @@
          TITLE 'IRXTERM - REXX/370 IRXTERM Entry Point Wrapper'
 *
 *  IRXTERM - HLASM entry-point wrapper for the IRXTERM Programming
-*            Service (SC28-1883-0 §15).
+*            Service (SC28-1883-0 sec.15).
 *
 *  Delegates to the C-core irx_init_term (asm() alias IRXITERM,
 *  CON-4) which performs the 5-step teardown: validate eye-catcher,
@@ -22,17 +22,17 @@
 *  (irx#term.c, irx#anch.c, ...) is NCAL-linked into the same
 *  load module via project.toml include list.
 *
-*  Bootstrap design: same as IRXINIT — workarea is a PDP-DSA with
+*  Bootstrap design: same as IRXINIT -- workarea is a PDP-DSA with
 *  an embedded WPOOL stack pool so c2asm370 callees can run their
 *  PDPPRLG bump-allocator prologue. irxstor() uses GETMAIN on MVS,
 *  bypassing the CLIBCRT C-runtime. See asm/irxinit.asm prologue
 *  comment block and #85 for the full rationale and tail-risk
 *  caveat (wtof on the getmain failure path).
 *
-*  Ref: SC28-1883-0 §15 (IRXTERM Programming Service)
+*  Ref: SC28-1883-0 sec.15 (IRXTERM Programming Service)
 *  Ref: WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83
-*  Ref: CON-1 §6.4 (IRXTERM flow)
-*  Ref: CON-14 / IRXPROBE Phase α (ECTENVBK predecessor rollback)
+*  Ref: CON-1 sec.6.4 (IRXTERM flow)
+*  Ref: CON-14 / IRXPROBE Phase alpha (ECTENVBK predecessor rollback)
 *
 *  (c) 2026 mvslovers - REXX/370 Project
 *
@@ -68,7 +68,7 @@ IRXTERM  CSECT
          LR    R8,R1               R8 = workarea ptr
 *
 *  Chain DSAs: caller SA <-> our DSA. Offsets +4/+8 are hardcoded
-*  to WDPREV / WDNEXT in the WAREA DSECT — keep in sync.
+*  to WDPREV / WDNEXT in the WAREA DSECT -- keep in sync.
          ST    R13,4(,R1)          our DSA back-chain = caller SA
          ST    R1,8(,R13)          caller forward     = our DSA
          LR    R13,R1
@@ -102,7 +102,7 @@ IRXTERM  CSECT
          BALR  R14,R15
 *
 *  R15 = RC; *WREASON now holds the reason code. We discard the
-*  reason — IBM IRXTERM has no caller-visible reason slot, R15 is
+*  reason -- IBM IRXTERM has no caller-visible reason slot, R15 is
 *  the only output channel.
 *
          LR    R3,R15              R3 = RC (preserved through teardown)
@@ -112,7 +112,7 @@ IRXTERM  CSECT
 *  Success: read predecessor from ECTENVBK via anch_curr(). The
 *  C-core has already rolled the slot back (TSO envs only); for
 *  non-TSO envs the slot is unchanged and anch_curr returns
-*  whatever was there before — which is the right answer for the
+*  whatever was there before -- which is the right answer for the
 *  caller too.
          LA    R1,WCPLIST          minimal plist (no args)
          L     R15,=V(ANCHCURR)
@@ -177,7 +177,7 @@ WREASON  DS    F                   reason-code OUT cell (discarded)
 *  is shallow (env teardown), but all four VLIST wrappers carry one
 *  uniform 64 KB pool (WP-VLIST-WPOOL): it costs only transient GETMAIN
 *  region and keeps one value/one pattern across the family.
-*  Intentionally not zero-filled — c2asm370-emitted code SAVE-writes
+*  Intentionally not zero-filled -- c2asm370-emitted code SAVE-writes
 *  R14-R12 before reading any frame slot, so XC init would cost 64 KB
 *  without functional benefit.
 WPOOL    DS    16384F              64 KB scratchpad (WP-VLIST-WPOOL)
