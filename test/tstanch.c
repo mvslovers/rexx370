@@ -73,6 +73,25 @@ static void dump_ppaflag(void)
 #endif
 }
 
+/* Where a TSOFL=1 IRXTERM rolls ECTENVBK back to once our own env is
+ * gone: the anchor found at entry if rexx370 registered it in IRXANCHR
+ * as TSO-attached (e.g. the env a TMP creates before the first
+ * command), NULL otherwise -- a foreign (BREXX) anchor is never a
+ * rollback target. */
+static struct envblock *tso_predecessor(struct envblock *anchor)
+{
+    if (anchor == NULL)
+    {
+        return NULL;
+    }
+    irxanchr_entry_t *entry = irx_anchor_find_by_envblock(anchor);
+    if (entry == NULL || !(entry->flags & IRXANCHR_FLAG_TSO_ATTACHED))
+    {
+        return NULL;
+    }
+    return anchor;
+}
+
 static void dump_state(const char *label, struct envblock *env)
 {
     printf("  [%s]\n", label);
@@ -160,13 +179,15 @@ int main(void)
     /* After IRXTERM the slot must be at the expected post-term value.
      *
      * TSO path: IRXINIT wrote the slot; IRXTERM rolls back to the
-     * predecessor TSO-attached env in IRXANCHR (NULL for this single-env
-     * test since we started from an empty table).
+     * predecessor TSO-attached env in IRXANCHR. That is NULL on an empty
+     * table, but a TMP may have created and registered an env before
+     * this program ran -- then the slot returns to it.
      *
      * Non-TSO / batch: neither IRXINIT nor IRXTERM touched the slot;
      * it remains at initial_anchor. */
     {
-        struct envblock *expected = is_tso() ? NULL : initial_anchor;
+        struct envblock *expected =
+            is_tso() ? tso_predecessor(initial_anchor) : initial_anchor;
         if (anch_curr() != expected)
         {
             printf("FAIL: ECTENVBK not at expected value after IRXTERM\n");

@@ -348,17 +348,25 @@ Standard prefix: 'IRX'.
 
 Each REXX Language Processor Environment is anchored in the TSO Environment Control Table (ECT) at offset +30 (`ECTENVBK`) — not in TCBUSER. The ECT lies in user-accessible TSO work storage and is problem-state-writable; TCBUSER would require APF authorization and offers no behavioural advantage on MVS 3.8j. A separate anchor control block (RAB) is not required and not used.
 
-### Read-mostly discipline
+### Write discipline: TSOFL-conditional
 
-rexx370 follows a **read-mostly** discipline for `ECTENVBK`: IRXINIT writes the slot only when it is NULL (no other REXX has claimed it); subsequent IRXINIT calls return the new ENVBLOCK pointer to the caller without touching the anchor. IRXTERM clears the slot only if it still points at the terminating ENVBLOCK; otherwise it leaves the anchor alone.
+rexx370 follows IBM's contract for `ECTENVBK`, as measured by IRXPROBE Phase α (TSK-192, CON-14) and implemented in TSK-194/195:
 
-The motivation is **coexistence with other REXX implementations on the same task**, not default-environment protection. MVS 3.8j ships without IBM REXX, so there is no automatic default environment for rexx370 to protect. ECTENVBK can be in exactly three real states on this platform:
+- **IRXINIT with TSOFL=1** overwrites the slot **unconditionally** with the new ENVBLOCK, whatever it held before (`src/irx#init.c`, step 8).
+- **IRXINIT with TSOFL=0** never touches the slot.
+- **IRXTERM of a TSOFL=1 environment** rolls the slot back to the most recent TSO-attached predecessor registered in IRXANCHR (`irx_anchor_find_previous_used`), or to NULL if there is none. The rollback is guarded: IRXTERM writes the slot only while it still points at the terminating ENVBLOCK.
+- **IRXTERM of a TSOFL=0 environment** never touches the slot.
 
-- (a) **NULL** — nobody has taken the slot yet; safe for us to claim.
-- (b) **Non-NULL, pointing at a BREXX environment** currently active on this task — BREXX would crash if we overwrote its anchor.
-- (c) **Non-NULL, pointing at an earlier rexx370 environment we set ourselves** — we already hold that pointer through the IRXINIT return value.
+This replaces the earlier **read-mostly / claim-if-NULL** rule (IRXINIT writes only a NULL slot). That rule was IBM-incompatible and is gone from production; `anch_push` still implements it but has no callers.
 
-"Only write when `ECTENVBK == 0`" is the correct rule in all three cases. See CON-1 §6.1 and §14.2 for the full rationale, and SC28-1883-0 §15 for the caller-managed pointer-passing contract for reentrant environments.
+Before the first IRXINIT of a program, `ECTENVBK` can be in one of these states:
+
+- (a) **NULL.** No environment is anchored. After the program's last TSOFL=1 IRXTERM the slot returns to NULL.
+- (b) **A foreign anchor** (for example BREXX/370). TSOFL=1 IRXINIT overwrites it. It is not registered in IRXANCHR, so it is never a rollback target: the last IRXTERM leaves NULL (or the predecessor from (c)), not the foreign pointer.
+- (c) **A rexx370 environment the caller does not hold**, for example the one a TMP creates and registers before the first command (IKJEFT01 on mvsdev, `IKJ56942I`). It is TSO-attached in IRXANCHR, so the program's last TSOFL=1 IRXTERM rolls the slot back to it.
+- (d) **An earlier rexx370 environment of the same program.** It is stacked like (c).
+
+A test that observes the slot after IRXTERM must therefore not assume (a) under TSO. The anchor tests (`TSTANCH`, `TSTANRM`, `TSTPHAS1`) record the anchor at entry and expect it back if IRXANCHR lists it as TSO-attached, and NULL otherwise (#224).
 
 ### Cold-path walk
 
@@ -591,7 +599,7 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 | IRXHCMD | Host command | 4 |
 | IRXSTK | Data stack | 4 |
 | IRXSTOR | Storage mgmt | 1 |
-| IRX#ANCH | ECTENVBK anchor (read-mostly) | 1 |
+| IRX#ANCH | ECTENVBK anchor (TSOFL-conditional) | 1 |
 | IRXUID | User ID | 1 |
 | IRXMSGID | Message ID | 1 |
 | IRXTOKN | Tokenizer | 2 |
@@ -613,7 +621,7 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 - [x] Control block DSECTs
 - [x] IRXINIT / IRXTERM
 - [x] Storage management
-- [x] Environment anchor management (ECTENVBK, read-mostly discipline)
+- [x] Environment anchor management (ECTENVBK, TSOFL-conditional)
 
 ## Phase 2: interpreter core
 
@@ -665,7 +673,7 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 
 - **C as implementation language (Phase 2+):** Confirmed by completed Phase 2 (16 April 2026). The entire interpreter chain is implemented in C. Decision confirmed as part of the WP-20 discussion (point B1). The original option "Phase 1–2 HLASM only, evaluate from Phase 3" was already not taken in Phase 1.
 - **24-bit memory handling for arithmetic:** Through the `NUMERIC DIGITS` cap of 1,000 (see section 7.3), the arithmetic engine's memory footprint stays in the kilobyte range even with multiple concurrent intermediate results. Overlay not required. Decided as part of the WP-20 discussion (point B2).
-- **Environment anchor on MVS 3.8j — read-mostly ECTENVBK (20 April 2026).** rexx370 anchors the REXX environment in the TSO ECT (`ECTENVBK` slot, IKJECT offset `0x30`), not in TCBUSER. The write discipline is read-mostly: `ECTENVBK` is set at most once (when the slot is 0) and never overwritten thereafter by rexx370. Subsequent explicit IRXINIT calls return an ENVBLOCK pointer without touching the anchor; IRXTERM clears `ECTENVBK` only when it still points at the terminating ENVBLOCK. Motivation is coexistence with BREXX (which shares the same slot on MVS 3.8j), not default-environment protection — MVS 3.8j ships without IBM REXX, so the only way `ECTENVBK` is ever non-zero is because BREXX or an earlier rexx370 put it there, and in both cases "do not overwrite" is the correct rule. ENVBLOCK offsets 0..303 are byte-exact with SC28-1883-0, SC28-1883-4, and z/OS 2.5; the +304..+319 range stays fully reserved. Problem-state-writable; follows the BREXX/370 anchor pattern in production on Hercules since 2019. Fully implemented and verified as of 20 April 2026: PR #45 shipped Phase A/B (push/pop baseline); the read-mostly switchover followed; PR #46 (commit d868b46) added `test/test_anchor_readmostly.c` covering (a) empty-slot baseline, (b) BREXX-simulated non-NULL slot — read-mostly correctly does not overwrite, (c) own-env stacking — second IRXINIT does not disturb the first anchor. MVS smoketests via TSTANCH remain green in all three TSO/batch scenarios. See §3.1 and §6.1.
+- **Environment anchor on MVS 3.8j — read-mostly ECTENVBK (20 April 2026).** rexx370 anchors the REXX environment in the TSO ECT (`ECTENVBK` slot, IKJECT offset `0x30`), not in TCBUSER. The write discipline is read-mostly: `ECTENVBK` is set at most once (when the slot is 0) and never overwritten thereafter by rexx370. Subsequent explicit IRXINIT calls return an ENVBLOCK pointer without touching the anchor; IRXTERM clears `ECTENVBK` only when it still points at the terminating ENVBLOCK. Motivation is coexistence with BREXX (which shares the same slot on MVS 3.8j), not default-environment protection — MVS 3.8j ships without IBM REXX, so the only way `ECTENVBK` is ever non-zero is because BREXX or an earlier rexx370 put it there, and in both cases "do not overwrite" is the correct rule. ENVBLOCK offsets 0..303 are byte-exact with SC28-1883-0, SC28-1883-4, and z/OS 2.5; the +304..+319 range stays fully reserved. Problem-state-writable; follows the BREXX/370 anchor pattern in production on Hercules since 2019. Fully implemented and verified as of 20 April 2026: PR #45 shipped Phase A/B (push/pop baseline); the read-mostly switchover followed; PR #46 (commit d868b46) added `test/test_anchor_readmostly.c` covering (a) empty-slot baseline, (b) BREXX-simulated non-NULL slot — read-mostly correctly does not overwrite, (c) own-env stacking — second IRXINIT does not disturb the first anchor. MVS smoketests via TSTANCH remain green in all three TSO/batch scenarios. See §3.1 and §6.1. **Superseded by TSK-194/195:** IRXINIT with TSOFL=1 now overwrites the slot unconditionally, and IRXTERM rolls back to the IRXANCHR predecessor. See §6.1 for the current contract.
 - **Environment type detection — `ppaflag` primary, cold-path walk as structural proxy (20 April 2026).** `anch_tso()` tests `CLIBPPA.ppaflag & (PPAFLAG_TSOFG | PPAFLAG_TSOBG)` via `__ppaget()`. The structurally equivalent check is `anch_walk() != NULL`; the anchor library uses the walk as its gate. Empirical finding: the similarly-named bits in `CLIBCRT.crtflag` (per-task runtime struct) are never populated by crent370 startup and must not be used — TSO detection lives at the process level (CLIBPPA), not per-task. Validated in PR #45 across three scenarios (TSO foreground, TSO background, pure batch). See §6.2.
 
 ## 14.3 Design principles (emergent)

@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-08-15
+Last updated: 2026-09-24
 
 ---
 
@@ -264,6 +264,15 @@ needed for a *complete* REXX.
 > bare non-NULL-PPA check. Verified on MVS: TREXXVL case 0d (IRXINIT via
 > `__load`+BALR) returns rc=0 with no S0C4, and TSTFLIP (`setenv`/`getenv`
 > on a legitimate runtime) stays green.
+
+> **2026-09-24 — anchor contract, settled for the inventory.** ECTENVBK follows
+> the TSOFL-conditional contract (TSK-194/195), not read-mostly: TSOFL=1
+> IRXINIT overwrites unconditionally, and IRXTERM rolls back to the IRXANCHR
+> TSO predecessor. Under a TMP that registers an env at logon, that
+> predecessor is the TMP's env. The anchor tests assumed an empty slot and now
+> expect the predecessor instead; `architecture.md` §6.1, `irxanchr.h` and
+> `CLAUDE.md` describe the current rule (#224). Measured on mvsdev: JOB01181
+> (failing), JOB01183 (green, batch + TSO).
 
 > ⚠️ **The state of this axis is not currently known.** The core
 > IRXINIT/IRXTERM/IRXANCHR/parameter-module work (WP-I1a-d) was marked done
