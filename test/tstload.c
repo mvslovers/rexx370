@@ -85,6 +85,7 @@ static void make_execblk(struct execblk *e,
 
 static char s_sysexec_dir[256];
 static char s_altdd_dir[256];
+static char s_sysproc_dir[256];
 
 /* Create a directory and one or more .rex files inside it. */
 static void write_test_file(const char *dir, const char *member,
@@ -129,8 +130,14 @@ static int setup_test_dirs(void)
     setenv("SYSEXEC", s_sysexec_dir, 1);
     setenv("ALTDD", s_altdd_dir, 1);
 
-    /* Unset SYSPROC so T4 can test "both DDs absent". */
-    unsetenv("SYSPROC");
+    /* T10: member PROCONLY exists ONLY in SYSPROC, so the search has
+     * to fall through SYSEXEC to find it. */
+    snprintf(s_sysproc_dir, sizeof(s_sysproc_dir), "/tmp/tstload_sysproc");
+    mkdir(s_sysproc_dir, 0755);
+    write_test_file(s_sysproc_dir, "PROCONLY",
+                    "/* sysproc exec */\n"
+                    "exit 0\n");
+    setenv("SYSPROC", s_sysproc_dir, 1);
 
     return 0;
 }
@@ -327,6 +334,49 @@ static void test_load_empty_member(void)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  T10: instblk_ddname must name the DD the member was FOUND in       */
+/*                                                                      */
+/*  SC28-1883-0 defines instblk_ddname as the DD name, and REXX exposes */
+/*  it through PARSE SOURCE.  With a blank exec_ddname the search runs  */
+/*  SYSEXEC then SYSPROC, so only the search itself knows which one     */
+/*  answered -- echoing the (blank) request back leaves PARSE SOURCE    */
+/*  with nothing.                                                       */
+/* ------------------------------------------------------------------ */
+
+static void check_ddname(const char *member, const char *ddin,
+                         const char *want, const char *what)
+{
+    struct execblk eb;
+    struct instblk *ib = NULL;
+    int retval = -1;
+
+    make_execblk(&eb, member, ddin);
+    if (irx_load_dispatch(IRXLOAD_FC_LOAD, &eb, &ib, NULL, &retval) != IRXLOAD_OK || ib == NULL)
+    {
+        CHECK(0, what);
+        return;
+    }
+    CHECK(memcmp(ib->instblk_ddname, want, 8) == 0, what);
+    if (memcmp(ib->instblk_ddname, want, 8) != 0)
+    {
+        printf("        want '%.8s' got '%.8s'\n", want, ib->instblk_ddname);
+    }
+    irx_load_dispatch(IRXLOAD_FC_FREE, NULL, &ib, NULL, &retval);
+}
+
+static void test_instblk_ddname(void)
+{
+    printf("T10: instblk_ddname reports the finding DD\n");
+
+    check_ddname("HELLO   ", "        ", "SYSEXEC ",
+                 "auto-search hit in SYSEXEC -> instblk_ddname = SYSEXEC");
+    check_ddname("PROCONLY", "        ", "SYSPROC ",
+                 "auto-search fell through to SYSPROC -> SYSPROC");
+    check_ddname("ALTM    ", "ALTDD   ", "ALTDD   ",
+                 "explicit DD is still reported unchanged");
+}
+
 /* ================================================================== */
 /*  main                                                              */
 /* ================================================================== */
@@ -351,6 +401,7 @@ int main(void)
     test_free_bad_eyecatcher();
     test_free_null_ptr();
     test_load_explicit_ddname();
+    test_instblk_ddname();
     test_load_empty_member();
 
     printf("------------------------------\n");
