@@ -20,12 +20,15 @@ https://www.notion.so/3283d9938787811ba3f4d3308b254cad
 Key points:
 - **ENVBLOCK** is the anchor for each Language Processor Environment
 - **ECTENVBK** (offset +30 in the TSO ECT) anchors the current ENVBLOCK
-  under read-mostly discipline: IRXINIT writes the slot only when it is
-  NULL, IRXTERM clears it only when it still points to the terminating
-  env. Any other value (e.g. a coexisting BREXX/370 environment on the
-  same ECT) is left untouched. In batch (no ECT reachable) the slot is
-  never written and IRXINIT still succeeds locally. See CON-1 §6.1 and
-  `include/irxanchr.h`
+  under IBM's TSOFL-conditional contract (CON-14, TSK-194/195): IRXINIT
+  with TSOFL=1 overwrites the slot unconditionally, TSOFL=0 never touches
+  it. IRXTERM of a TSOFL=1 env rolls the slot back to the most recent
+  TSO-attached predecessor in IRXANCHR (or NULL), and only while the slot
+  still points to the terminating env. The slot can be occupied before
+  a program starts, e.g. by the env a TMP registers at logon, so
+  do not assume NULL under TSO. In batch (no ECT reachable) the slot is
+  never written and IRXINIT still succeeds locally. See
+  `docs/architecture.md` §6.1 and `include/irxanchr.h`
 - **IRXEXTE** (Vector of External Entry Points) holds all replaceable
   routine pointers — SAY, PULL, I/O, Host Command, etc.
 - **irx_wkblk_int** (our internal Work Block) holds all per-environment
@@ -388,7 +391,7 @@ run tstctrl     # Control flow (WP-15)               (62/62)
 run tstparse    # PARSE instruction (WP-16)          (74/74)
 run tstproc     # PROCEDURE EXPOSE (WP-17)           (53/53)
 run tsthelo     # Hello-world end-to-end (WP-18)     (16/16)
-run tstanrm     # ECTENVBK anchor read-mostly        (24/24)
+run tstanrm     # ECTENVBK anchor TSOFL-conditional  (29/29)
 run tstfind     # FINDENVB + CHEKENVB (WP-I1c.2)     (44/44)
 run tstarit     # Arithmetic engine (WP-20)          (128/128)
 run tstarext    # Direct IRXARITH API (WP-20 + B)    (113/113)

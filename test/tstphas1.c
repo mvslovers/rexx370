@@ -76,6 +76,26 @@ static int tests_skipped = 0;
         }                                                        \
     } while (0)
 
+/* The TSO-attached env IRXTERM rolls ECTENVBK back to once this
+ * program's own envs are gone: the anchor main() found at entry if
+ * rexx370 registered it in IRXANCHR as TSO-attached (e.g. the env a
+ * TMP creates before the first command), NULL otherwise. */
+static struct envblock *s_tso_pred = NULL;
+
+static struct envblock *tso_predecessor(struct envblock *anchor)
+{
+    if (anchor == NULL)
+    {
+        return NULL;
+    }
+    irxanchr_entry_t *entry = irx_anchor_find_by_envblock(anchor);
+    if (entry == NULL || !(entry->flags & IRXANCHR_FLAG_TSO_ATTACHED))
+    {
+        return NULL;
+    }
+    return anchor;
+}
+
 /* Build a minimal valid PARMBLOCK with TSOFL=1, mirroring the helper
  * in tstinit.c. The anchor write in IRXINIT only runs when the
  * effective TSOFL bit is 1, so smoke tests that want to observe a
@@ -176,9 +196,10 @@ static void test_single_env(void)
     /* IRXTERM */
     rc = irxterm(envblk);
     CHECK(rc == 0, "irxterm returns 0");
-    /* TSK-194: single-env IRXTERM rolls ECTENVBK back to NULL (no predecessor). */
-    CHECK_IF_REACHABLE(anch_curr() == NULL,
-                       "TSO IRXTERM rolls ECTENVBK back to NULL (greenfield)");
+    /* TSK-194: single-env IRXTERM rolls ECTENVBK back to the TSO
+     * predecessor -- NULL unless a TMP registered one. */
+    CHECK_IF_REACHABLE(anch_curr() == s_tso_pred,
+                       "TSO IRXTERM rolls ECTENVBK back to the TSO predecessor");
 }
 
 /* ------------------------------------------------------------------ */
@@ -188,7 +209,8 @@ static void test_single_env(void)
 /*  TSOFL=1 IRXINIT unconditionally overwrites ECTENVBK. The slot     */
 /*  therefore tracks the most recent IRXINIT, not the first claimant. */
 /*  IRXTERM (TSK-194) rolls ECTENVBK back to the predecessor TSO-     */
-/*  attached env in IRXANCHR, or to NULL if none remains.             */
+/*  attached env in IRXANCHR, or to NULL if none remains. Past env1   */
+/*  that is whatever a TMP registered before this program ran.        */
 /* ------------------------------------------------------------------ */
 
 static void test_multiple_envs(void)
@@ -234,8 +256,8 @@ static void test_multiple_envs(void)
 
     rc = irxterm(env1);
     CHECK(rc == 0, "env1 terminated");
-    CHECK_IF_REACHABLE(anch_curr() == NULL,
-                       "after env1 term, anchor rolls back to NULL");
+    CHECK_IF_REACHABLE(anch_curr() == s_tso_pred,
+                       "after env1 term, anchor rolls back to the TSO predecessor");
 }
 
 /* ------------------------------------------------------------------ */
@@ -291,6 +313,9 @@ int main(void)
     printf("    mode: %s\n", is_tso() ? "TSO (ECT reachable)"
                                       : "batch (no ECT — anchor "
                                         "checks will skip)");
+
+    s_tso_pred = tso_predecessor(anch_curr());
+    printf("    TSO predecessor = %p\n", (void *)s_tso_pred);
 
     test_single_env();
     test_multiple_envs();

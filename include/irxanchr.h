@@ -2,27 +2,28 @@
 /*  irxanchr.h - REXX/370 Environment Anchor                          */
 /*                                                                    */
 /*  Consolidated header for both the ECT-slot anchor API              */
-/*  (ECTENVBK read-mostly discipline, CON-1 §6.1) and the            */
+/*  (ECTENVBK TSOFL-conditional discipline, CON-14) and the           */
 /*  IRXANCHR static environment anchor table (WP-I1a.1/WP-I1a.3).    */
 /*                                                                    */
 /*  === Part 1: ECT-Anchor API ===                                    */
 /*                                                                    */
 /*  A REXX Language Processor Environment is anchored in the TSO ECT  */
-/*  at offset +30 (ECTENVBK). rexx370 treats that slot as read-mostly */
-/*  per CON-1 §6.1: at any point it is in one of three states —       */
+/*  at offset +30 (ECTENVBK). The write discipline follows IBM's      */
+/*  contract (IRXPROBE Phase alpha, CON-14; TSK-194/195):             */
 /*                                                                    */
-/*    (a) NULL            no REXX environment active; rexx370 may     */
-/*                        claim the slot on IRXINIT                   */
+/*    IRXINIT  TSOFL=1  overwrites the slot unconditionally           */
+/*    IRXINIT  TSOFL=0  never touches the slot                        */
+/*    IRXTERM  TSOFL=1  rolls back to the predecessor (see below)     */
+/*    IRXTERM  TSOFL=0  never touches the slot                        */
 /*                                                                    */
-/*    (b) non-rexx370     another REXX holds the anchor (on MVS 3.8j  */
-/*                        typically BREXX/370, but the slot is also   */
-/*                        compatible with any other env). rexx370     */
-/*                        leaves the slot untouched and the caller    */
-/*                        tracks its own ENVBLOCK via the IRXINIT     */
-/*                        return value                                */
+/*  The slot may already be occupied before a program's first         */
+/*  IRXINIT: by a foreign REXX (BREXX/370), which is overwritten and  */
+/*  never restored, or by a rexx370 env the caller does not hold --   */
+/*  e.g. one a TMP registered before the first command -- which is a  */
+/*  rollback target like any other TSO-attached predecessor.          */
 /*                                                                    */
-/*    (c) our own env     we claimed the slot earlier; IRXTERM may    */
-/*                        clear it back to NULL                       */
+/*  The old read-mostly / claim-if-NULL rule is gone from production; */
+/*  anch_push below still implements it and has no callers.           */
 /*                                                                    */
 /*  Cold-path walk on MVS 3.8j (validated on Hercules since 2019,     */
 /*  offsets from IBM macros):                                         */
@@ -56,7 +57,7 @@
 /*  (not void*) so sizeof(irxanchr_entry_t) == 40 holds on both       */
 /*  MVS 3.8j and the Linux cross-compile host.                        */
 /*                                                                    */
-/*  Ref: CON-1 §3.1 (ENVBLOCK layout), §6.1 (read-mostly anchor),     */
+/*  Ref: CON-1 §3.1 (ENVBLOCK layout), §6.1 (anchor), CON-14,         */
 /*       §6.3 step 8 (IRXINIT), §6.4 step 2 (IRXTERM),                */
 /*       §14.2 (20-April decision with coexistence rationale).        */
 /*  Ref: WP-I1a.1 (asm/irxanchr.asm), WP-I1a.3 (src/irx#anch.c)     */
