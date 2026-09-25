@@ -66,8 +66,8 @@ ASM="ASMDATE=09/07/26 ASMTIME=12.00 work/src-states/bin/as370-main \
   -I work/macros/amaclib-live"
 
 # unsere beiden
-eval $ASM -o /tmp/ikjeft01_patched.o ~/repos/mvs/rexx370/src_ptf/IKJEFT01.ASM
-eval $ASM -o /tmp/IKJEFTRX.o         ~/repos/mvs/rexx370/src_ptf/IKJEFTRX.ASM
+eval $ASM -o /tmp/ikjeft01_patched.o ~/repos/mvs/rexx370/tso/IKJEFT01.ASM
+eval $ASM -o /tmp/IKJEFTRX.o         ~/repos/mvs/rexx370/tso/IKJEFTRX.ASM
 # die zwei Begleiter aus mvs38src
 eval $ASM -o /tmp/IKJEFT06.o src/IKJEFT06.ASM
 eval $ASM -o /tmp/IKJEFTSC.o src/IKJEFTSC.ASM
