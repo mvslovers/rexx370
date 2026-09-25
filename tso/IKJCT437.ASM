@@ -19,9 +19,17 @@
 *  free: NULL or no 'ENVBLOCK' eye-catcher means part A never ran, so
 *  we load nothing at all and hand the exec back to CLIST.
 *
-*  One IRXLOAD call, not two.  IRXLOAD searches SYSEXEC then SYSPROC
-*  and since rexx370 #222 records the DD that answered in
-*  instblk_ddname.  That single field is the whole language decision:
+*  The exec is loaded through the environment's OWN exec load routine
+*  (IRXEXTE load_routine, named in MODNAMET EXROUT), not by LOADing
+*  IRXLOAD: IRXLOAD reads through stdio and needs a C runtime this
+*  address space does not have (S0C4 in __CRTGET, JOB01171/JOB01209).
+*  Under IRXTSPRM the routine is IRXLDTSO, which reads through BPAM
+*  (rexx370 #230).  No load routine -> hand the exec back to CLIST.
+*  Called the SC28-1883-0 Ch. 16 way: R0 = ENVBLOCK, three slots.
+*
+*  One LOAD call, not two.  The load routine searches SYSEXEC then
+*  SYSPROC and records the DD that answered in instblk_ddname
+*  (rexx370 #222).  That single field is the whole language decision:
 *
 *      SYSEXEC  -> REXX, no content check at all
 *      SYSPROC  -> CLIST unless line 1 is a comment containing REXX
@@ -60,6 +68,8 @@ R14      EQU   14
 R15      EQU   15
 CPPLECT  EQU   12                 CPPL -> ECT
 ECTENVBK EQU   X'30'              ECT  -> ENVBLOCK
+ENVEXTE  EQU   28                 ENVBLOCK -> IRXEXTE
+EXTELOAD EQU   8                  IRXEXTE  -> load_routine (EXROUT)
          PRINT GEN
 *
 IKJCT437 CSECT
@@ -106,21 +116,27 @@ IKJCT437 CSECT
          ST    R1,8(,R13)
          LR    R13,R1
          USING WAREA,R13
+         ST    R2,WENV            ENVBLOCK (R2 since C3, untouched)
          WTO   'C5 GETMAIN OK'
 *
-* --- EXECBLK: member from the caller, DD left blank so IRXLOAD
-*     runs its own SYSEXEC-then-SYSPROC search ---
+* --- EXECBLK: member from the caller, DD left blank so the load
+*     routine runs its own SYSEXEC-then-SYSPROC search ---
          MVC   WEXECB(8),EXECBEYE
          MVC   WEXECBLN,=A(48)
          MVC   WEXECBMB,0(R6)     member
          MVC   WEXECBDD,BLANK8    blank = search
          WTO   'C6 EXECBLK BUILT'
 *
-         LOAD  EP=IRXLOAD,ERRET=FREEWA
-         LR    R2,R0
-         ST    R0,WLOADEP         keep it -- FREE below reuses it
-         MVI   WLDFL,X'01'        ... and it is DELETEd exactly once
-         WTO   'C7 IRXLOAD LOADED'
+* --- this environment's exec load routine ---
+         L     R1,WENV
+         L     R1,ENVEXTE(,R1)    IRXEXTE
+         LTR   R1,R1
+         BZ    FREEWA
+         L     R1,EXTELOAD(,R1)   load_routine
+         LTR   R1,R1
+         BZ    FREEWA             none named -- let CLIST have it
+         ST    R1,WLOADEP
+         WTO   'C7 LOAD ROUTINE FOUND'
          LA    R1,FCLOAD
          ST    R1,WLVL+0          P1 function code
          LA    R1,WEXECB
@@ -128,18 +144,15 @@ IKJCT437 CSECT
          LA    R1,WLP2
          ST    R1,WLVL+4          P2 -> EXECBLK
          LA    R1,WINST
-         ST    R1,WLVL+8          P3 INSTBLK out
-         LA    R1,ZEROW
-         ST    R1,WLVL+12         P4 ENVBLOCK = default
-         LA    R1,WLRET
          O     R1,=X'80000000'
-         ST    R1,WLVL+16         P5 retcode, VL
+         ST    R1,WLVL+8          P3 INSTBLK out, VL
+         L     R0,WENV            R0 = ENVBLOCK
          LA    R1,WLVL
-         LR    R15,R2
+         L     R15,WLOADEP
          BALR  R14,R15
          LTR   R15,R15
          BNZ   FREEWA             no such exec -- let CLIST try
-         WTO   'C8 IRXLOAD RC0'
+         WTO   'C8 LOADED'
 *
 * --- the DD that answered IS the language decision ---
          L     R4,WINST
@@ -159,7 +172,7 @@ IKJCT437 CSECT
          LTR   R15,R15
          BZ    FREEINST           no REXX identifier -- it is a CLIST
 *
-* --- run it: INSTBLK in P4, ENVBLOCK NULL so IRXEXEC does FINDENVB
+* --- run it: INSTBLK in P4, and the ENVBLOCK we already checked
 RUNIT    DS    0H
          LOAD  EP=IRXEXEC,ERRET=FREEINST
          LR    R2,R0
@@ -175,10 +188,12 @@ RUNIT    DS    0H
          ST    R1,WXVL+20         P6 EVALBLOCK
          ST    R1,WXVL+24         P7 work area
          ST    R1,WXVL+28         P8 user field
-         ST    R1,WXVL+32         P9 ENVBLOCK -- NULL: FINDENVB
+         LA    R1,WENV
+         ST    R1,WXVL+32         P9 ENVBLOCK
          LA    R1,WXRC
          O     R1,=X'80000000'
          ST    R1,WXVL+36         P10 REXX RC, VL
+         L     R0,WENV            R0 = ENVBLOCK
          LA    R1,WXVL
          LR    R15,R2
          BALR  R14,R15
@@ -193,28 +208,18 @@ FREEINST DS    0H
          LA    R1,ZEROW
          ST    R1,WLVL+4
          LA    R1,WINST
-         ST    R1,WLVL+8
-         LA    R1,ZEROW
-         ST    R1,WLVL+12
-         LA    R1,WLRET
          O     R1,=X'80000000'
-         ST    R1,WLVL+16
-*  Reuse the entry point from the LOAD above.  A second LOAD would
-*  raise the use count once per implicitly invoked exec and never
-*  give it back -- on a 16 MB machine that is not a rounding error.
+         ST    R1,WLVL+8
+         L     R0,WENV
          L     R15,WLOADEP
-         LTR   R15,R15
-         BZ    FREEWA
          LA    R1,WLVL
          BALR  R14,R15
 *
 FREEWA   DS    0H
-*  DELETE before the FREEMAIN -- the flags live in the area we are
-*  about to hand back.
-         CLI   WLDFL,X'00'
-         BE    NODELLD
-         DELETE EP=IRXLOAD
-NODELLD  CLI   WEXFL,X'00'
+*  DELETE before the FREEMAIN -- the flag lives in the area we are
+*  about to hand back.  The load routine is not ours to DELETE:
+*  IRXINIT LOADed it for the environment and IRXTERM gives it back.
+         CLI   WEXFL,X'00'
          BE    NODELEX
          DELETE EP=IRXEXEC
 NODELEX  DS    0H
@@ -255,20 +260,22 @@ CHKLINE1 DS    0H
          L     R2,20(,R4)         usedlen; zero means no lines
          LTR   R2,R2
          BZ    CL1DONE
-         L     R0,0(,R1)          entry.stmt address
-         L     R2,4(,R1)          entry.stmt length
-         LTR   R0,R0
+*  R0 cannot address anything: as a base register it means "no base",
+*  so CLC 0(2,R0) compared PSA+0 with '/*' and every SYSPROC exec came
+*  out as CLIST (measured JOB01212, member RXB).  R1 carries it.
+         L     R2,4(,R1)          entry.stmt length -- before R1 moves
+         L     R1,0(,R1)          entry.stmt address
+         LTR   R1,R1
          BZ    CL1DONE
          C     R2,=F'2'
          BL    CL1DONE
-         CLC   0(2,R0),SLASHST    must start with '/*'
+         CLC   0(2,R1),SLASHST    must start with '/*'
          BNE   CL1DONE
 *  Positions for a 4-byte compare are len-3, not len-4, and the old
 *  BM let len=4 through with R2=0 -- BCT then wrapped to X'FFFFFFFF'
 *  and scanned off the end of storage.
          S     R2,=F'3'           number of start positions
          BNP   CL1DONE
-         LR    R1,R0
 CL1SCAN  CLC   0(4,R1),REXXLIT
          BE    CL1YES
          LA    R1,1(,R1)
@@ -303,15 +310,14 @@ WEXECBDD DS    CL8
          DS    F
          DS    F
 WEXECBL  EQU   *-WEXECB
-WINST    DS    A                  INSTBLK pointer (IRXLOAD output)
-WLVL     DS    5A                 IRXLOAD VLIST
+WINST    DS    A                  INSTBLK pointer (LOAD output)
+WLVL     DS    3A                 load routine VLIST
 WLP2     DS    A
-WLRET    DS    F
 WXVL     DS    10A                IRXEXEC VLIST
 WXRC     DS    F
-WLOADEP  DS    A                  IRXLOAD entry point, LOADed once
+WLOADEP  DS    A                  load_routine entry (IRXEXTE)
+WENV     DS    A                  ENVBLOCK from ECTENVBK
 WHANDLED DS    X                  X'01' = the exec was run
-WLDFL    DS    X                  X'01' = IRXLOAD is loaded
 WEXFL    DS    X                  X'01' = IRXEXEC is loaded
          DS    0F
 WALEN    EQU   *-WAREA
