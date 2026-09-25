@@ -260,6 +260,73 @@ static void test_allocator_bridge(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  The bridge outlives the module that installed its callbacks       */
+/*  (#239). Under TSO the env lives for the whole session, but each   */
+/*  exec runs in a freshly LOADed IRXEXEC that is deleted afterwards. */
+/*  The callbacks cached by the first exec then point into a module   */
+/*  that is gone. Simulate that by planting foreign functions -- as   */
+/*  if a previous copy of the module had installed them -- and        */
+/*  require the next irx_lstr_init() to install its own again.        */
+/* ------------------------------------------------------------------ */
+
+static void *stale_alloc(size_t size, void *ctx)
+{
+    (void)size;
+    (void)ctx;
+    return NULL;
+}
+
+static void stale_dealloc(void *ptr, size_t size, void *ctx)
+{
+    (void)ptr;
+    (void)size;
+    (void)ctx;
+}
+
+static void test_allocator_rebinds_callbacks(void)
+{
+    struct envblock *env = NULL;
+    struct lstr_alloc *alloc;
+    struct lstr_alloc *again;
+    void *(*own_alloc)(size_t, void *);
+    void (*own_dealloc)(void *, size_t, void *);
+    int rc;
+
+    printf("\n--- Test: irx_lstr_init re-binds stale callbacks (#239) ---\n");
+
+    rc = irxinit(NULL, &env);
+    CHECK(rc == 0 && env != NULL, "irxinit succeeds");
+    if (env == NULL)
+    {
+        return;
+    }
+
+    alloc = irx_lstr_init(env);
+    CHECK(alloc != NULL, "irx_lstr_init returns the bridge");
+    if (alloc == NULL)
+    {
+        irxterm(env);
+        return;
+    }
+    own_alloc = alloc->alloc;
+    own_dealloc = alloc->dealloc;
+
+    alloc->alloc = stale_alloc;
+    alloc->dealloc = stale_dealloc;
+
+    again = irx_lstr_init(env);
+    CHECK(again == alloc, "the cached bridge is reused, not reallocated");
+    CHECK(again->alloc == own_alloc,
+          "alloc callback re-bound to this module");
+    CHECK(again->dealloc == own_dealloc,
+          "dealloc callback re-bound to this module");
+    CHECK(again->ctx == env, "ctx still the envblock");
+
+    rc = irxterm(env);
+    CHECK(rc == 0, "irxterm succeeds");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -273,6 +340,7 @@ int main(void)
     test_datatype_numeric();
     test_datatype_classifiers();
     test_allocator_bridge();
+    test_allocator_rebinds_callbacks();
 
     printf("\n=== Results: %d/%d passed",
            tests_passed, tests_run);
