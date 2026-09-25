@@ -115,9 +115,11 @@ IKJEFTRX CSECT
          LA    R1,WVLIST
          LR    R15,R2
          BALR  R14,R15
-         LTR   R15,R15
-         BNZ   RELEASE            bad RC - stay silent, TSO goes on
-         WTO   'IKJ56942I REXX/370 TSO ENVIRONMENT INITIALIZED'
+*  No message either way.  Success shows itself: the first exec
+*  from SYSEXEC runs as REXX.  A failed IRXINIT leaves ECTENVBK
+*  empty, IKJCT437 then hands every exec back to CLIST, and TSO
+*  goes on as without REXX/370.  (IKJ56942I, which said so at
+*  every logon, is gone.)
 *
 RELEASE  DS    0H
          LR    R1,R13             our workarea

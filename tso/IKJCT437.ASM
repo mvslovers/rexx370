@@ -1,12 +1,16 @@
          TITLE 'IKJCT437 - REXX/370 EXEC CLASSIFIER AND RUNNER'
 *
-*  IKJCT437 - Decide whether an implicitly invoked exec is REXX and,
-*             if it is, run it.  Called from IKJCT430 where the
-*             implicit member name is known and nothing has been
-*             allocated or opened yet.
+*  IKJCT437 - Decide whether an exec is REXX and, if it is, run it.
+*             Called from IKJCT430 before anything is stacked.
 *
-*  Entry   R0  -> CPPL          (for the ECT, hence ECTENVBK)
+*  Entry IKJCT437  implicit (%name / name): the load routine searches
 *          R1  -> CL8 member name, blank padded
+*  Entry IKJCT43C  explicit EXEC 'ds(mem)': REXX only if line 1 is a
+*                  comment containing REXX, whatever the library
+*  Entry IKJCT43F  explicit EXEC 'ds(mem)' EXEC: REXX, forced
+*          R1  -> CL8 member, then CL8 DD name (the DD DAIR
+*                 allocated), 16 contiguous bytes
+*  All     R0  -> CPPL          (for the ECT, hence ECTENVBK)
 *          R13 -> caller savearea,  R14 -> return
 *  Exit    R15 = 0   not REXX -- IKJCT430 carries on with CLIST
 *          R15 = 4   was REXX, already executed
@@ -62,6 +66,7 @@ R3       EQU   3
 R4       EQU   4
 R5       EQU   5
 R6       EQU   6
+R7       EQU   7
 R12      EQU   12
 R13      EQU   13
 R14      EQU   14
@@ -73,8 +78,19 @@ EXTELOAD EQU   8                  IRXEXTE  -> load_routine (EXROUT)
          PRINT GEN
 *
 IKJCT437 CSECT
+*  Three entries share one body; R7 carries the mode.  Each entry
+*  branches through its own address in R15, so none needs a base.
          STM   R14,R12,12(R13)
-         BALR  R12,0
+         SR    R7,R7              mode 0: implicit
+         B     COMMON-IKJCT437(,R15)
+         ENTRY IKJCT43C
+IKJCT43C STM   R14,R12,12(R13)
+         LA    R7,MODEC           mode 1: explicit, line 1 decides
+         B     COMMON-IKJCT43C(,R15)
+         ENTRY IKJCT43F
+IKJCT43F STM   R14,R12,12(R13)
+         LA    R7,MODEF           mode 2: explicit, forced
+COMMON   BALR  R12,0
          USING *,R12
          LR    R5,R0              CPPL
          LR    R6,R1              -> member name
@@ -114,12 +130,17 @@ IKJCT437 CSECT
          USING WAREA,R13
          ST    R2,WENV            ENVBLOCK (R2 since C3, untouched)
 *
-* --- EXECBLK: member from the caller, DD left blank so the load
-*     routine runs its own SYSEXEC-then-SYSPROC search ---
+* --- EXECBLK: member from the caller.  Implicit: DD blank, so the
+*     load routine runs its own search (LOADDD, then SYSPROC).
+*     Explicit: the DD DAIR allocated, and nothing else ---
          MVC   WEXECB(8),EXECBEYE
          MVC   WEXECBLN,=A(48)
          MVC   WEXECBMB,0(R6)     member
          MVC   WEXECBDD,BLANK8    blank = search
+         LTR   R7,R7
+         BZ    EXBDONE
+         MVC   WEXECBDD,8(R6)     explicit: the allocated DD
+EXBDONE  DS    0H
 *
 * --- this environment's exec load routine ---
          L     R1,WENV
@@ -155,11 +176,19 @@ IKJCT437 CSECT
 *      +0 acronym(8)  +8 hdrlen  +12 filler  +16 address
 *     +20 usedlen    +24 member(8)          +32 ddname(8)
 *  and they sum to the documented 128-byte header.
-         CLC   32(8,R4),DDEXEC    instblk_ddname = 'SYSEXEC '?
+*  Explicit: the EXEC keyword forces REXX; without it line 1
+*  decides, whatever library the data set is (measured on z/OS: a
+*  CLIST in a SYSEXEC data set runs as CLIST when named explicitly).
+*  Implicit: SYSPROC needs the REXX comment, every other DD -- the
+*  LOADDD, SYSEXEC unless the parameters module names another --
+*  holds REXX only (SC28-1883-0 p. 7).
+         C     R7,=A(MODEF)
          BE    RUNIT
+         LTR   R7,R7
+         BNZ   CHKIT
          CLC   32(8,R4),DDPROC    'SYSPROC ' -- then line 1 decides
-         BNE   FREEINST
-         BAL   R11,CHKLINE1
+         BNE   RUNIT
+CHKIT    BAL   R11,CHKLINE1
          LTR   R15,R15
          BZ    FREEINST           no REXX identifier -- it is a CLIST
 *
@@ -278,7 +307,6 @@ CL1DONE  BR    R11
 * --- read-only static data (RENT-safe) ---
 ENVBEYE  DC    C'ENVBLOCK'
 EXECBEYE DC    C'IRXEXECB'
-DDEXEC   DC    CL8'SYSEXEC'
 DDPROC   DC    CL8'SYSPROC'
 BLANK8   DC    CL8' '
 FCLOAD   DC    CL8'LOAD'
@@ -286,6 +314,8 @@ FCFREE   DC    CL8'FREE'
 SLASHST  DC    C'/*'
 REXXLIT  DC    C'REXX'
 ZEROW    DC    F'0'
+MODEC    EQU   1
+MODEF    EQU   2
 *
          LTORG
 *
