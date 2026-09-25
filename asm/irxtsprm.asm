@@ -44,7 +44,10 @@ MODNAMET DC    CL8'SYSTSIN '       DD names (3 fields)
 *  TPUT either: it does nothing in the background TMP.  IRXINIT
 *  LOADs this by name; blank here would keep the default.  WP-33-TSO.
          DC    CL8'IRXIOTSO'       IORT   I/O routine
-         DC    CL8'        '       EXROUT exec load routine
+*  EXROUT -- the exec load routine.  IRXLOAD reads members through
+*  stdio, which needs a C runtime; IRXLDTSO is the same load logic
+*  with a BPAM reader that needs none.  GitHub #230.
+         DC    CL8'IRXLDTSO'       EXROUT exec load routine
          DC    CL8'        '
          DC    CL8'        '
          DC    CL8'        '

@@ -64,6 +64,30 @@
 *
 *  (c) 2026 mvslovers - REXX/370 Project
 *
+*
+*  WHAT THIS WRAPPER GIVES YOU, AND WHAT IT DOES NOT
+*
+*  It builds the PDP-DSA with DSANAB -> WPOOL, i.e. the STACK that
+*  c2asm370-compiled code expects in its prologue.  That is what makes
+*  the service callable from pure HLASM (see test/asm/texecvl.asm).
+*
+*  It does NOT build a C RUNTIME (CLIBPPA/CLIBCRT).  @@CRT0 anchors the
+*  PPA as the "next" pointer of the first save area (TCBFSA+8) and
+*  creates PPA, CRT, GRT and the FILE table together; @@PPAGET finds it
+*  by walking TCBFSAB, then owner TCBs, then the save-area back-chain.
+*  A wrapper cannot bolt that on cheaply, and must not create a second
+*  PPA when a C host already supplied one -- that would shadow the
+*  caller's errno and FILE table.
+*
+*  Consequence: everything that only COMPUTES is fine from assembler --
+*  the interpreter core, sprintf, gmtime64_r, irxstor (getmain on MVS).
+*  Anything touching libc STATE is not: stdio needs the CRT.  The one
+*  such use on the exec path is IRXLOAD's member reader (fopen
+*  "DD:dd(member)"); an assembler caller loads through IRXLDTSO
+*  instead, the exec load routine IRXTSPRM names in MODNAMET EXROUT,
+*  whose BPAM reader needs no runtime (GitHub #230).  Measured
+*  2026-09-24 with IRXLOAD: S0C4 after "__CRTGET CRT for TCB(...) not
+*  found in PPA(00000000)".
          PRINT NOGEN
 R0       EQU   0
 R1       EQU   1

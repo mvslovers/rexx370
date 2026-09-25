@@ -12,13 +12,22 @@
 /* Function codes (CL8, blank-padded). */
 #define IRXLOAD_FC_LOAD "LOAD    "
 #define IRXLOAD_FC_FREE "FREE    "
+/* The remaining functions of the exec load routine (SC28-1883-0 Chapter
+ * 16, p. 359). None needs work here; see irx_load_dispatch(). */
+#define IRXLOAD_FC_INIT    "INIT    "
+#define IRXLOAD_FC_TERM    "TERM    "
+#define IRXLOAD_FC_STATUS  "STATUS  "
+#define IRXLOAD_FC_CLOSEDD "CLOSEDD "
 
 /* Return codes. */
 #define IRXLOAD_OK    0     /* success */
 #define IRXLOAD_NOMEM 4     /* storage not available; also returned when an \
                              * exec exceeds available environment storage */
-#define IRXLOAD_NOTFOUND 8  /* member or DD not found */
-#define IRXLOAD_ERROR    20 /* invalid argument / bad eye-catcher */
+#define IRXLOAD_NOTLOADED 4 /* STATUS only: exec not currently loaded */
+#define IRXLOAD_NOTFOUND  8 /* member or DD not found. SC28-1883-0 says -3; \
+                             * 8 is kept because irx#jcl.c and IKJCT437     \
+                             * already test for it */
+#define IRXLOAD_ERROR 20    /* invalid argument / bad eye-catcher */
 
 /* IRXLOAD VLIST follows the z/OS-stage of the spec, not V1.
  * SC28-1883-0 §14 (V1, Dec 1988) defined three parameters

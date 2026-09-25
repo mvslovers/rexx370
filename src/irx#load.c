@@ -2,9 +2,12 @@
 **
 ** Implements the IRXLOAD Programming Service per SC28-1883-0 §14.
 **
-** LOAD: locates a REXX exec in a PDS (MVS: QSAM via fopen) or flat file (host),
+** LOAD: locates a REXX exec in a PDS (MVS: through the reader linked with
+**       this module, see irxldrd.h) or flat file (host),
 **       reads all source lines into an INSTBLK, and returns a pointer.
 ** FREE: releases the INSTBLK and its source pool allocated by LOAD.
+** INIT, TERM, CLOSEDD: nothing to do (no DD outlives a LOAD), RC 0.
+** STATUS: nothing is cached, so RC 4 (not loaded) and INSTBLK 0.
 **
 ** DD search order (per ticket WP-CPS-07):
 **   1. EXECBLK_DDNAME if non-blank
@@ -38,11 +41,13 @@
 #include "irx.h"
 #include "irxfunc.h"
 #include "irxinstb.h"
+#include "irxldrd.h"
 #include "irxload.h"
 
-#ifdef __MVS__
-#include <stdio.h>
-#else
+/* stdio on the host only: on MVS the reading is done behind
+ * irx_ld_read_member() (irxldrd.h), and this file must stay free of
+ * anything that needs a C runtime -- IRXLDTSO links it too. */
+#ifndef __MVS__
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,13 +64,6 @@ typedef char instblk_hdrlen_ok_[(sizeof(struct instblk) == INSTBLK_HDRLEN) ? 1 :
  * Assert pointer fits in the 8-byte _filler4 field (int[2] on MVS = 8 B,
  * same on 64-bit host). */
 typedef char instblk_filler4_fits_[(sizeof(void *) <= sizeof(((struct instblk *)0)->_filler4)) ? 1 : -1];
-
-/* Per-line accumulation entry during single-pass source read. */
-struct line_info
-{
-    int offset; /* byte offset of this line's start in temp source pool */
-    int length; /* line byte count (trailing spaces stripped) */
-};
 
 /* Initial capacities for growable accumulation buffers.
  * Both tables double on exhaust; allocation failure returns IRXLOAD_NOMEM. */
@@ -111,6 +109,52 @@ static int grow_pool(void **buf, int *cur_cap, int new_cap,
     irxstor(RXSMFRE, 0, buf, envblk);
     *buf = nb;
     *cur_cap = new_cap;
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  irx_ld_add_line - append one line to a LOAD's accumulation        */
+/*                                                                    */
+/*  Shared by every reader (irxldrd.h), so a line means the same      */
+/*  thing whichever one is linked: CR, LF and trailing blanks are     */
+/*  stripped, nothing else.                                           */
+/* ------------------------------------------------------------------ */
+int irx_ld_add_line(struct irx_ld_acc *acc, const char *text, int len)
+{
+    while (len > 0 && (text[len - 1] == '\n' || text[len - 1] == '\r' ||
+                       text[len - 1] == ' '))
+    {
+        --len;
+    }
+    if (acc->n >= acc->lt_cap / (int)sizeof(struct line_info))
+    {
+        if (grow_pool((void **)&acc->lt, &acc->lt_cap, acc->lt_cap * 2,
+                      acc->env) != 0)
+        {
+            return IRXLOAD_NOMEM;
+        }
+    }
+    if (len > 0 && acc->total + len > acc->tsrc_cap)
+    {
+        int new_cap = acc->tsrc_cap * 2;
+        if (new_cap < acc->total + len)
+        {
+            new_cap = (acc->total + len) * 2;
+        }
+        if (grow_pool((void **)&acc->tsrc, &acc->tsrc_cap, new_cap,
+                      acc->env) != 0)
+        {
+            return IRXLOAD_NOMEM;
+        }
+    }
+    acc->lt[acc->n].offset = acc->total;
+    acc->lt[acc->n].length = len;
+    if (len > 0)
+    {
+        memcpy(acc->tsrc + acc->total, text, (size_t)len);
+    }
+    acc->total += len;
+    acc->n++;
     return 0;
 }
 
@@ -245,146 +289,20 @@ cleanup:
 }
 
 /* ================================================================== */
-/*  MVS QSAM path (fopen/fgets via crent370)                          */
-/* ================================================================== */
-#ifdef __MVS__
-
-/* scan_member — read all source lines of a PDS member via QSAM fopen.
- *
- * Builds "DD:ddname(MEMBER)" and delegates to crent370 fopen, which
- * handles BLDL member positioning internally.  Each fgets call returns
- * one logical record; trailing spaces and newline are stripped.
- *
- * On entry *lt_p/*lt_cap and *tsrc_p/*tsrc_cap describe caller-supplied
- * growable buffers.  On success the buffers (and caps) may have grown.
- * Returns 0 on success, IRXLOAD_NOTFOUND if the DD or member is absent,
- * or IRXLOAD_NOMEM if a reallocation fails.
- */
-static int scan_member(const char *ddname,
-                       const unsigned char *member8,
-                       struct envblock *envblk,
-                       struct line_info **lt_p, int *lt_cap,
-                       char **tsrc_p, int *tsrc_cap,
-                       int *n_out, int *total_out)
-{
-    /* "DD:" + 8-char ddname + "(" + 8-char member + ")" + NUL = 22 bytes */
-    char dd_spec[22];
-    int mlen;
-    int i;
-    char *p;
-    struct line_info *lt;
-    char *tsrc;
-    /* FB LRECL=80 + '\n' + '\0' = 82; 256 is ample */
-    char linebuf[256];
-    FILE *f;
-    int n = 0;
-    int total = 0;
-    int rc = 0;
-
-    /* Strip trailing blanks from the CL8 member name. */
-    mlen = CL8_LEN;
-    while (mlen > 0 && member8[mlen - 1] == ' ')
-    {
-        --mlen;
-    }
-
-    p = dd_spec;
-    memcpy(p, "DD:", 3);
-    p += 3;
-    for (i = 0; ddname[i] && i < CL8_LEN; i++)
-    {
-        *p++ = ddname[i];
-    }
-    *p++ = '(';
-    for (i = 0; i < mlen; i++)
-    {
-        *p++ = (char)member8[i];
-    }
-    *p++ = ')';
-    *p = '\0';
-
-    f = fopen(dd_spec, "r");
-    if (!f)
-    {
-        return IRXLOAD_NOTFOUND;
-    }
-
-    lt = *lt_p;
-    tsrc = *tsrc_p;
-
-    while (fgets(linebuf, (int)sizeof(linebuf), f))
-    {
-        int len = (int)strlen(linebuf);
-        /* Strip newline, carriage return, and trailing spaces. */
-        while (len > 0 &&
-               (linebuf[len - 1] == '\n' ||
-                linebuf[len - 1] == '\r' ||
-                linebuf[len - 1] == ' '))
-        {
-            --len;
-        }
-        if (n >= *lt_cap / (int)sizeof(struct line_info))
-        {
-            if (grow_pool((void **)lt_p, lt_cap, *lt_cap * 2, envblk) != 0)
-            {
-                rc = IRXLOAD_NOMEM;
-                goto done;
-            }
-            lt = *lt_p;
-        }
-        if (len > 0 && total + len > *tsrc_cap)
-        {
-            int new_cap = *tsrc_cap * 2;
-            if (new_cap < total + len)
-            {
-                new_cap = (total + len) * 2;
-            }
-            if (grow_pool((void **)tsrc_p, tsrc_cap, new_cap, envblk) != 0)
-            {
-                rc = IRXLOAD_NOMEM;
-                goto done;
-            }
-            tsrc = *tsrc_p;
-        }
-        lt[n].offset = total;
-        lt[n].length = len;
-        if (len > 0)
-        {
-            memcpy(tsrc + total, linebuf, (size_t)len);
-        }
-        total += len;
-        n++;
-    }
-
-done:
-    fclose(f);
-    if (rc == 0)
-    {
-        *n_out = n;
-        *total_out = total;
-    }
-    return rc;
-}
-
-#endif /* __MVS__ */
-
-/* ================================================================== */
 /*  irx_load_load — LOAD function code implementation                 */
 /* ================================================================== */
 static int irx_load_load(struct execblk *execblk,
                          struct instblk **instblk_p,
                          struct envblock *envblk)
 {
-    struct line_info *lt = NULL;
-    char *tsrc = NULL;
-    int lt_cap = 0;
-    int tsrc_cap = 0;
-    int n = 0;
-    int total = 0;
+    struct irx_ld_acc acc;
     int found = 0;
     /* The DD that actually answered; blank until something is found. */
     unsigned char found_dd[8] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
     int rc = IRXLOAD_NOTFOUND;
+
+    memset(&acc, 0, sizeof(acc));
+    acc.env = envblk;
 
     /* Validate EXECBLK. */
     if (!execblk ||
@@ -395,170 +313,81 @@ static int irx_load_load(struct execblk *execblk,
     }
 
     /* Allocate temp accumulation buffers at initial capacity. */
-    lt_cap = IRXLOAD_INIT_LINES * (int)sizeof(struct line_info);
-    tsrc_cap = IRXLOAD_INIT_SRCBYTES;
-    ALLOC(lt, lt_cap, envblk);
-    ALLOC(tsrc, tsrc_cap, envblk);
+    acc.lt_cap = IRXLOAD_INIT_LINES * (int)sizeof(struct line_info);
+    acc.tsrc_cap = IRXLOAD_INIT_SRCBYTES;
+    ALLOC(acc.lt, acc.lt_cap, envblk);
+    ALLOC(acc.tsrc, acc.tsrc_cap, envblk);
+
+    char dd_hint[CL8_BUFLEN];
+    trim8(execblk->exec_ddname, dd_hint);
+
+    /* DD search list: the caller's DD alone, or SYSEXEC then SYSPROC. */
+    const char *try_dds[2];
+    int nd = 0;
+    if (dd_hint[0] != '\0')
+    {
+        try_dds[nd++] = dd_hint;
+    }
+    else
+    {
+        try_dds[nd++] = "SYSEXEC";
+        try_dds[nd++] = "SYSPROC";
+    }
+
+    for (int di = 0; di < nd && !found; di++)
+    {
+        /* A DD that did not answer contributes nothing. */
+        acc.n = 0;
+        acc.total = 0;
 
 #ifdef __MVS__
-    {
-        char dd_hint[CL8_BUFLEN];
-        trim8(execblk->exec_ddname, dd_hint);
-
-        if (dd_hint[0] != '\0')
+        int sr = irx_ld_read_member(try_dds[di], execblk->exec_member, &acc);
+        if (sr == IRXLOAD_NOTFOUND)
         {
-            /* Caller supplied a specific DD — use only that. */
-            int sr = scan_member(dd_hint, execblk->exec_member, envblk,
-                                 &lt, &lt_cap, &tsrc, &tsrc_cap,
-                                 &n, &total);
-            if (sr == 0)
-            {
-                found = 1;
-                set_found_dd(found_dd, dd_hint);
-            }
-            else if (sr == IRXLOAD_NOMEM)
-            {
-                rc = IRXLOAD_NOMEM;
-                goto cleanup;
-            }
+            continue;
         }
-        else
+        if (sr != 0)
         {
-            /* Standard search order: SYSEXEC first, then SYSPROC. */
-            const char *dds[] = {"SYSEXEC", "SYSPROC"};
-            int di;
-            for (di = 0; di < 2 && !found; di++)
-            {
-                int sr = scan_member(dds[di], execblk->exec_member, envblk,
-                                     &lt, &lt_cap, &tsrc, &tsrc_cap,
-                                     &n, &total);
-                if (sr == 0)
-                {
-                    found = 1;
-                    set_found_dd(found_dd, dds[di]);
-                }
-                else if (sr == IRXLOAD_NOMEM)
-                {
-                    rc = IRXLOAD_NOMEM;
-                    goto cleanup;
-                }
-            }
+            rc = sr;
+            goto cleanup;
         }
-    }
 #else
-    {
-        char dd_hint[CL8_BUFLEN];
+        /* Host: the DD name is an environment variable holding a
+         * directory, the member a file <MEMBER>.rex in it. */
         char mname[CL8_BUFLEN];
         char fpath[512];
-
-        trim8(execblk->exec_ddname, dd_hint);
         trim8(execblk->exec_member, mname);
-
-        /* Uppercase member name for filesystem lookup. */
+        for (int i = 0; mname[i]; i++)
         {
-            int i;
-            for (i = 0; mname[i]; i++)
-            {
-                mname[i] = (char)toupper((unsigned char)mname[i]);
-            }
+            mname[i] = (char)toupper((unsigned char)mname[i]);
         }
-
-        /* Build DD search list.
-         * On host, getenv("SYSEXEC") etc. return directory paths set by the
-         * test harness.  If a DD-name env var is not set, skip that DD. */
+        const char *dir = getenv(try_dds[di]);
+        if (!dir)
         {
-            const char *try_dds[3];
-            int nd = 0;
-
-            if (dd_hint[0] != '\0')
-            {
-                try_dds[nd++] = dd_hint;
-            }
-            else
-            {
-                try_dds[nd++] = "SYSEXEC";
-                try_dds[nd++] = "SYSPROC";
-            }
-
-            {
-                int di;
-                for (di = 0; di < nd && !found; di++)
-                {
-                    const char *dir = getenv(try_dds[di]);
-                    FILE *f;
-                    if (!dir)
-                    {
-                        continue;
-                    }
-                    snprintf(fpath, sizeof(fpath), "%s/%s.rex", dir, mname);
-                    f = fopen(fpath, "r");
-                    if (!f)
-                    {
-                        continue;
-                    }
-
-                    /* Single-pass: fgets each line into growable buffers. */
-                    {
-                        char linebuf[256];
-                        int read_ok = 1;
-                        while (fgets(linebuf, (int)sizeof(linebuf), f))
-                        {
-                            int len = (int)strlen(linebuf);
-                            /* Strip newline and trailing spaces. */
-                            while (len > 0 &&
-                                   (linebuf[len - 1] == '\n' ||
-                                    linebuf[len - 1] == '\r' ||
-                                    linebuf[len - 1] == ' '))
-                            {
-                                --len;
-                            }
-                            if (n >= lt_cap / (int)sizeof(struct line_info))
-                            {
-                                if (grow_pool((void **)&lt, &lt_cap,
-                                              lt_cap * 2, envblk) != 0)
-                                {
-                                    rc = IRXLOAD_NOMEM;
-                                    read_ok = 0;
-                                    break;
-                                }
-                            }
-                            if (len > 0 && total + len > tsrc_cap)
-                            {
-                                int new_cap = tsrc_cap * 2;
-                                if (new_cap < total + len)
-                                {
-                                    new_cap = (total + len) * 2;
-                                }
-                                if (grow_pool((void **)&tsrc, &tsrc_cap,
-                                              new_cap, envblk) != 0)
-                                {
-                                    rc = IRXLOAD_NOMEM;
-                                    read_ok = 0;
-                                    break;
-                                }
-                            }
-                            lt[n].offset = total;
-                            lt[n].length = len;
-                            if (len > 0)
-                            {
-                                memcpy(tsrc + total, linebuf, (size_t)len);
-                            }
-                            total += len;
-                            n++;
-                        }
-                        fclose(f);
-                        if (!read_ok)
-                        {
-                            goto cleanup;
-                        }
-                        found = 1;
-                        set_found_dd(found_dd, try_dds[di]);
-                    }
-                }
-            }
+            continue;
         }
+        snprintf(fpath, sizeof(fpath), "%s/%s.rex", dir, mname);
+        FILE *f = fopen(fpath, "r");
+        if (!f)
+        {
+            continue;
+        }
+        char linebuf[256];
+        int sr = 0;
+        while (sr == 0 && fgets(linebuf, (int)sizeof(linebuf), f))
+        {
+            sr = irx_ld_add_line(&acc, linebuf, (int)strlen(linebuf));
+        }
+        fclose(f);
+        if (sr != 0)
+        {
+            rc = sr;
+            goto cleanup;
+        }
+#endif
+        found = 1;
+        set_found_dd(found_dd, try_dds[di]);
     }
-#endif /* __MVS__ */
 
     if (!found)
     {
@@ -569,17 +398,17 @@ static int irx_load_load(struct execblk *execblk,
     rc = build_instblk(envblk, instblk_p,
                        execblk->exec_member,
                        found_dd,
-                       lt, n, tsrc, total);
+                       acc.lt, acc.n, acc.tsrc, acc.total);
 
 cleanup:
-    if (tsrc)
+    if (acc.tsrc)
     {
-        void *p = tsrc;
+        void *p = acc.tsrc;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
-    if (lt)
+    if (acc.lt)
     {
-        void *p = lt;
+        void *p = acc.lt;
         irxstor(RXSMFRE, 0, &p, envblk);
     }
     return rc;
@@ -651,6 +480,21 @@ int irx_load_dispatch(const char *funccode,
     else if (memcmp(funccode, IRXLOAD_FC_FREE, IRXLOAD_FC_LEN) == 0)
     {
         rc = irx_load_free(instblk_p, envblk);
+    }
+    else if (memcmp(funccode, IRXLOAD_FC_INIT, IRXLOAD_FC_LEN) == 0 ||
+             memcmp(funccode, IRXLOAD_FC_TERM, IRXLOAD_FC_LEN) == 0 ||
+             memcmp(funccode, IRXLOAD_FC_CLOSEDD, IRXLOAD_FC_LEN) == 0)
+    {
+        /* Nothing to set up or tear down: every LOAD opens and closes
+         * its DD itself, so no file outlives the call. */
+        rc = IRXLOAD_OK;
+    }
+    else if (memcmp(funccode, IRXLOAD_FC_STATUS, IRXLOAD_FC_LEN) == 0)
+    {
+        /* Nothing is cached, so no exec is "currently loaded" in the
+         * sense of SC28-1883-0 p. 361: INSTBLK 0 and RC 4. */
+        *instblk_p = NULL;
+        rc = IRXLOAD_NOTLOADED;
     }
     else
     {
