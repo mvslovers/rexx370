@@ -1,5 +1,53 @@
 # IKJCT437 — Sprachentscheidung beim impliziten Aufruf
 
+## Stand 2026-09-25 (Abend): Phase 3 — explizites EXEC, Regeln wie z/OS
+
+Die Regeln sind auf z/OS gemessen (Mike, Z07850, 2026-09-25). SC28-1883-0 nennt nur
+*"the exec keyword operand"* und keine Syntax.
+
+| Aufruf | Entscheidung |
+|---|---|
+| implizit, Member in SYSPROC | REXX nur mit `/* … REXX … */` in Zeile 1, sonst CLIST |
+| implizit, jeder andere DD (SYSEXEC, LOADDD) | REXX, ohne Prüfung (auch eine CLIST läuft dort als REXX) |
+| `EXEC 'ds(mem)'` | REXX nur mit diesem Kommentar, **egal aus welcher Bibliothek** |
+| `EXEC 'ds(mem)' EXEC` (auch `E`, `EX`, `EXE`) | REXX, erzwungen |
+| `EXEC name EXEC` | Suffix `.EXEC` statt `.CLIST` |
+
+Umsetzung:
+
+- **PARS**: `OPER3 IKJKEYWD / IKJNAME 'EXEC'`. Das PDE liegt bei PDL+44
+  (`PAR1PDL`), die älteren Felder verschieben sich nicht. Die Abkürzungen
+  nimmt IKJPARS von selbst an.
+- **Suffix**: eigener Zweig nach `OI DA08UID`. Ohne Schlüsselwort läuft der
+  IBM-Code unverändert.
+- **Expliziter Hook** nach dem Übernehmen des Member-Namens (`EX R4,@SM01405`):
+  - `IKJCT43C` prüft Zeile 1, `IKJCT43F` erzwingt REXX.
+  - R1 zeigt auf `PROCNAME` und `INDDNAME`, die in `@DATD` direkt hintereinander
+    liegen.
+  - Nach einem REXX-Lauf verlässt IKJCT430 die Verarbeitung über `@RC00450`.
+    Der IBM-Code gibt dort PDL und DD frei (`FREEPDL`, `UNALLOC`).
+- **IKJCT437**: drei Einstiege, R7 trägt den Modus. Implizit gilt jetzt "nicht
+  SYSPROC → REXX", denn mit #241 kann der LOADDD anders heißen als SYSEXEC.
+- **IKJEFTRX**: Die Meldung IKJ56942I beim Logon ist entfernt.
+- **Nicht unterstützt**: ein sequenzieller Dataset beim expliziten Aufruf. Der
+  BPAM-Leser braucht ein Member, also bleibt es CLIST (steht im Cover Letter).
+
+Tests: `tso/lab/exec_test.py` mit 23 Fällen (Tabelle im Skript).
+
+| Kombination | Job | Ergebnis |
+|---|---|---|
+| neuer TMP + neues EXEC | JOB01291 | 23/23 |
+| IBM-TMP (aus der Sicherung vor ZMG0002) + neues EXEC | JOB01296 | 23/23 |
+
+Unter dem IBM-TMP fällt alles auf CLIST zurück, und das Schlüsselwort wird
+trotzdem angenommen. Im Batch-TMP gibt es kein Präfix, der Test setzt
+`PROFILE PREFIX(IBMUSER)`. Die Meldung `IKJ56228I` von MVS 3.8 zeigt den Namen
+vor dem Präfix, DAIR hängt es trotzdem an.
+
+Nicht nachgebildet: `IKJ56479I … OR REXX IDENTIFIER IS MISSING`. Die Meldung
+kommt vom TMP beim CLIST-Befehl. Unter 3.8 erscheint `IKJ56500I`.
+
+
 ## Stand 2026-09-25 (Nachmittag): EXEC-Hook fertig, beide Kombinationen grün
 
 **Weg (b): kein Neubau von EXEC.** Ausgeliefert werden nur Objekt-Decks
