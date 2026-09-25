@@ -392,8 +392,15 @@ static int irx_load_load(struct execblk *execblk,
     char dd_hint[CL8_BUFLEN];
     trim8(execblk->exec_ddname, dd_hint);
 
-    /* DD search list: the caller's DD alone, or SYSEXEC then SYSPROC. */
+    /* DD search list: the caller's DD alone, or the environment's search
+     * (SC28-1883-0 p. 321): with NOLOADDD off the DD named in the
+     * MODNAMET LOADDD field (SYSEXEC when blank) and then SYSPROC, with
+     * NOLOADDD on SYSPROC only. No environment, no PARMBLOCK: SYSEXEC
+     * then SYSPROC, as before. SYSPROC is searched whatever TSOFL says;
+     * V2 limits it to TSO-integrated environments, which would change
+     * what IRXJCL finds in batch -- not done here. */
     const char *try_dds[2];
+    char loaddd[CL8_BUFLEN];
     int nd = 0;
     if (dd_hint[0] != '\0')
     {
@@ -401,7 +408,28 @@ static int irx_load_load(struct execblk *execblk,
     }
     else
     {
-        try_dds[nd++] = "SYSEXEC";
+        const struct parmblock *pb =
+            envblk != NULL
+                ? (const struct parmblock *)envblk->envblock_parmblock
+                : NULL;
+        const struct modnamet *mn =
+            pb != NULL ? (const struct modnamet *)pb->parmblock_modnamet
+                       : NULL;
+
+        strcpy(loaddd, "SYSEXEC");
+        if (mn != NULL)
+        {
+            char named[CL8_BUFLEN];
+            trim8(mn->modnamet_loaddd, named);
+            if (named[0] != '\0')
+            {
+                strcpy(loaddd, named);
+            }
+        }
+        if (pb == NULL || !pb->noloaddd)
+        {
+            try_dds[nd++] = loaddd;
+        }
         try_dds[nd++] = "SYSPROC";
     }
 
