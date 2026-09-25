@@ -274,6 +274,14 @@ needed for a *complete* REXX.
 > `CLAUDE.md` describe the current rule (#224). Measured on mvsdev: JOB01181
 > (failing), JOB01183 (green, batch + TSO).
 
+> **2026-09-25 — EXROUT shipped (#230).** A TSO environment loads execs
+> through IRXLDTSO, the exec load routine IRXTSPRM names in MODNAMET EXROUT.
+> It uses the same load logic as IRXLOAD, with a BPAM reader in place of fopen,
+> so it needs no C runtime. Acceptance test: TLDTSO, pure assembler without
+> @@CRT0, runs IRXINIT → load_routine (three-slot form, R0 = ENVBLOCK) →
+> IRXEXEC → FREE → IRXTERM, and the exec's SAY reaches SYSTSPRT through
+> IRXIOTSO (JOB01197). The caller in IKJCT437 comes next.
+
 > **2026-09-24 — WP-33-TSO output shipped (#228).** A TSO environment gets its
 > own I/O routine, IRXIOTSO, loaded by name through the MODNAMET of IRXTSPRM
 > and deleted by IRXTERM; batch keeps the stdio routine. It writes through
@@ -302,8 +310,10 @@ Candidates to verify (not a committed work list until inventoried):
   `anch_tso()` in favour of `is_tso()`.
 - **FINDENVB self-healing cache + cross-subtask discovery.**
 - **USERID non-TSO batch** — ACEE/JCT walk replacing the MVSUSER literal fallback.
-- **Research** — IRXINT vs IRXINIT engine/API split; replaceable-routine
-  load-module strategy (aliases vs own modules).
+- **Research** — IRXINT vs IRXINIT engine/API split. (The replaceable-routine
+  load-module question is settled: each non-default routine is its own load
+  module, named in the environment's MODNAMET, loaded by IRXINIT and deleted by
+  IRXTERM. IRXIOTSO in #228 and IRXLDTSO in #230 follow this pattern.)
 - **WP-33b** — PULL / LINEIN for TSO environments via GETLINE. The output half
   (WP-33-TSO) shipped in #228; IRXIOTSO returns 20 for reads until then.
 

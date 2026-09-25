@@ -179,7 +179,22 @@ sources = [
 name = "IRXLOAD"
 entry = "IRXLOAD"
 startup = false
-sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#stor.c"]
+sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#ldqs.c", "src/irx#stor.c"]
+
+# ---------------------------------------------------------------
+# IRXLDTSO - the exec load routine for TSO environments (GitHub #230).
+# The same wrapper and load logic as IRXLOAD, linked with a different
+# member reader: BPAM through asm/irxbpam.asm instead of fopen. stdio
+# needs a C runtime, and a TSO address space driven from assembler has
+# none -- IRXLOAD's LOAD ABENDs S0C4 there. IRXTSPRM names IRXLDTSO in
+# MODNAMET EXROUT, IRXINIT LOADs it into IRXEXTE's load_routine, and
+# IRXTERM DELETEs it. The entry point is the wrapper's CSECT IRXLOAD.
+# ---------------------------------------------------------------
+[[module]]
+name = "IRXLDTSO"
+entry = "IRXLOAD"
+startup = false
+sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#ldbp.c", "asm/irxbpam.asm", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
 # IRXEXEC - HLASM Entry-Point Wrapper for the IRXEXEC Programming
@@ -311,7 +326,7 @@ startup = "crt1"
 sources = [
   "src/irx#jclm.c",
   "src/irx#jcl.c",
-  "src/irx#load.c",
+  "src/irx#load.c", "src/irx#ldqs.c",
   "src/irx#exec.c",
   "src/irx#bcom.c",
   "src/irx#bvm.c",
@@ -724,6 +739,71 @@ sources = [
   "src/irx#arith.c",
   "asm/istso.asm",
 ]
+
+# ---------------------------------------------------------------
+# TSTLDTSO - EXROUT: the exec load routine is chosen per environment
+# (GitHub #230). TSO leg: IRXTSPRM names IRXLDTSO, and the fixture exec
+# is loaded THROUGH IRXEXTE's load_routine and compared line by line
+# with IRXLOAD's stdio reader linked into this program. Batch leg:
+# EXROUT blank, load_routine NULL. TLDTSOX has 49 records, so FB
+# 80/3120 gives a full block and a short one -- the case a reader gets
+# wrong while still returning 0.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTLDTSO"
+startup = "crt1"
+parm_batch = "0"
+parm_tso = "1"
+sources = [
+  "test/tstldtso.c",
+  "src/irx#load.c",
+  "src/irx#ldqs.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+[[test.fixture]]
+dd = "SYSEXEC"
+members = ["test/fixtures/tldtso/TLDTSOX"]
+
+# ---------------------------------------------------------------
+# TLDTSO - the acceptance test for EXROUT (GitHub #230): pure
+# assembler, no @@CRT0, so no C runtime in the task. IRXINIT ->
+# load_routine (the three-slot form with R0 = ENVBLOCK) -> IRXEXEC ->
+# FREE -> IRXTERM, all through the production modules on STEPLIB. The
+# exec's exit value (45) proves every record arrived; its SAY goes
+# through IRXIOTSO and must be read in SYSTSPRT, not taken from an RC.
+# PARM '1' = TSO leg; the batch leg checks load_routine is 0.
+# ---------------------------------------------------------------
+[[test]]
+name = "TLDTSO"
+entry = "TLDTSO"
+startup = false
+parm_batch = "0"
+parm_tso = "1"
+sources = ["test/asm/tldtso.asm"]
+host = false
+[[test.fixture]]
+dd = "SYSEXEC"
+members = ["test/fixtures/tldtso/TLDTSOX"]
 
 [[test]]
 name = "TSTSAY"
@@ -1770,7 +1850,7 @@ sources = [
 [[test]]
 name = "TSTLOAD"
 startup = "crt1"
-sources = ["test/tstload.c", "src/irx#load.c", "src/irx#stor.c"]
+sources = ["test/tstload.c", "src/irx#load.c", "src/irx#ldqs.c", "src/irx#stor.c"]
 # On MVS the LOAD path reads members from real DDs (the host build self-
 # provisions /tmp dirs under #ifndef __MVS__). Pre-load the members and add the
 # DDs so the runner's batch + TSO steps can resolve them.
@@ -1780,6 +1860,12 @@ members = ["test/fixtures/tstload/HELLO", "test/fixtures/tstload/EMPTY"]
 [[test.fixture]]
 dd = "ALTDD"
 members = ["test/fixtures/tstload/ALTM"]
+# T10: PROCONLY exists ONLY in SYSPROC, so the search has to fall through
+# SYSEXEC and report SYSPROC as the DD that answered. Needs one PDS per
+# fixture DD (mbt#109, mbt >= 0de84c4).
+[[test.fixture]]
+dd = "SYSPROC"
+members = ["test/fixtures/tstload/PROCONLY"]
 
 # ---------------------------------------------------------------
 # TSTJCL - WP-CPS-08 IRXJCL C-core unit tests.
@@ -1801,7 +1887,7 @@ startup = "crt1"
 sources = [
   "test/tstjcl.c",
   "src/irx#jcl.c",
-  "src/irx#load.c",
+  "src/irx#load.c", "src/irx#ldqs.c",
   "src/irx#exec.c",
   "src/irx#bcom.c",
   "src/irx#bvm.c",

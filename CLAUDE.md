@@ -203,6 +203,8 @@ RC=0/1).
 | `src/irx#io.c`   | IRX#IO   | Default I/O routine IRXINOUT (WP-14) |
 | `src/irx#tsio.c` | IRX#TSIO | TSO I/O routine IRXIOTSO, writes via PUTLINE (WP-33-TSO) |
 | `src/irx#putl.c` | IRX#PUTL | Host stand-in for `asm/putlin.asm` (captures PUTLINE calls) |
+| `src/irx#ldqs.c` | IRX#LDQS | IRXLOAD's member reader: stdio, needs a C runtime (batch) |
+| `src/irx#ldbp.c` | IRX#LDBP | IRXLDTSO's member reader: BPAM via `asm/irxbpam.asm`, no C runtime (#230) |
 | `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
 | `src/irx#exec.c` | IRX#EXEC | End-to-end execution pipeline irx_exec_run() (WP-18) |
 | `src/irx#cond.c` | IRX#COND | Condition raise helper (irx_cond_raise, WP-21a) |
