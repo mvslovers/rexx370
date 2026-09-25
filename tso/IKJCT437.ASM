@@ -78,22 +78,18 @@ IKJCT437 CSECT
          USING *,R12
          LR    R5,R0              CPPL
          LR    R6,R1              -> member name
-         WTO   'C1 ENTERED'
 *
 * --- is a REXX environment up at all? ---
          LTR   R5,R5
          BZ    NOTREXX
          L     R2,CPPLECT(,R5)    ECT
-         WTO   'C2 ECT READ'
          LTR   R2,R2
          BZ    NOTREXX
          L     R2,ECTENVBK(,R2)   ENVBLOCK
-         WTO   'C3 ENVBLOCK READ'
          LTR   R2,R2
          BZ    NOTREXX
          CLC   0(8,R2),ENVBEYE    valid block, not a stale slot?
          BNE   NOTREXX
-         WTO   'C4 ENV EYE OK'
 *
 * --- workarea ---
          L     R0,=A(WALEN)
@@ -117,7 +113,6 @@ IKJCT437 CSECT
          LR    R13,R1
          USING WAREA,R13
          ST    R2,WENV            ENVBLOCK (R2 since C3, untouched)
-         WTO   'C5 GETMAIN OK'
 *
 * --- EXECBLK: member from the caller, DD left blank so the load
 *     routine runs its own SYSEXEC-then-SYSPROC search ---
@@ -125,7 +120,6 @@ IKJCT437 CSECT
          MVC   WEXECBLN,=A(48)
          MVC   WEXECBMB,0(R6)     member
          MVC   WEXECBDD,BLANK8    blank = search
-         WTO   'C6 EXECBLK BUILT'
 *
 * --- this environment's exec load routine ---
          L     R1,WENV
@@ -136,7 +130,6 @@ IKJCT437 CSECT
          LTR   R1,R1
          BZ    FREEWA             none named -- let CLIST have it
          ST    R1,WLOADEP
-         WTO   'C7 LOAD ROUTINE FOUND'
          LA    R1,FCLOAD
          ST    R1,WLVL+0          P1 function code
          LA    R1,WEXECB
@@ -152,7 +145,6 @@ IKJCT437 CSECT
          BALR  R14,R15
          LTR   R15,R15
          BNZ   FREEWA             no such exec -- let CLIST try
-         WTO   'C8 LOADED'
 *
 * --- the DD that answered IS the language decision ---
          L     R4,WINST
@@ -164,7 +156,6 @@ IKJCT437 CSECT
 *     +20 usedlen    +24 member(8)          +32 ddname(8)
 *  and they sum to the documented 128-byte header.
          CLC   32(8,R4),DDEXEC    instblk_ddname = 'SYSEXEC '?
-         WTO   'C9 DDNAME CHECKED'
          BE    RUNIT
          CLC   32(8,R4),DDPROC    'SYSPROC ' -- then line 1 decides
          BNE   FREEINST

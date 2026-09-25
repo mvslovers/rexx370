@@ -2,7 +2,15 @@
 # tso/build.sh - build the TSO integration modules (not an mbt target).
 #
 #   tso/build.sh rxdrv      RXDRV + IKJCT437  -> build/tso/RXDRV.xmit
-#   tso/build.sh ikjeft01   patched IKJEFT01  -> build/tso/IKJEFT01.xmit
+#   tso/build.sh ikjeft01   decks for LMOD IKJEFT01: IKJEFT01.o, IKJEFTRX.o
+#   tso/build.sh exec       decks for LMOD EXEC:     IKJCT430.o, IKJCT437.o
+#
+# The TSO load modules are NOT linked here. They ship as an SMP usermod of
+# object decks, and SMP link-edits those into the INSTALLED load module on
+# MVS, which keeps the service already on it (ZP60014, UY16532, UZ82014,
+# ...). Each target also assembles the unpatched IBM source from mvs38src
+# as <name>.orig.o: tso/lmod_link.py links it the same way into a test
+# library and proves it reproduces the installed module.
 #
 # The IBM modules are assembled with the pinned as370 and the macro
 # libraries of the mvs38src project; see tso/TODO_IKJEFT01.md for why
@@ -60,19 +68,18 @@ case "${1:-}" in
     echo "built $out/RXDRV.xmit"
     ;;
   ikjeft01)
+    asm "$MVS38SRC/src/IKJEFT01.ASM" "$out/IKJEFT01.orig.o"
     asm "$here/IKJEFT01.ASM" "$out/IKJEFT01.o"
     asm "$here/IKJEFTRX.ASM" "$out/IKJEFTRX.o"
-    asm "$MVS38SRC/src/IKJEFT06.ASM" "$out/IKJEFT06.o"
-    asm "$MVS38SRC/src/IKJEFTSC.ASM" "$out/IKJEFTSC.o"
-    # --ac 1: the TMP issues MODESET; without it the TMP ends S047.
-    ld370 -o "$out/IKJEFT01.lm" --name IKJEFT01 --entry IKJEFT01 --ac 1 \
-          "$out/IKJEFT01.o" "$out/IKJEFT06.o" "$out/IKJEFTSC.o" \
-          "$out/IKJEFTRX.o" -iebcopy
-    ld370 --pack IKJEFT01="$out/IKJEFT01.lm.iebcopy" -o "$out/IKJEFT01" \
-          --ac 1 -xmit
-    echo "built $out/IKJEFT01.xmit"
+    echo "built $out/IKJEFT01.orig.o $out/IKJEFT01.o $out/IKJEFTRX.o"
+    ;;
+  exec)
+    asm "$MVS38SRC/src/IKJCT430.ASM" "$out/IKJCT430.orig.o"
+    asm "$here/IKJCT430.ASM" "$out/IKJCT430.o"
+    asm "$here/IKJCT437.ASM" "$out/IKJCT437.o"
+    echo "built $out/IKJCT430.orig.o $out/IKJCT430.o $out/IKJCT437.o"
     ;;
   *)
-    echo "usage: $0 rxdrv|ikjeft01" >&2; exit 2
+    echo "usage: $0 rxdrv|ikjeft01|exec" >&2; exit 2
     ;;
 esac

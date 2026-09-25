@@ -223,8 +223,14 @@ A00019C  L     R4,CSPLPTR                                       DSKC190 00190010
          L     15,=V(IKJCT437)                                  RXPTF           
          BALR  14,15                                            RXPTF           
          LTR   15,15                                            RXPTF           
-         BNZ   RXHANDLD           phase 2: already executed     RXPTF           
-RXHANDLD DS    0H                                               RXPTF           
+         BZ    RXCLIST            R15=0: not REXX, CLIST path   RXPTF           
+*        R15=4: IKJCT437 ran the exec.  Leave the way an empty  RXPTF           
+*        procedure leaves: nothing is allocated, opened or      RXPTF           
+*        stacked yet, so no cleanup flag is set and @RC00450    RXPTF           
+*        falls through to RETURN CODE(EXRETCDE) with R5=0.      RXPTF           
+         SLR   R5,R5              EXRETCDE = 0                  RXPTF           
+         B     @RC00450           common exit, no CLIST         RXPTF           
+RXCLIST  DS    0H                                               RXPTF           
          CNOP  0,4                                              RXPTF           
 *         END;                                                     0158 00212000
 *                                                                  0159 00213000
@@ -996,7 +1002,7 @@ RXHANDLD DS    0H                                               RXPTF
 *               /*****************************************************/ 00976000
 *                                                                  0420 00977000
 *               IF R15=CON4 THEN    /* IF RETURN CODE = FOUR THEN    */ 00978000
-         C     R2,3932(,R12)                                    DSKC190 00979000
+         C     R2,@CF00059                                      DSKC190 00979000
          BNE   A0007BC                                          DSKC190 00980000
 *                 CALL GETALINE;    /* THEN GET NEXT INPUT RECORD    */ 00981000
          BAL   R14,GETALINE                                     DSKC190 00982000
@@ -1004,7 +1010,7 @@ A0007BC  L     R0,SRETCDE                                       DSKC190 00982010
          C     R0,@CF00095                                      DSKC190 00982020
          BH    A0007D0                                          DSKC190 00982030
          C     R2,@CF00059                                      DSKC190 00982040
-         BE    1928(,R12)                                       DSKC190 00982050
+         BE    @RF00406                                         DSKC190 00982050
 A0007D0  LR    R15,R2                                           DSKC190 00982060
          SLR   R2,R2                                            DSKC190 00982070
          C     R15,@CF00059                                     DSKC190 00982080

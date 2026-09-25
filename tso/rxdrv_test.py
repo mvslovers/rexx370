@@ -22,8 +22,9 @@ would pass a PARM list, not a CPPL) for four members:
     RXC   in SYSPROC, CLIST       -> not REXX
     RXZZ  nowhere                 -> not REXX
 
-It prints the C1..C9 probe WTOs (they appear with a leading '+') and the
-SYSTSPRT, where an exec's SAY lands through IRXIOTSO.
+It prints the SYSTSPRT, where an exec's SAY lands through IRXIOTSO. The
+C1..C9 probe WTOs were removed from IKJCT437 on 2026-09-25, so the job-log
+trail stays empty; tso/lab/exec_test.py tests the real EXEC path instead.
 """
 import re
 import sys
