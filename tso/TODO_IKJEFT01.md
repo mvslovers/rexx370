@@ -3,7 +3,31 @@
 Arbeitsstand Teil A: `IRXTMPW` (Wrapper-TMP) wird ersetzt durch ein CSECT
 `IKJEFTRX`, das aus `IKJEFT01` per `BAL` gerufen wird.
 
-Stand 2026-09-23. Alles unten ist **gemessen**, nicht angenommen.
+## Stand 2026-09-25: Auslieferung über SMP, nicht per ld370
+
+Der TMP wird **nicht mehr als Ganzes gebaut**. Ausgeliefert werden nur die
+Decks IKJEFT01 und IKJEFTRX, und SMP bindet sie gegen das installierte
+`SYS1.LPALIB(IKJEFT01)` (KB `MVS-SMP-0004`). Das `ld370`-Rezept unten
+beschreibt den Handbau vom 2026-09-23. Er lief, hat aber einen Fehler: er nahm
+IKJEFT06 und IKJEFTSC aus mvs38src (TK5-Stand), und der Alias IKJEFT0A blieb
+auf dem alten Modul stehen.
+
+- **Basis ist der TK5-Stand.** Die mvs38src-Quelle von IKJEFT01 ist
+  byte-gleich mit `SYS1.AOST4(IKJEFT01)` = UY13431 (JOB01225). Gebunden wie SMP
+  bindet ist sie byte-gleich mit dem installierten LMOD (JOB01240).
+- **MVSCE-LAB war nicht auf diesem Stand.** Nach dem Tausch der MVSRES-Platte
+  trug LPALIB IKJEFT01 auf UZ82014, obwohl das Inventar UY13431 führte.
+  Repariert am 2026-09-25: IKJEFT01 aus AOST4 neu gebunden (JOB01229), APPLY und
+  ACCEPT von UY43678 (IKJEFTSC) und UZ42826 (IKJEFT06, steckt auch in
+  IKJEFT02/04/07), ACCEPT von UY16532 (JOB01231–01235). Danach IPL mit CLPA.
+  Die Sicherung liegt unter `<HLQ>.TSOREP.*`, die Werkzeuge in `tso/lab/`.
+- **Die Link-Steuerung kommt aus der CDS:** `ORDER IKJEFT01(P),IKJEFT06`,
+  `ALIAS IKJEFT0A`, `ENTRY IKJEFT01`, `SETCODE AC(1)`, RENT REUS.
+- **Test ohne Eingriff in SYS1:** `tso/lmod_link.py testlib ikjeft01` bindet den
+  gepatchten TMP nach `REXX370.TSO.LINKLIB`. Ein Batch-TMP mit diesem STEPLIB
+  nimmt ihn noch vor der LPA (`tso/lab/exec_test.py new-tmp`).
+
+Stand 2026-09-23. Alles darunter ist **gemessen**, nicht angenommen.
 
 ---
 
@@ -12,7 +36,7 @@ Stand 2026-09-23. Alles unten ist **gemessen**, nicht angenommen.
 | Datei | Was |
 |---|---|
 | `IKJEFT01.ASM` | Kopie aus `mvs38src@33c6bd57` + 10 eingefügte Karten |
-| `IKJEFT01.ASM.orig` | unveränderte Kopie, Referenz für den Gegentest |
+| ~~`IKJEFT01.ASM.orig`~~ | entfernt; die Referenz wird aus `mvs38src/src/IKJEFT01.ASM` assembliert (`build.sh`) |
 | `IKJEFTRX.ASM` | unser neues CSECT |
 
 `mvs38src/src/` wird **nicht** verändert — dort wird mehrmals pro Stunde

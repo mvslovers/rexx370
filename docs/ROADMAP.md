@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 
 ---
 
@@ -273,6 +273,17 @@ needed for a *complete* REXX.
 > expect the predecessor instead; `architecture.md` §6.1, `irxanchr.h` and
 > `CLAUDE.md` describe the current rule (#224). Measured on mvsdev: JOB01181
 > (failing), JOB01183 (green, batch + TSO).
+
+> **2026-09-25 — EXEC hook complete, tested in both combinations.** IKJCT430
+> hands an implicitly invoked member to IKJCT437. When IKJCT437 ran it as REXX,
+> IKJCT430 now leaves with RC 0 and does not fall into the CLIST path. The
+> modules ship as object decks, and SMP links them against the installed load
+> modules (KB `MVS-SMP-0004`). The reference link shows that the mvs38src
+> sources reproduce the installed EXEC and IKJEFT01 byte for byte. Batch TMP
+> tests with an APF STEPLIB (`tso/lab/exec_test.py`): patched TMP + patched
+> EXEC, JOB01253; IBM TMP + patched EXEC, JOB01255. The second run found fixed
+> displacements in the source's reconstruction of UY16532 (S0C1 in JOB01245),
+> now symbolic and proven byte-identical. Next: the ZMG usermod.
 
 > **2026-09-25 — EXROUT shipped (#230).** A TSO environment loads execs
 > through IRXLDTSO, the exec load routine IRXTSPRM names in MODNAMET EXROUT.

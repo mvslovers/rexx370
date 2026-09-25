@@ -1,6 +1,68 @@
 # IKJCT437 — Sprachentscheidung beim impliziten Aufruf
 
-## Stand 2026-09-25: der Klassifizierer läuft durch
+## Stand 2026-09-25 (Nachmittag): EXEC-Hook fertig, beide Kombinationen grün
+
+**Weg (b): kein Neubau von EXEC.** Ausgeliefert werden nur Objekt-Decks
+(IKJCT430 mit PARS, dazu IKJCT437). Gebunden wird auf MVS gegen das
+**installierte** `SYS1.CMDLIB(EXEC)`, sodass ZP60014 (IKJCT431), UZ25767
+(IKJCT432) und IKJCT435 unverändert bleiben. Dass SMP genau so bindet
+(`INCLUDE <ziel>(<lmod>)` nach den neuen Elementen), ist gemessen:
+KB `MVS-SMP-0004`.
+
+- **Referenz-Nachweis:** `tso/lmod_link.py reference exec`. Die mvs38src-Quelle,
+  gebunden wie SMP bindet, ist byte-gleich mit dem installierten EXEC, UY16532
+  eingeschlossen (JOB01216). Die Gegenprobe mit dem gepatchten Deck muss
+  abweichen und tut es (JOB01218).
+- **`RXHANDLD` ist fertig.** Bei R15=4 von IKJCT437 geht es mit R5=0 zum
+  gemeinsamen Ausgang `@RC00450`, wie bei einer leeren Prozedur. Beim Hook ist
+  noch nichts belegt, geöffnet oder gestapelt. Kein Aufräum-Flag ist gesetzt
+  (geprüft an allen `OI`-Stellen), also läuft nichts mehr in den CLIST-Pfad.
+- **Die Probe-WTOs C1..C9 sind entfernt.** IKJCT437 schrumpft von 0x38C auf
+  0x2A4. C9 stand zwischen `CLC` und `BE`, der Sprung hing also davon ab, dass
+  der Condition Code den SVC überlebt.
+
+**Gefunden und behoben: feste Displacements in der ZAP-Rekonstruktion.**
+Die mvs38src-Quelle von IKJCT430 bildet UY16532 mit zwei Zahlen statt Symbolen
+nach: `C R2,3932(,R12)` und `BE 1928(,R12)`. Unverändert assembliert ist das
+richtig. Unser Hook schiebt aber alles dahinter um X'24'. `BE` landete dadurch
+mitten in einem BNH, und EXEC endete mit **S0C1**, sobald eine CLIST einen
+Kommentar in Zeile 1 hatte (JOB01245). Die Gegenprobe mit dem IBM-EXEC lief
+sauber (JOB01246). Ersetzt durch `@CF00059` und `@RF00406`. Mit derselben
+Ersetzung assembliert die **unveränderte** Quelle zu einem byte-gleichen
+Objekt, damit ist gezeigt, dass die Symbole stimmen. Weitere feste
+Displacements gibt es in der Datei nicht. mvs38src ist informiert.
+
+**Tests:** `tso/lab/exec_test.py`, Batch-TMP mit
+`STEPLIB=REXX370.TSO.LINKLIB`. Das ist eine APF-Bibliothek außerhalb der
+Link-Liste (IEAAPF00, MVS000). Beide Module werden mit
+`tso/lmod_link.py testlib exec|ikjeft01` so gebunden, wie SMP es tut.
+
+| Fall | `new-tmp` (JOB01253) | `ibm-tmp` (JOB01255) |
+|---|---|---|
+| `%RXA` SYSEXEC | REXX | COMMAND NOT FOUND (CLIST sucht nur SYSPROC) |
+| `RXB` SYSPROC `/* REXX */` | REXX | als CLIST, `SAY NOT FOUND` |
+| `%RXC` CLIST | CLIST | CLIST |
+| `%RXD` CLIST, Kommentar in Zeile 1 | CLIST | CLIST |
+| `%RXZZ` | not found | not found |
+| `EXEC '…(RXC)'` explizit | CLIST | CLIST |
+| `TIME` danach | läuft | läuft |
+
+`ibm-tmp` ist die Übergangszeit nach dem APPLY und vor dem CLPA-IPL: neues
+EXEC unter altem TMP. Die Ausgabe gleicht Zeile für Zeile dem IBM-EXEC.
+
+**Der Hook greift nur beim impliziten Aufruf** (`CBUFOFF=0`). Ein explizites
+`EXEC 'dsn(member)'` geht über IKJPARS und nie an IKJCT437 vorbei. Deshalb muss
+das Test-EXEC unter seinem echten Namen gefunden werden, und ein Treiber unter
+anderem Namen testet nichts.
+
+**Offen:**
+- Der ZMG-Usermod (++MOD-Decks + ++JCLIN für die neuen Module, `++VER
+  FMID(EBB1102) PRE(UY16532,UY13431)`), danach der Test im Vordergrund.
+- Teil B Phase 3: die expliziten `EXEC`-Formen.
+- In `SYS2.LINKLIB` liegt IRXLDTSO aus `a59bd0c`, **ohne** #231. Vor dem
+  Einspielen ein Compress, siehe `TODO.md`.
+
+## Stand 2026-09-25 (Vormittag): der Klassifizierer läuft durch
 
 IKJCT437 lädt jetzt über die **eigene Exec-Load-Routine der Umgebung**
 (IRXEXTE `load_routine`, bei IRXTSPRM = IRXLDTSO mit BPAM, rexx370 #230),
@@ -27,7 +89,7 @@ IKJCT437 → IRXLDTSO → IRXEXEC → IRXIOTSO (PUTLINE). `WHANDLED`,
 Basis". Jede SYSPROC-Exec galt als CLIST, ohne Absturz (`JOB01212`, RXB).
 Behoben: R1 trägt die Adresse.
 
-**Offen:**
+**Offen (Vormittag, inzwischen erledigt, siehe oben):**
 - **IKJCT430:** der Aufruf ist drin, aber `BNZ RXHANDLD` springt auf die
   nächste Zeile — „war REXX, schon ausgeführt" läuft danach noch in den
   CLIST-Pfad. Das ist die Phase-1-Stelle, die jetzt fertig werden muss.
