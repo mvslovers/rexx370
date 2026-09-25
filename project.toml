@@ -808,6 +808,20 @@ host = false
 dd = "SYSEXEC"
 members = ["test/fixtures/tldtso/TLDTSOX"]
 
+# ---------------------------------------------------------------
+# TNOMEM - GitHub #234: a GETMAIN failure inside an exec, driven from
+# pure assembler (no @@CRT0). The exec asks for more storage than the
+# 8M runner region has; IRXEXEC must come back and IRXTERM succeed.
+# Before #234 the failure went through libc370 getmain() -> wtof(),
+# which needs a C runtime.
+# ---------------------------------------------------------------
+[[test]]
+name = "TNOMEM"
+entry = "TNOMEM"
+startup = false
+sources = ["test/asm/tnomem.asm"]
+host = false
+
 [[test]]
 name = "TSTSAY"
 startup = "crt1"
