@@ -11,15 +11,22 @@
 *    LOAD  -> irx_load_load()   (reads REXX source, builds INSTBLK)
 *    FREE  -> irx_load_free()   (releases INSTBLK and source pool)
 *
-*  Calling convention (per SC28-1883-0 sec.14 IRXLOAD):
+*  Calling conventions -- both are accepted:
 *
 *    CALL IRXLOAD,(FCODE,EXECBLK,INSTBLK,ENVBLK,RETCODE),VL
+*        the z/OS form, five slots
+*    CALL IRXLOAD,(FCODE,EXECBLK,INSTBLK),VL   with R0 = ENVBLOCK
+*        the exec load routine form of SC28-1883-0 Chapter 16
+*        (p. 359): a caller going through IRXEXTE's load_routine
+*        cannot know which module answers, so every exec load
+*        routine -- IRXLOAD and IRXLDTSO alike -- takes this list.
+*        The return code is then only in R15.
 *
 *  Each VLIST slot is a 4-byte address pointing at the parameter
 *  value. The address of the LAST slot has its high-order bit set
 *  to mark the end of the variable-length list.
 *
-*  P1  CL8    function code: 'LOAD    ' / 'FREE    '
+*  P1  CL8    function code: LOAD, FREE, INIT, TERM, STATUS, CLOSEDD
 *  P2  A      EXECBLK pointer (LOAD: required; FREE: ignored)
 *  P3  A      INSTBLK pointer (LOAD: output; FREE: input to free)
 *  P4  A      ENVBLOCK pointer (NULL -> default subpool 0)
@@ -37,6 +44,33 @@
 *
 *  (c) 2026 mvslovers - REXX/370 Project
 *
+*
+*  WHAT THIS WRAPPER GIVES YOU, AND WHAT IT DOES NOT
+*
+*  It builds the PDP-DSA with DSANAB -> WPOOL, i.e. the STACK that
+*  c2asm370-compiled code expects in its prologue.  That is what makes
+*  the service callable from pure HLASM (see test/asm/texecvl.asm).
+*
+*  It does NOT build a C RUNTIME (CLIBPPA/CLIBCRT).  @@CRT0 anchors the
+*  PPA as the "next" pointer of the first save area (TCBFSA+8) and
+*  creates PPA, CRT, GRT and the FILE table together; @@PPAGET finds it
+*  by walking TCBFSAB, then owner TCBs, then the save-area back-chain.
+*  A wrapper cannot bolt that on cheaply, and must not create a second
+*  PPA when a C host already supplied one -- that would shadow the
+*  caller's errno and FILE table.
+*
+*  Consequence: everything that only COMPUTES is fine from assembler --
+*  the interpreter core, sprintf, gmtime64_r, irxstor (getmain on MVS).
+*  Anything touching libc STATE is not: stdio needs the CRT.  The one
+*  such use is the member reader of IRXLOAD (src/irx#ldqs.c, fopen
+*  "DD:dd(member)"), so IRXLOAD FC=LOAD cannot be reached from an
+*  assembler caller.  Measured 2026-09-24: S0C4 after "__CRTGET CRT
+*  for TCB(...) not found in PPA(00000000)".  FC=FREE is fine.
+*
+*  That is why the same wrapper and C core are linked twice (GitHub
+*  #230): IRXLOAD with the stdio reader, and IRXLDTSO with a BPAM
+*  reader (src/irx#ldbp.c + asm/irxbpam.asm) that needs no runtime.
+*  IRXTSPRM names IRXLDTSO in MODNAMET EXROUT.
          PRINT NOGEN
 R0       EQU   0
 R1       EQU   1
@@ -64,6 +98,7 @@ IRXLOAD  CSECT
          USING *,R12
 *
          LR    R11,R1              R11 = caller VLIST address
+         LR    R10,R0              R10 = ENVBLOCK (3-slot form only)
 *
 *  Defensive NULL check: a caller passing R1=0 (no parm list at all)
 *  must not provoke an S0C5 in PARSELP and must not leak the workarea
@@ -92,7 +127,7 @@ IRXLOAD  CSECT
          XC    WPARMS(20),WPARMS    5F = 20 bytes
          XC    WCPLIST(20),WCPLIST  5F = 20 bytes
 *
-*  --- parse VLIST: 5 entries, high-bit endmarker on slot 5 ----------
+*  --- parse VLIST: 5 entries, or 3 with R0 = ENVBLOCK --------------
          LA    R2,5                expected slot count (countdown)
          LR    R3,R11              R3 = current caller VLIST entry
          LA    R4,WPARMS           R4 = our local parsed-addr array
@@ -112,12 +147,23 @@ PARSELP  L     R6,0(,R3)           raw VLIST entry (addr | maybe VL)
          B     ERREARLY
 *
 PARSEVL  EQU   *
-*  VL found; R2 = remaining count (must be 1 for slot 5).
+*  VL found; R2 = remaining count: 1 = five slots, 3 = three slots.
          CH    R2,=H'1'
          BE    FCCHK
-*  VL on wrong slot -- short list; no usable P5 / retval slot.
+         CH    R2,=H'3'
+         BE    SHORTFM
+*  VL on any other slot -- no usable P5 / retval slot.
          LA    R15,20
          B     ERREARLY
+*
+SHORTFM  EQU   *
+*  Three-slot form: P4 and P5 become wrapper-local words, so the
+*  rest of the wrapper and the C call are the same for both forms.
+         ST    R10,WENV            ENVBLOCK from R0 at entry
+         LA    R2,WENV
+         ST    R2,WPARMS+12
+         LA    R2,WRET             return code: R15 only
+         ST    R2,WPARMS+16
 *
 FCCHK    EQU   *
 *  --- validate function code ---
@@ -125,6 +171,14 @@ FCCHK    EQU   *
          CLC   0(8,R2),=CL8'LOAD'
          BE    BUILDC
          CLC   0(8,R2),=CL8'FREE'
+         BE    BUILDC
+         CLC   0(8,R2),=CL8'INIT'
+         BE    BUILDC
+         CLC   0(8,R2),=CL8'TERM'
+         BE    BUILDC
+         CLC   0(8,R2),=CL8'STATUS'
+         BE    BUILDC
+         CLC   0(8,R2),=CL8'CLOSEDD'
          BE    BUILDC
 *
 *  Unknown funccode. WPARMS+16 is valid (VL on slot 5), so write P5.
@@ -227,6 +281,8 @@ WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
 *  Wrapper-local storage.
 WPARMS   DS    5F                  bare addresses from 5-slot VLIST
 WCPLIST  DS    5F                  parameter list for IRXLDISP call
+WENV     DS    A                   3-slot form: ENVBLOCK (from R0)
+WRET     DS    F                   3-slot form: return code slot
 *  Stack pool for nested c2asm370 PDPPRLG frames.  IRXLOAD's LOAD path
 *  reads REXX source and tokenizes it (irx_load_load), the same deep
 *  C-call tree as IRXEXEC, so it is sized identically to 64 KB -- 8 KB
