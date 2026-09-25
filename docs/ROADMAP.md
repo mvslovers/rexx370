@@ -274,6 +274,15 @@ needed for a *complete* REXX.
 > `CLAUDE.md` describe the current rule (#224). Measured on mvsdev: JOB01181
 > (failing), JOB01183 (green, batch + TSO).
 
+> **2026-09-24 — WP-33-TSO output shipped (#228).** A TSO environment gets its
+> own I/O routine, IRXIOTSO, loaded by name through the MODNAMET of IRXTSPRM
+> and deleted by IRXTERM; batch keeps the stdio routine. It writes through
+> **PUTLINE**, not TPUT: on MVS 3.8j SVC 93 does nothing in an address space
+> with no TSB, so TPUT output from the batch TMP vanished (JOB01185). Measured
+> with the output itself, not the RC: background SAY lands in SYSTSPRT
+> (JOB01189), foreground SAY on the terminal (s3270 session). Reads (WP-33b)
+> are still open.
+
 > ⚠️ **The state of this axis is not currently known.** The core
 > IRXINIT/IRXTERM/IRXANCHR/parameter-module work (WP-I1a-d) was marked done
 > during the pre-REXXCPS push, but a family of **refinement and verification
@@ -295,7 +304,8 @@ Candidates to verify (not a committed work list until inventoried):
 - **USERID non-TSO batch** — ACEE/JCT walk replacing the MVSUSER literal fallback.
 - **Research** — IRXINT vs IRXINIT engine/API split; replaceable-routine
   load-module strategy (aliases vs own modules).
-- **WP-33-TSO** — TSO variant of the I/O replaceable routine (TPUT/TGET, SVC 93).
+- **WP-33b** — PULL / LINEIN for TSO environments via GETLINE. The output half
+  (WP-33-TSO) shipped in #228; IRXIOTSO returns 20 for reads until then.
 
 ### Axis 5 — Infrastructure
 

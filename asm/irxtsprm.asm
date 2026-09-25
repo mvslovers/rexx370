@@ -37,8 +37,14 @@ IRXTSPRM CSECT
 MODNAMET DC    CL8'SYSTSIN '       DD names (3 fields)
          DC    CL8'SYSTSPRT'
          DC    CL8'SYSEXEC '
-         DC    CL8'        '       replaceable routine slots
-         DC    CL8'        '
+*  IORT -- the I/O replaceable routine.  A TSO environment writes
+*  with PUTLINE, not with stdio: IRXJCL's stdout redirect is a batch
+*  arrangement, and on MVS stdio needs a C runtime that a TSO address
+*  space does not have (IKJEFT01 and IKJCT430 are assembler).  Not
+*  TPUT either: it does nothing in the background TMP.  IRXINIT
+*  LOADs this by name; blank here would keep the default.  WP-33-TSO.
+         DC    CL8'IRXIOTSO'       IORT   I/O routine
+         DC    CL8'        '       EXROUT exec load routine
          DC    CL8'        '
          DC    CL8'        '
          DC    CL8'        '

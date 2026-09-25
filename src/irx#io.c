@@ -12,8 +12,9 @@
 /*  IRXINIT step 6 wires the appropriate variant into                 */
 /*  exte->io_routine and exte->irxinout via #ifdef __MVS__.           */
 /*                                                                    */
-/*  Future: WP-33-TSO adds irxinout_tso (TPUT, TSO foreground)       */
-/*  with tso_flag-based dispatch at IRXINIT step 6.                   */
+/*  A TSO environment does not use this routine: IRXTSPRM names       */
+/*  IRXIOTSO in its MODNAMET (src/irx#tsio.c, PUTLINE) and IRXINIT    */
+/*  LOADs that into the active slot instead (WP-33-TSO).              */
 /*                                                                    */
 /*  Ref: SC28-1883-0, Chapter 16 (Replaceable Routines)               */
 /*  (c) 2026 mvslovers - REXX/370 Project                             */

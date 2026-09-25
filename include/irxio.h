@@ -62,4 +62,54 @@ int irxinout_host(int function, PLstr data, struct envblock *envblock);
 
 #endif /* __MVS__ */
 
+/* irxinout_tso - TSO I/O routine (WP-33-TSO)
+ *
+ * Writes through PUTLINE (IKJPUTL). In the TSO foreground that reaches
+ * the terminal; in the background the TMP has STACKed SYSTSIN/SYSTSPRT
+ * and PUTLINE writes to SYSTSPRT. TPUT is not used: on MVS 3.8j SVC 93
+ * returns without doing anything in an address space with no TSB,
+ * which is the batch TMP (mvs38src IKT0009C).
+ *
+ * IRXINIT LOADs it by name when the environment's MODNAMET names
+ * IRXIOTSO, which IRXTSPRM does; IRXTERM DELETEs it.
+ *
+ * Available on both platforms: on the host src/irx#putl.c captures
+ * each line instead of calling PUTLINE, so the routine can be tested
+ * without an MVS deploy.
+ *
+ * Reads return IRXIO_TSO_UNSUPPORTED until WP-33b implements PULL.
+ *
+ * Returns: 0=OK, otherwise the worst PUTLINE return code, or one of
+ * the IRXIO_TSO_* codes below.
+ */
+/* The MVS external name is set explicitly: names are truncated to 8
+ * characters there, and "irxinout_tso" would collide with "irxinout" --
+ * both become IRXINOUT, and the linker would quietly resolve the TSO
+ * routine to the batch one. The alias is what stops it. */
+#ifdef __MVS__
+int irxinout_tso(int function, PLstr data,
+                 struct envblock *envblock) asm("IRXIOTSO");
+#else
+int irxinout_tso(int function, PLstr data, struct envblock *envblock);
+#endif
+
+enum
+{
+    /* Longest piece one PUTLINE call carries. A longer SAY goes out
+     * as several lines; the work area for one call stays a fixed size
+     * on the stack. */
+    TSO_LINE_MAX = 256,
+
+    /* Header of a PUTLINE data line: LL (halfword, counts itself) and
+     * a halfword offset, then the text. */
+    TSO_LINE_HDR = 4,
+
+    /* No TMP in this address space: no LWA, ECT or UPT to build an
+     * IOPL from. */
+    IRXIO_TSO_NO_TMP = 16,
+
+    /* Function code this routine does not implement (yet). */
+    IRXIO_TSO_UNSUPPORTED = 20
+};
+
 #endif /* IRXIO_H */
