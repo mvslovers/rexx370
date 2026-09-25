@@ -66,6 +66,20 @@ def smp(c, cfg, name, stmt, out, ptfin=None):
     return sp
 
 
+LINKLIST = ("SYS1.CMDLIB", "SYS1.LPALIB")
+
+
+def extents(c):
+    """Extent count per target library. SYS1.CMDLIB is in the link list
+    and LPALIB is read at IPL; a new extent in either stays invisible
+    until the next IPL (knowledge: ZMG0002 reinstall, JOB01330/01332)."""
+    out = {}
+    for ds in LINKLIST:
+        r = [x for x in c.list_datasets(ds) if x.get("dsname") == ds][0]
+        out[ds] = int(r["extx"])
+    return out
+
+
 def backup(c, cfg, suffix="BACKUP"):
     bk = f"{cfg.hlq}.{SYSMOD}.{suffix}"
     if c.dataset_exists(bk):
@@ -176,8 +190,17 @@ def main():
         smp(c, cfg, "ZMGAPCK", f"APPLY SELECT({SYSMOD}) CHECK .",
             "zmg_applycheck.spool")
     elif cmd == "apply":
+        before = extents(c)
         smp(c, cfg, "ZMGAPPLY", f"APPLY SELECT({SYSMOD}) .",
             "zmg_apply.spool")
+        after = extents(c)
+        for ds in LINKLIST:
+            print(f"  {ds}: {before[ds]} -> {after[ds]} extent(s)")
+            if after[ds] != before[ds]:
+                print(f"!!! {ds} grew a new extent. Link-list extents are "
+                      "fixed at IPL: a module written there fails LOAD "
+                      "with IEA703I 106-F until the next IPL.")
+                return 1
     elif cmd == "verify":
         return verify(c, cfg)
     else:
