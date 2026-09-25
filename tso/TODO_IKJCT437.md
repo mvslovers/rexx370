@@ -1,6 +1,51 @@
 # IKJCT437 — Sprachentscheidung beim impliziten Aufruf
 
-Stand 2026-09-24, nach dem CLPA-IPL. Alles hier ist **gemessen**.
+## Stand 2026-09-25: der Klassifizierer läuft durch
+
+IKJCT437 lädt jetzt über die **eigene Exec-Load-Routine der Umgebung**
+(IRXEXTE `load_routine`, bei IRXTSPRM = IRXLDTSO mit BPAM, rexx370 #230),
+nicht mehr per `LOAD EP=IRXLOAD`. Aufruf wie SC28-1883-0 Kap. 16: R0 =
+ENVBLOCK, drei Parameter. Keine Load-Routine → zurück an CLIST. IRXEXEC
+bekommt das geprüfte ENVBLOCK in P9 und R0.
+
+Gemessen mit `tso/rxdrv_test.py run` (Batch-TMP, `JOB01214`) und im
+Vordergrund (s3270 als MVSCE01, SYSEXEC/SYSPROC per ALLOC):
+
+| Member | IKJCT437 | Ausgabe |
+|---|---|---|
+| `RXA` (SYSEXEC, ohne Kommentar) | REXX (R15=4) | `HELLO FROM SYSEXEC RXA -- NO COMMENT NEEDED` |
+| `RXB` (SYSPROC, `/* REXX */`) | REXX (R15=4) | `HELLO FROM SYSPROC RXB` |
+| `RXC` (SYSPROC, CLIST) | nicht REXX | — |
+| `RXZZ` (nirgends) | nicht REXX, Ende nach C7 | — |
+
+Damit ist die ganze Kette **ohne C-Runtime** belegt: TMP-Umgebung →
+IKJCT437 → IRXLDTSO → IRXEXEC → IRXIOTSO (PUTLINE). `WHANDLED`,
+`CHKLINE1` und das Aufräumen, bisher nur hergeleitet, sind jetzt gelaufen.
+
+**Dabei gefunden: `CHKLINE1` benutzte R0 als Basisregister.** `CLC
+0(2,R0),SLASHST` verglich PSA+0 mit `/*` — R0 als Basis heißt „keine
+Basis". Jede SYSPROC-Exec galt als CLIST, ohne Absturz (`JOB01212`, RXB).
+Behoben: R1 trägt die Adresse.
+
+**Offen:**
+- **IKJCT430:** der Aufruf ist drin, aber `BNZ RXHANDLD` springt auf die
+  nächste Zeile — „war REXX, schon ausgeführt" läuft danach noch in den
+  CLIST-Pfad. Das ist die Phase-1-Stelle, die jetzt fertig werden muss.
+  IKJCT430 ist eine CSECT des Lademoduls **`SYS1.CMDLIB(EXEC)`** (Alias
+  `EX`, dazu IKJCT431/432/435 und PARS), nicht der LPA: ein Ersatz dort
+  braucht kein CLPA, nur dieselbe Extent-Vorsicht wie `SYS2.LINKLIB`
+  (Link-List). Ob `EXEC` inzwischen komplett bindbar ist (IKJCT435, siehe
+  `docs/REXX_TSO_INTEGRATION.md` „Bindung"), ist zu prüfen.
+- In `SYS2.LINKLIB` liegt IRXLDTSO aus `a59bd0c`, also **ohne** das
+  Entfernen der Satznummern (#231). Einspielen erst nach einem Compress —
+  26 Tracks frei, siehe `TODO.md`.
+- Teil B Phase 3: die expliziten `EXEC`-Formen.
+
+---
+
+## Stand 2026-09-24 (historisch)
+
+Nach dem CLPA-IPL. Alles hier ist **gemessen**.
 Wiedereinstieg: Abschnitt „Wo es weitergeht" am Ende.
 
 ---
@@ -271,8 +316,8 @@ falschen Verdacht.
 
 ```sh
 # assemblieren (as370-Aufruf siehe TODO_IKJEFT01.md)
-eval $ASM -o /tmp/IKJCT437.o src_ptf/IKJCT437.ASM
-eval $ASM -o /tmp/RXDRV.o    src_ptf/RXDRV.ASM
+eval $ASM -o /tmp/IKJCT437.o tso/IKJCT437.ASM
+eval $ASM -o /tmp/RXDRV.o    tso/RXDRV.ASM
 
 # binden -- --norent ist Pflicht, siehe Fallen
 ld370 -o dist_ptf/RXDRV.lm --name RXDRV --entry RXDRV --blocksize 19069 \

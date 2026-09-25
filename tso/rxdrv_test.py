@@ -81,8 +81,10 @@ def install():
     c.create_dataset(stage, "PS", "FB", 80, 3120, ["TRK", 10, 5], "SYSDA")
     c.upload_binary(stage, data)
 
+    # JCL cards end at column 71: one keyword group per line.
     bk_disp = ("DISP=OLD" if c.dataset_exists(backup) else
-               "DISP=(NEW,CATLG,DELETE),UNIT=SYSDA,SPACE=(TRK,(5,5,5)),"
+               "DISP=(NEW,CATLG,DELETE),"
+               "\n//            UNIT=SYSDA,SPACE=(TRK,(5,5,5)),"
                "\n//            DCB=(RECFM=U,BLKSIZE=19069,DSORG=PO)")
     jcl = jobcard("RXDRVINS", cfg.jes_jobclass, cfg.jes_msgclass,
                   "RXDRV INSTALL") + f"""
@@ -99,7 +101,8 @@ def install():
   COPY INDD=IN,OUTDD=OUT
   SELECT MEMBER=((RXDRV,,R))
 /*
-//COPY     EXEC PGM=IEBCOPY,REGION=4096K,COND=((0,NE,RECV),(0,NE,BACKUP))
+//COPY     EXEC PGM=IEBCOPY,REGION=4096K,
+//            COND=((0,NE,RECV),(0,NE,BACKUP))
 //SYSPRINT DD SYSOUT=*
 //IN       DD DSN={temp},DISP=SHR
 //OUT      DD DSN={LINKLIB},DISP=SHR
@@ -109,6 +112,10 @@ def install():
 /*
 //
 """
+    long = [l for l in jcl.splitlines() if l.startswith("//") and len(l) > 71]
+    if long:
+        print("JCL card(s) past column 71:", *long, sep="\n  ")
+        return 1
     r = c.submit_jcl(jcl, timeout=300)
     print(f"job {r.jobname} {r.jobid}: {r.status} rc={r.rc}")
     for line in (r.spool or "").splitlines():
