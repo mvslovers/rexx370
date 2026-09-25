@@ -16,8 +16,8 @@
 **                   space where IKJEFT01 and IKJCT430 are assembler.
 **
 ** Both append lines through irx_ld_add_line(), so line semantics
-** (trailing blanks stripped, nothing else) are the same whichever
-** reader is linked.
+** (sequence numbers removed from a numbered member, trailing blanks
+** stripped, nothing else) are the same whichever reader is linked.
 **
 ** Ref: SC28-1883-0 Chapter 16 (Exec Load Routine); GitHub #230
 */
@@ -32,6 +32,20 @@ struct line_info
     int length;
 };
 
+/* Record format as far as sequence numbers are concerned. */
+enum
+{
+    IRX_LD_RECFM_UNKNOWN = 0, /* U, or the reader cannot tell: keep all */
+    IRX_LD_RECFM_F = 1,       /* fixed: numbers in the last 8 columns   */
+    IRX_LD_RECFM_V = 2        /* variable: numbers in the first 8       */
+};
+
+/* Width of a sequence number field (SC28-1883-0 p. 358). */
+enum
+{
+    IRX_LD_SEQ_LEN = 8
+};
+
 /* Growable accumulation state for one LOAD. All storage comes from
  * irxstor against env. */
 struct irx_ld_acc
@@ -43,10 +57,26 @@ struct irx_ld_acc
     int tsrc_cap;         /* capacity of tsrc in bytes              */
     int n;                /* lines so far                           */
     int total;            /* source bytes so far                    */
+
+    /* Set by the reader before the first line (irx_ld_begin_member). */
+    int recfm;    /* IRX_LD_RECFM_*                                */
+    int lrecl;    /* logical record length, fixed formats          */
+    int numbered; /* -1 undecided, 0 no, 1 strip sequence numbers  */
 };
 
-/* Append one line. Trailing blanks, CR and LF are stripped first.
- * Returns 0, or IRXLOAD_NOMEM when a buffer could not grow. */
+/* Start a member: forget earlier lines and record the format the
+ * sequence-number rule needs. Every reader calls this once, before its
+ * first irx_ld_add_line(). */
+void irx_ld_begin_member(struct irx_ld_acc *acc, int recfm,
+                         int lrecl) asm("IRXLDBEG");
+
+/* Append one record. text/len is the record as read -- untrimmed, a
+ * trailing CR/LF allowed. The first record decides whether the member
+ * is numbered (SC28-1883-0 p. 358): fixed format and its last 8
+ * characters numeric, or variable format and its first 8 numeric. If
+ * so, those 8 characters are dropped from every record. Then trailing
+ * blanks are stripped. Returns 0, or IRXLOAD_NOMEM when a buffer could
+ * not grow. */
 int irx_ld_add_line(struct irx_ld_acc *acc, const char *text,
                     int len) asm("IRXLDADD");
 
