@@ -12,13 +12,17 @@
 **          keeps irxstor independent of CLIBCRT, so the entry-point
 **          wrappers (asm/irxinit.asm, asm/irxterm.asm) can dispatch
 **          into the C-core without going through @@CRT0 first.
-**          Caveat: getmain() calls wtof() on its failure path, which
-**          IS CLIBCRT-dependent — see #85.
+**          getmain() calls wtof() on its failure path. That was
+**          believed to need CLIBCRT (#85); measured in #234 it does
+**          not: TNOMEM, pure assembler without @@CRT0, fails a GETMAIN
+**          inside an exec and gets the wtof message in the job log,
+**          IRXEXEC RC 24 and a clean IRXTERM (JOB01208). The only cost
+**          is that message per failed allocation.
 **   Host → calloc/free (cross-compile / unit tests).
 **
 ** Ref: SC28-1883-0, Chapter 16 (Storage Management)
 ** Ref: Architecture Design v0.1.0, Section 5.5
-** Ref: GitHub mvslovers/rexx370#85
+** Ref: GitHub mvslovers/rexx370#85, #234
 */
 
 #include <stdlib.h>
