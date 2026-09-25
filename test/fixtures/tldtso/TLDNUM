@@ -1,0 +1,8 @@
+/* REXX - TLDNUM/TLDPLN: the same exec, numbered and not */             00000100
+total = 0                                                               00000200
+do i = 1 to 3                                                           00000300
+  total = total + i                                                     00000400
+end                                                                     00000500
+                                                                        00000600
+say 'TLDNUM total' total                                                00000700
+exit total                                                              00000800

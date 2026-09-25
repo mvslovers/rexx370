@@ -34,6 +34,7 @@
 #include "irx.h"
 #include "irxfunc.h"
 #include "irxinstb.h"
+#include "irxldrd.h"
 #include "irxload.h"
 
 #ifndef __MVS__
@@ -67,6 +68,148 @@ enum
 
 /* High bit on the last address of an OS parameter list. */
 #define VL_BIT 0x80000000UL
+
+/* ------------------------------------------------------------------ */
+/*  Sequence numbers (#231): the rule, fed one record at a time.      */
+/*  Pure C, so it runs on the host and on MVS alike.                  */
+/* ------------------------------------------------------------------ */
+enum
+{
+    SEQ_LT_BYTES = 64 * (int)sizeof(struct line_info),
+    SEQ_SRC_BYTES = 1024,
+    FB_LRECL = 80,
+    SEQ_COL = 72 /* numbers sit in columns 73-80 of an FB 80 record */
+};
+
+/* An FB 80 record: text padded to column 72, then seq in 73-80. */
+static void fb_record(char out[FB_LRECL], const char *text, const char *seq)
+{
+    memset(out, ' ', FB_LRECL);
+    memcpy(out, text, strlen(text));
+    memcpy(out + SEQ_COL, seq, 8);
+}
+
+static int acc_open(struct irx_ld_acc *a, int recfm, int lrecl)
+{
+    void *lt = NULL;
+    void *src = NULL;
+    memset(a, 0, sizeof(*a));
+    if (irxstor(RXSMGET, SEQ_LT_BYTES, &lt, NULL) != 0 ||
+        irxstor(RXSMGET, SEQ_SRC_BYTES, &src, NULL) != 0)
+    {
+        return 0;
+    }
+    a->lt = lt;
+    a->lt_cap = SEQ_LT_BYTES;
+    a->tsrc = src;
+    a->tsrc_cap = SEQ_SRC_BYTES;
+    irx_ld_begin_member(a, recfm, lrecl);
+    return 1;
+}
+
+static void acc_close(struct irx_ld_acc *a)
+{
+    void *p = a->lt;
+    irxstor(RXSMFRE, 0, &p, NULL);
+    p = a->tsrc;
+    irxstor(RXSMFRE, 0, &p, NULL);
+}
+
+/* Line i of the accumulation equals want. */
+static int line_is(const struct irx_ld_acc *a, int i, const char *want)
+{
+    int len = (int)strlen(want);
+    return i < a->n && a->lt[i].length == len &&
+           memcmp(a->tsrc + a->lt[i].offset, want, (size_t)len) == 0;
+}
+
+static void test_sequence_numbers(void)
+{
+    printf("--- #231: sequence numbers ---\n");
+    struct irx_ld_acc a;
+    char rec[FB_LRECL];
+
+    /* FB, numbered: the first record is 80 long and ends in digits. */
+    if (acc_open(&a, IRX_LD_RECFM_F, FB_LRECL))
+    {
+        fb_record(rec, "/* REXX */", "00000100");
+        irx_ld_add_line(&a, rec, FB_LRECL);
+        fb_record(rec, "say 'x'", "00000200");
+        irx_ld_add_line(&a, rec, FB_LRECL);
+        CHECK(a.numbered == 1, "FB: first record 73-80 numeric -> numbered");
+        CHECK(line_is(&a, 0, "/* REXX */") && line_is(&a, 1, "say 'x'"),
+              "FB: columns 73-80 dropped from every record");
+        acc_close(&a);
+    }
+
+    /* FB, not numbered: a line that merely ENDS in eight digits is short
+     * once trailing blanks are gone -- but the reader hands over the
+     * record untrimmed, so it is 80 long with blanks in 73-80. */
+    if (acc_open(&a, IRX_LD_RECFM_F, FB_LRECL))
+    {
+        fb_record(rec, "x = 12345678", "        ");
+        irx_ld_add_line(&a, rec, FB_LRECL);
+        fb_record(rec, "y = 1", "00000200");
+        irx_ld_add_line(&a, rec, FB_LRECL);
+        CHECK(a.numbered == 0, "FB: blank 73-80 in the first record -> not numbered");
+        CHECK(line_is(&a, 0, "x = 12345678"), "FB: digits inside the text kept");
+        CHECK(a.n == 2 && a.lt[1].length == FB_LRECL,
+              "FB: later records untouched when the first is not numbered");
+        acc_close(&a);
+    }
+
+    /* FB, first record shorter than LRECL (a reader that trims): the
+     * last eight characters of a SHORT line are not columns 73-80. */
+    if (acc_open(&a, IRX_LD_RECFM_F, FB_LRECL))
+    {
+        irx_ld_add_line(&a, "x = 12345678", 12);
+        CHECK(a.numbered == 0 && line_is(&a, 0, "x = 12345678"),
+              "FB: short first record ending in digits -> not numbered");
+        acc_close(&a);
+    }
+
+    /* FB, 73-80 not all digits. */
+    if (acc_open(&a, IRX_LD_RECFM_F, FB_LRECL))
+    {
+        fb_record(rec, "/* REXX */", "ABCD1234");
+        irx_ld_add_line(&a, rec, FB_LRECL);
+        CHECK(a.numbered == 0, "FB: 73-80 not all digits -> not numbered");
+        acc_close(&a);
+    }
+
+    /* VB, numbered: the first eight characters of the first record. */
+    if (acc_open(&a, IRX_LD_RECFM_V, 0))
+    {
+        irx_ld_add_line(&a, "00000100/* REXX */", 18);
+        irx_ld_add_line(&a, "00000200say 1", 13);
+        irx_ld_add_line(&a, "0000030", 7); /* shorter than a number */
+        CHECK(a.numbered == 1, "VB: first 8 numeric -> numbered");
+        CHECK(line_is(&a, 0, "/* REXX */") && line_is(&a, 1, "say 1") &&
+                  line_is(&a, 2, ""),
+              "VB: first 8 dropped from every record");
+        acc_close(&a);
+    }
+
+    /* VB, not numbered. */
+    if (acc_open(&a, IRX_LD_RECFM_V, 0))
+    {
+        irx_ld_add_line(&a, "/* REXX */", 10);
+        irx_ld_add_line(&a, "00000200say 1", 13);
+        CHECK(a.numbered == 0 && line_is(&a, 1, "00000200say 1"),
+              "VB: first record not numbered -> nothing dropped");
+        acc_close(&a);
+    }
+
+    /* Unknown format (U, host files): never numbered. */
+    if (acc_open(&a, IRX_LD_RECFM_UNKNOWN, 0))
+    {
+        fb_record(rec, "/* REXX */", "00000100");
+        irx_ld_add_line(&a, rec, FB_LRECL);
+        CHECK(a.numbered == 0 && a.lt[0].length == FB_LRECL,
+              "U/unknown: nothing dropped");
+        acc_close(&a);
+    }
+}
 
 static void make_execblk(struct execblk *e, const char *member8,
                          const char *ddname8)
@@ -148,6 +291,8 @@ int main(int argc, char **argv)
                tests_failed);
         return 1;
     }
+
+    test_sequence_numbers();
 
     /* The functions every exec load routine has to answer
      * (SC28-1883-0 p. 359), checked on the C core directly. */
@@ -231,6 +376,44 @@ int main(int argc, char **argv)
     {
         CHECK(load_direct(IRXLOAD_FC_FREE, &eb, &ref, env) == IRXLOAD_OK,
               "control: FREE");
+    }
+
+    /* #231 on real members: TLDNUM is TLDPLN with columns 73-80
+     * numbered. Both readers must hand back exactly TLDPLN. */
+    struct execblk ebn;
+    struct execblk ebp;
+    make_execblk(&ebn, "TLDNUM  ", "        ");
+    make_execblk(&ebp, "TLDPLN  ", "        ");
+    struct instblk *plain = NULL;
+    struct instblk *num = NULL;
+    CHECK(load_direct(IRXLOAD_FC_LOAD, &ebp, &plain, env) == IRXLOAD_OK &&
+              load_direct(IRXLOAD_FC_LOAD, &ebn, &num, env) == IRXLOAD_OK &&
+              plain != NULL && num != NULL,
+          "#231: stdio reader loads TLDNUM and TLDPLN");
+    if (plain != NULL && num != NULL)
+    {
+        CHECK(same_content(num, plain),
+              "#231 stdio: numbered member reads as its unnumbered twin");
+        if (expect_tso && exte != NULL && exte->load_routine != NULL)
+        {
+            struct instblk *bnum = NULL;
+            CHECK(load_via(exte->load_routine, IRXLOAD_FC_LOAD, &ebn, &bnum,
+                           env) == IRXLOAD_OK &&
+                      bnum != NULL && same_content(bnum, plain),
+                  "#231 BPAM: numbered member reads as its unnumbered twin");
+            if (bnum != NULL)
+            {
+                load_via(exte->load_routine, IRXLOAD_FC_FREE, &ebn, &bnum, env);
+            }
+        }
+    }
+    if (num != NULL)
+    {
+        load_direct(IRXLOAD_FC_FREE, &ebn, &num, env);
+    }
+    if (plain != NULL)
+    {
+        load_direct(IRXLOAD_FC_FREE, &ebp, &plain, env);
     }
 #else
     (void)argv;

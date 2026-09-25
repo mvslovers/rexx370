@@ -782,7 +782,10 @@ sources = [
 ]
 [[test.fixture]]
 dd = "SYSEXEC"
-members = ["test/fixtures/tldtso/TLDTSOX"]
+# TLDNUM/TLDPLN: the same exec with and without sequence numbers (#231).
+# TLDPLN's blank line holds one space: an empty instream line is lost on
+# the way to MVS (mbt#111), a single blank trims to the same empty line.
+members = ["test/fixtures/tldtso/TLDTSOX", "test/fixtures/tldtso/TLDNUM", "test/fixtures/tldtso/TLDPLN"]
 
 # ---------------------------------------------------------------
 # TLDTSO - the acceptance test for EXROUT (GitHub #230): pure

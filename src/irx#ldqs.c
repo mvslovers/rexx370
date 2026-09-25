@@ -61,6 +61,18 @@ int irx_ld_read_member(const char *ddname, const unsigned char *member8,
         return IRXLOAD_NOTFOUND;
     }
 
+    /* libc370's FILE carries the DCB's RECFM and LRECL (clibio.h). */
+    int recfm = IRX_LD_RECFM_UNKNOWN;
+    if ((f->recfm & _FILE_RECFM_TYPE) == _FILE_RECFM_F)
+    {
+        recfm = IRX_LD_RECFM_F;
+    }
+    else if ((f->recfm & _FILE_RECFM_TYPE) == _FILE_RECFM_V)
+    {
+        recfm = IRX_LD_RECFM_V;
+    }
+    irx_ld_begin_member(acc, recfm, (int)f->lrecl);
+
     char linebuf[LINE_BUF];
     int rc = 0;
     while (rc == 0 && fgets(linebuf, (int)sizeof(linebuf), f))
