@@ -274,6 +274,19 @@ needed for a *complete* REXX.
 > `CLAUDE.md` describe the current rule (#224). Measured on mvsdev: JOB01181
 > (failing), JOB01183 (green, batch + TSO).
 
+> **2026-09-25 — Explicit EXEC forms; usermod ZMG0002 installed on MVSCE-LAB.**
+> EXEC now follows the TSO/E rules measured on z/OS. Implicit: SYSEXEC is
+> REXX, SYSPROC only with a REXX comment in line 1. Explicit
+> `EXEC 'ds(mem)'`: that comment decides, whatever the library. The new
+> `EXEC` keyword (E/EX/EXE) forces REXX and gives an unqualified name the
+> `.EXEC` suffix. The logon message IKJ56942I is gone. The TSO integration
+> ships as SMP4 `++USERMOD(ZMG0002)` (`tso/usermod/`): object decks plus a
+> JCLIN, which SMP links against the installed modules. On the LAB it was
+> received, applied and verified byte-identical to the tested modules
+> (JOB01310–01313). The 23-case table passes with the installed modules and
+> no STEPLIB (JOB01314), and the foreground checks pass as well. Depends on
+> rexx370 #239 (in SYS2.LINKLIB since 2026-09-25).
+
 > **2026-09-25 — EXEC hook complete, tested in both combinations.** IKJCT430
 > hands an implicitly invoked member to IKJCT437. When IKJCT437 ran it as REXX,
 > IKJCT430 now leaves with RC 0 and does not fall into the CLIST path. The

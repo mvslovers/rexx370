@@ -405,6 +405,37 @@ RXCLIST  DS    0H                                               RXPTF
 *             DO;                   /* NAMES FOR CLIST SUFFIX - ADD  */ 00382000
 *               DA08UID=YES;        /* SUFFIX IF NOT PRESENT         */ 00383000
          OI    DA08UID(R8),B'00100000'                          DSKC190 00384000
+*REXX/370 -- with the EXEC keyword an unqualified name gets     RXPTF           
+*        .EXEC instead of .CLIST (measured on z/OS: exec hello  RXPTF           
+*        exec -> userid.HELLO.EXEC).  R4 = DATASETL here.       RXPTF           
+         L     R7,ECDAEANS        PDL                           RXPTF           
+         CLC   OPER3-PAR1PDL(2,R7),=H'1'                        RXPTF           
+         BNE   RXSUFCL            no EXEC keyword: IBM path     RXPTF           
+         C     R4,=F'5'                                         RXPTF           
+         BL    RXSUFAD                                          RXPTF           
+         LA    R7,DATASETA-5(R4)                                RXPTF           
+         CLC   0(5,R7),RXSUFEX    already ends in .EXEC?        RXPTF           
+         BE    @RF00218                                         RXPTF           
+RXSUFAD  C     R4,=F'39'          44 minus .EXEC                RXPTF           
+         BNH   RXSUFOK                                          RXPTF           
+         MVC   EXMSGID(4),@CC01138  name too long, as for CLIST RXPTF           
+         LA    R7,DATASETA                                      RXPTF           
+         ST    R7,MVAR                                          RXPTF           
+         STC   R4,MVARLEN                                       RXPTF           
+         OI    ERROR,B'10000000'                                RXPTF           
+         BAL   R14,MSGRTN                                       RXPTF           
+         B     @RF00218                                         RXPTF           
+RXSUFOK  LA    R7,DATASETA(R4)                                  RXPTF           
+         LTR   R4,R4              empty name: no period         RXPTF           
+         BNZ   RXSUFP                                           RXPTF           
+         MVC   0(4,R7),RXSUFEX+1                                RXPTF           
+         LA    R4,4                                             RXPTF           
+         B     RXSUFST                                          RXPTF           
+RXSUFP   MVC   0(5,R7),RXSUFEX                                  RXPTF           
+         LA    R4,5(,R4)                                        RXPTF           
+RXSUFST  STH   R4,DATASETL                                      RXPTF           
+         B     @RF00218                                         RXPTF           
+RXSUFCL  DS    0H                                               RXPTF           
 *               IF DATASETL<CON6×DATASETA(DATASETL-CON5:DATASETL)^=     00385000
 *                   CLIST THEN      /* CHECK FOR CLIST SUFFIX        */ 00386000
          C     R4,@CF00098                                      DSKC190 00387000
@@ -669,6 +700,25 @@ RXCLIST  DS    0H                                               RXPTF
          BCTR  R4,0                                             DSKC190 00646000
          L     R7,MEMPTR(,R7)                                   DSKC190 00647000
          EX    R4,@SM01405                                      DSKC190 00648000
+*REXX/370 -- explicit EXEC of a PDS member: ask IKJCT437.       RXPTF           
+*        INDDNAME is the DD DAIR just allocated and follows     RXPTF           
+*        PROCNAME directly (8 bytes each, @DATD): R1 -> both.   RXPTF           
+*        EXEC keyword: IKJCT43F runs it as REXX.  Without it    RXPTF           
+*        IKJCT43C runs it only if line 1 is a REXX comment.     RXPTF           
+*        The join at @RC00295 reloads R4 and R7.                RXPTF           
+         L     R7,ECDAEANS        PDL                           RXPTF           
+         L     R15,=V(IKJCT43C)                                 RXPTF           
+         CLC   OPER3-PAR1PDL(2,R7),=H'1'                        RXPTF           
+         BNE   RXEXPC                                           RXPTF           
+         L     R15,=V(IKJCT43F)                                 RXPTF           
+RXEXPC   L     R0,CPPLPTR                                       RXPTF           
+         LA    R1,PROCNAME                                      RXPTF           
+         BALR  R14,R15                                          RXPTF           
+         LTR   R15,R15                                          RXPTF           
+         BZ    RXEXPCL            not REXX: go on as CLIST      RXPTF           
+         SLR   R5,R5              ran as REXX: EXRETCDE = 0     RXPTF           
+         B     @RC00450           common exit frees PDL and DD  RXPTF           
+RXEXPCL  DS    0H                                               RXPTF           
 *               ELSE                /* CHECK FOR SEQUENTIAL INPUT    */ 00649000
 *                 IF SEQ8^=YES THEN /* IF NOT SEQUENTIAL THEN NOTIFY */ 00650000
          B     @RC00295                                            0299 00651000
@@ -2193,6 +2243,7 @@ CALLERID DC    H'1'                                                     02126000
 @CC01118 DC    C'END'                                                   02149000
 @CC01132 DC    C'SUB'                                                   02150000
 CLIST    DC    CL6'.CLIST'                                              02151000
+RXSUFEX  DC    C'.EXEC'            REXX/370 suffix              RXPTF           
 IKJCT430 CSECT                                                          02152000
 *                                /* GENERATED STATIC DATA AREAS      */ 02153000
 PARS   IKJPARM  DSECT=PAR1PDL       EXPLICIT EXEC CMD PCL               02154000
@@ -2206,6 +2257,11 @@ OPER1  IKJKEYWD                                                         02159000
 OPER2  IKJKEYWD                                                         02162000
        IKJNAME 'PROMPT'             PROMPT KEYWORD                      02163000
        IKJNAME 'NOPROMPT'           NOPROMPT KEYWORD                    02164000
+*REXX/370 -- EXEC keyword: run the data set as a REXX exec      RXPTF           
+*        (SC28-1883-0 p. 7, "the exec keyword operand").  Any   RXPTF           
+*        abbreviation down to E is accepted by IKJPARS.         RXPTF           
+OPER3  IKJKEYWD                                                                 
+       IKJNAME 'EXEC'             EXEC KEYWORD                  RXPTF           
        IKJENDP                                                          02165000
          DC    0F'0'                                            DSKC190 02165010
 STACKL  STACK MF=L                  STACK MACRO LIST FORM               02166000
