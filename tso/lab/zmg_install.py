@@ -2,7 +2,9 @@
 """tso/lab/zmg_install.py - install the TSO usermod on MVSCE-LAB, step by step.
 
     python3 tso/usermod.py                     # build/tso/ZMG0002.smp
-    python3 tso/lab/zmg_install.py backup      # IKJEFT01/IKJEFT0A, EXEC/EX
+    python3 tso/lab/zmg_install.py backup [SUFFIX]  # IKJEFT01/0A, EXEC/EX
+    python3 tso/lab/zmg_install.py restorecheck | restore
+    python3 tso/lab/zmg_install.py rejectcheck  | reject
     python3 tso/lab/zmg_install.py receive
     python3 tso/lab/zmg_install.py applycheck
     python3 tso/lab/zmg_install.py apply
@@ -64,8 +66,8 @@ def smp(c, cfg, name, stmt, out, ptfin=None):
     return sp
 
 
-def backup(c, cfg):
-    bk = f"{cfg.hlq}.{SYSMOD}.BACKUP"
+def backup(c, cfg, suffix="BACKUP"):
+    bk = f"{cfg.hlq}.{SYSMOD}.{suffix}"
     if c.dataset_exists(bk):
         raise SystemExit(f"{bk} exists - refusing to overwrite a backup")
     body = f"""
@@ -158,7 +160,16 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     cfg, c = L.client()
     if cmd == "backup":
-        backup(c, cfg)
+        backup(c, cfg, *(sys.argv[2:3] or ["BACKUP"]))
+    elif cmd in ("restorecheck", "restore", "rejectcheck", "reject"):
+        # Taking a level back out (to reinstall a rebuilt usermod under
+        # the same id on a test system): RESTORE relinks the affected
+        # load modules from the DLIB, REJECT then drops the SYSMOD so a
+        # new one of the same name can be received.
+        verb = cmd.replace("check", "").upper()
+        chk = " CHECK" if cmd.endswith("check") else ""
+        smp(c, cfg, f"ZMG{verb[:3]}{'C' if chk else ''}",
+            f"{verb} SELECT({SYSMOD}){chk} .", f"zmg_{cmd}.spool")
     elif cmd == "receive":
         receive(c, cfg)
     elif cmd == "applycheck":

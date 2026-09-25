@@ -17,6 +17,8 @@ Checks, since a wrong stream fails on MVS only after a RECEIVE:
 - every deck is whole 80-byte cards and ends in an END card
 - no deck card starts with '++' (SMP would read it as an MCS statement)
 - every ++MOD is followed by the deck of the same name
+- exactly one ++USERMOD and one ++VER (SMP refuses a second ++VER for the
+  same SREL/FMID with HMA3482, and a text edit can duplicate the block)
 """
 import re
 import sys
@@ -50,6 +52,10 @@ def deck(name):
 def main():
     sysmod = sys.argv[1] if len(sys.argv) > 1 else "ZMG0002"
     lines = (HERE / "usermod" / f"{sysmod}.mcs").read_text().splitlines()
+    for stmt in ("++USERMOD", "++VER"):
+        n = sum(1 for ln in lines if ln.startswith(stmt))
+        if n != 1:
+            raise SystemExit(f"{n} {stmt} statements, expected exactly 1")
     out = bytearray()
     pending = None
     for ln in lines:
