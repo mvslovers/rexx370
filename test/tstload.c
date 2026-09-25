@@ -377,6 +377,79 @@ static void test_instblk_ddname(void)
                  "explicit DD is still reported unchanged");
 }
 
+/* ------------------------------------------------------------------ */
+/*  T11: the search follows NOLOADDD and the MODNAMET LOADDD          */
+/*                                                                      */
+/*  SC28-1883-0 p. 321: with NOLOADDD off the DD named in LOADDD is    */
+/*  searched and, if the exec is not there, SYSPROC; with NOLOADDD on  */
+/*  SYSPROC only. Without an environment (the cases above) the search  */
+/*  stays SYSEXEC then SYSPROC.                                         */
+/* ------------------------------------------------------------------ */
+
+struct t11_env
+{
+    struct envblock env;
+    struct parmblock pb;
+    struct modnamet mn;
+};
+
+static void t11_setup(struct t11_env *e, int noload, const char *loaddd8)
+{
+    memset(e, 0, sizeof(*e));
+    memcpy(e->env.envblock_id, "ENVBLOCK", 8);
+    e->env.envblock_parmblock = &e->pb;
+    e->pb.parmblock_modnamet = &e->mn;
+    e->pb.tsofl = -1;
+    e->pb.noloaddd = noload ? -1 : 0;
+    memcpy(e->mn.modnamet_loaddd, loaddd8, 8);
+}
+
+static int t11_load(struct t11_env *e, const char *member, char *dd_out)
+{
+    struct execblk eb;
+    struct instblk *ib = NULL;
+    int retval = -1;
+
+    make_execblk(&eb, member, "        ");
+    int rc = irx_load_dispatch(IRXLOAD_FC_LOAD, &eb, &ib, &e->env, &retval);
+    if (rc == IRXLOAD_OK && ib != NULL)
+    {
+        memcpy(dd_out, ib->instblk_ddname, 8);
+        irx_load_dispatch(IRXLOAD_FC_FREE, NULL, &ib, &e->env, &retval);
+    }
+    return rc;
+}
+
+static void test_noloaddd(void)
+{
+    struct t11_env e;
+    char dd[8];
+
+    printf("T11: NOLOADDD and LOADDD steer the search\n");
+
+    t11_setup(&e, 1, "SYSEXEC ");
+    CHECK(t11_load(&e, "HELLO   ", dd) == IRXLOAD_NOTFOUND,
+          "NOLOADDD on: SYSEXEC is not searched");
+    CHECK(t11_load(&e, "PROCONLY", dd) == IRXLOAD_OK &&
+              memcmp(dd, "SYSPROC ", 8) == 0,
+          "NOLOADDD on: SYSPROC is");
+
+    t11_setup(&e, 0, "ALTDD   ");
+    CHECK(t11_load(&e, "ALTM    ", dd) == IRXLOAD_OK &&
+              memcmp(dd, "ALTDD   ", 8) == 0,
+          "NOLOADDD off: the LOADDD from MODNAMET is searched");
+    CHECK(t11_load(&e, "HELLO   ", dd) == IRXLOAD_NOTFOUND,
+          "NOLOADDD off: LOADDD replaces SYSEXEC, it is not added");
+    CHECK(t11_load(&e, "PROCONLY", dd) == IRXLOAD_OK &&
+              memcmp(dd, "SYSPROC ", 8) == 0,
+          "NOLOADDD off: SYSPROC after the LOADDD");
+
+    t11_setup(&e, 0, "        ");
+    CHECK(t11_load(&e, "HELLO   ", dd) == IRXLOAD_OK &&
+              memcmp(dd, "SYSEXEC ", 8) == 0,
+          "blank LOADDD defaults to SYSEXEC");
+}
+
 /* ================================================================== */
 /*  main                                                              */
 /* ================================================================== */
@@ -403,6 +476,7 @@ int main(void)
     test_load_explicit_ddname();
     test_instblk_ddname();
     test_load_empty_member();
+    test_noloaddd();
 
     printf("------------------------------\n");
     printf("Results: %d run, %d passed, %d failed\n",

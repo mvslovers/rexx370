@@ -305,7 +305,17 @@ Functions: GETRLTE, GETRL, GETBLOCK.
 3. Build INSTBLK record table
 4. Free with FREEMAIN
 
-**Search order:** SYSEXEC → SYSPROC (with REXX identifier) → ALTLIB (future).
+**Search order** (SC28-1883-0 p. 321), unless the EXECBLK names a DD:
+
+- `NOLOADDD` off: the DD in the MODNAMET `LOADDD` field (SYSEXEC when blank),
+  then SYSPROC (a SYSPROC member is REXX only with the REXX identifier);
+- `NOLOADDD` on: SYSPROC only.
+
+IRXTSPRM and IRXPARMS ship with `NOLOADDD` off, so SYSEXEC is searched. That is
+the setting IBM later made the default. V2's defaults had it on (SYSPROC only),
+and an installation that wants that classic behaviour sets the flag in its
+parameters module. Deviation: SYSPROC is searched in every environment, while V2
+limits it to TSO-integrated ones (TSOFL). ALTLIB is future work.
 
 ## 5.2 I/O Routine
 
