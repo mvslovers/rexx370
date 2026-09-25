@@ -103,11 +103,43 @@ struct envblock **ectenvbk_slot(void);
 /* ================================================================== */
 
 #ifdef __MVS__
+/* ================================================================== */
+/*  MODNAMET slot helpers                                             */
+/*                                                                    */
+/*  A slot is CL8, blank-padded, and "all blanks" means "no override,  */
+/*  use the default". SC28-1883-0 Chapter 16 puts the replaceable      */
+/*  routines here by NAME so IRXINIT can LOAD the one that fits the    */
+/*  environment -- which is how a TSO env gets a PUTLINE writer and a  */
+/*  batch env keeps the stdio one, without either load module having   */
+/*  to carry both.                                                     */
+/* ================================================================== */
+
+/* Copy a CL8 slot into a NUL-terminated name. Returns 0 when the slot
+ * is blank (nothing to load), 1 when a name was produced. */
+static int modnamet_slot_name(const unsigned char slot[8], char out[9])
+{
+    int n = 8;
+    while (n > 0 && slot[n - 1] == ' ')
+    {
+        n--;
+    }
+    if (n == 0)
+    {
+        out[0] = '\0';
+        return 0;
+    }
+    memcpy(out, slot, (size_t)n);
+    out[n] = '\0';
+    return 1;
+}
+
 static int load_default_parmblock(int is_tso,
                                   unsigned char eff_flags[4],
                                   unsigned char eff_masks[4],
                                   unsigned char eff_language[3],
-                                  int *eff_subpool)
+                                  int *eff_subpool,
+                                  struct modnamet *mnt_out,
+                                  int *mnt_valid)
 {
     const char *modname = is_tso ? "IRXTSPRM" : "IRXPARMS";
     unsigned size = 0;
@@ -136,6 +168,19 @@ static int load_default_parmblock(int is_tso,
         memcpy(eff_masks, modpb->parmblock_masks, 4);
         memcpy(eff_language, modpb->parmblock_language, 3);
         *eff_subpool = modpb->parmblock_subpool;
+
+        /* Capture MODNAMET while the module is still resident. It lives
+         * INSIDE the parm module, so after the __delete below the
+         * pointer dangles -- which is why parmblock_modnamet was never
+         * carried over and every replaceable-routine name was lost.
+         * IRXISPRM deliberately carries A(0) here (inherit from the
+         * parent TSO environment), so a NULL is not an error. */
+        if (modpb->parmblock_modnamet != NULL)
+        {
+            memcpy(mnt_out, modpb->parmblock_modnamet,
+                   sizeof(struct modnamet));
+            *mnt_valid = 1;
+        }
     }
 
     /* Always release the module: we only needed the byte values. */
@@ -419,6 +464,9 @@ int irx_init_initenvb(struct envblock *prev_envblock,
 {
     struct envblock *envblk = NULL;
     struct parmblock *pb_copy = NULL;
+    struct modnamet *mnt_copy = NULL;
+    struct modnamet mnt_staged;
+    int mnt_valid = 0;
     struct irxexte *exte = NULL;
     int reason = 0;
     int tso_flag = 0; /* resolved in step 3 via is_tso() or caller PARMBLOCK */
@@ -501,7 +549,8 @@ int irx_init_initenvb(struct envblock *prev_envblock,
 #ifdef __MVS__
             if (load_default_parmblock(is_tso(),
                                        eff_flags, eff_masks,
-                                       eff_language, &eff_subpool) == 0)
+                                       eff_language, &eff_subpool,
+                                       &mnt_staged, &mnt_valid) == 0)
             {
                 loaded = 1;
             }
@@ -646,6 +695,26 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     pb_copy->tsofl_mask = -1;
     pb_copy->tsofl = tso_flag ? -1 : 0;
 
+    /* MODNAMET into storage the environment owns, so the pointer stays
+     * valid for the life of the ENVBLOCK and IRXTERM can read back which
+     * replaceable routines were loaded. Without a captured MODNAMET the
+     * slot stays NULL, which is the pre-WP-33-TSO behaviour and means
+     * "no overrides, use the defaults". */
+    if (mnt_valid)
+    {
+        void *storage = NULL;
+        int rc = irxstor(RXSMGET, (int)sizeof(struct modnamet),
+                         &storage, envblk);
+        if (rc != 0)
+        {
+            reason = 2;
+            goto cleanup;
+        }
+        mnt_copy = (struct modnamet *)storage;
+        memcpy(mnt_copy, &mnt_staged, sizeof(struct modnamet));
+    }
+    pb_copy->parmblock_modnamet = mnt_copy;
+
     envblk->envblock_parmblock = pb_copy;
 
     /* ----------------------------------------------------------------
@@ -701,12 +770,71 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     exte->userid_routine = (void *)irxuid;
     exte->irxmsgid = (void *)irxmsgid;
     exte->msgid_routine = (void *)irxmsgid;
+    /* The I/O routine is per-ENVIRONMENT, not per-platform, and the
+     * environment names it: IRXTSPRM's MODNAMET carries IRXIOTSO (PUTLINE),
+     * IRXPARMS leaves the slot blank and keeps the stdio routine that
+     * IRXJCL redirects to DD:SYSTSPRT, and an ISPF variant later costs
+     * one DC in IRXISPRM rather than another branch here.
+     *
+     * Loading by name instead of linking both variants is also what
+     * keeps the load modules small: nothing carries a routine it will
+     * not use. See SC28-1883-0 Chapter 16. The defaults are wired here;
+     * the overrides follow below. */
 #ifdef __MVS__
     exte->irxinout = (void *)irxinout;
     exte->io_routine = (void *)irxinout;
 #else
     exte->irxinout = (void *)irxinout_host;
     exte->io_routine = (void *)irxinout_host;
+#endif
+
+#ifdef __MVS__
+    /* MODNAMET overrides.
+     *
+     * IRXEXTE carries every replaceable routine TWICE -- an "Active"
+     * slot and a "Default" slot beside it (io_routine/irxinout,
+     * load_routine/irxload, ...). An override replaces the ACTIVE one
+     * only: the default must stay reachable, because a caller asking
+     * for the default explicitly is entitled to get it.
+     *
+     * A named module that fails to LOAD is not fatal -- the default
+     * stays wired and the slot is BLANKED in our copy, so the copy
+     * always records what is actually active and IRXTERM never deletes
+     * something that was never loaded. */
+    if (mnt_copy != NULL)
+    {
+        struct
+        {
+            unsigned char *slot;
+            void **active;
+        } overrides[] = {
+            {mnt_copy->modnamet_iorout, &exte->io_routine},
+            {mnt_copy->modnamet_exrout, &exte->load_routine},
+        };
+
+        const int n_overrides = (int)(sizeof(overrides) / sizeof(overrides[0]));
+
+        for (int i = 0; i < n_overrides; i++)
+        {
+            char rtname[9];
+            if (!modnamet_slot_name(overrides[i].slot, rtname))
+            {
+                continue;
+            }
+
+            unsigned size = 0;
+            char ac = 0;
+            void *ep = __load(NULL, rtname, &size, &ac);
+            if (ep != NULL)
+            {
+                *(overrides[i].active) = ep;
+            }
+            else
+            {
+                memset(overrides[i].slot, ' ', 8);
+            }
+        }
+    }
 #endif
     envblk->envblock_irxexte = exte;
 
