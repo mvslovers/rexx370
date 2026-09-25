@@ -113,16 +113,87 @@ static int grow_pool(void **buf, int *cur_cap, int new_cap,
 }
 
 /* ------------------------------------------------------------------ */
-/*  irx_ld_add_line - append one line to a LOAD's accumulation        */
+/*  irx_ld_begin_member - start a member                              */
+/* ------------------------------------------------------------------ */
+void irx_ld_begin_member(struct irx_ld_acc *acc, int recfm, int lrecl)
+{
+    acc->n = 0;
+    acc->total = 0;
+    acc->recfm = recfm;
+    acc->lrecl = lrecl;
+    acc->numbered = -1; /* the first record decides */
+}
+
+/* All of text[0..IRX_LD_SEQ_LEN) are digits. */
+static int all_digits(const char *text)
+{
+    for (int i = 0; i < IRX_LD_SEQ_LEN; i++)
+    {
+        if (text[i] < '0' || text[i] > '9')
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* SC28-1883-0 p. 358: a member is numbered if its FIRST record is --
+ * fixed format and the last eight characters of the record numeric, or
+ * variable format and the first eight numeric. For fixed records "the
+ * last eight" means columns LRECL-7..LRECL, so the record must still
+ * be LRECL long: a shorter line only ends in digits by chance. */
+static int first_record_numbered(const struct irx_ld_acc *acc,
+                                 const char *text, int len)
+{
+    switch (acc->recfm)
+    {
+        case IRX_LD_RECFM_F:
+            return acc->lrecl >= IRX_LD_SEQ_LEN && len == acc->lrecl &&
+                   all_digits(text + len - IRX_LD_SEQ_LEN);
+        case IRX_LD_RECFM_V:
+            return len >= IRX_LD_SEQ_LEN && all_digits(text);
+        default:
+            return 0;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  irx_ld_add_line - append one record to a LOAD's accumulation      */
 /*                                                                    */
 /*  Shared by every reader (irxldrd.h), so a line means the same      */
-/*  thing whichever one is linked: CR, LF and trailing blanks are     */
-/*  stripped, nothing else.                                           */
+/*  thing whichever one is linked: CR/LF off, sequence numbers off    */
+/*  when the member is numbered, trailing blanks off, nothing else.   */
 /* ------------------------------------------------------------------ */
 int irx_ld_add_line(struct irx_ld_acc *acc, const char *text, int len)
 {
-    while (len > 0 && (text[len - 1] == '\n' || text[len - 1] == '\r' ||
-                       text[len - 1] == ' '))
+    while (len > 0 && (text[len - 1] == '\n' || text[len - 1] == '\r'))
+    {
+        --len;
+    }
+
+    if (acc->numbered < 0)
+    {
+        acc->numbered = first_record_numbered(acc, text, len);
+    }
+    if (acc->numbered)
+    {
+        if (acc->recfm == IRX_LD_RECFM_F)
+        {
+            int keep = acc->lrecl - IRX_LD_SEQ_LEN;
+            if (len > keep)
+            {
+                len = keep;
+            }
+        }
+        else
+        {
+            int drop = (len < IRX_LD_SEQ_LEN) ? len : IRX_LD_SEQ_LEN;
+            text += drop;
+            len -= drop;
+        }
+    }
+
+    while (len > 0 && text[len - 1] == ' ')
     {
         --len;
     }
@@ -336,10 +407,6 @@ static int irx_load_load(struct execblk *execblk,
 
     for (int di = 0; di < nd && !found; di++)
     {
-        /* A DD that did not answer contributes nothing. */
-        acc.n = 0;
-        acc.total = 0;
-
 #ifdef __MVS__
         int sr = irx_ld_read_member(try_dds[di], execblk->exec_member, &acc);
         if (sr == IRXLOAD_NOTFOUND)
@@ -372,6 +439,10 @@ static int irx_load_load(struct execblk *execblk,
         {
             continue;
         }
+        /* A host file has no record format, so nothing is ever treated
+         * as numbered here; the rule itself is host-tested through
+         * irx_ld_begin_member() with an explicit format. */
+        irx_ld_begin_member(&acc, IRX_LD_RECFM_UNKNOWN, 0);
         char linebuf[256];
         int sr = 0;
         while (sr == 0 && fgets(linebuf, (int)sizeof(linebuf), f))

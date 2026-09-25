@@ -8,8 +8,9 @@
 ** memcpy/memset are compiled inline.
 **
 ** Line semantics are the ones irx#ldqs.c has through fgets: one line
-** per logical record, trailing blanks stripped by irx_ld_add_line(),
-** nothing else. Sequence numbers are NOT removed; see GitHub #230.
+** per logical record, handed to irx_ld_add_line() with the RECFM and
+** LRECL from the DCB, which removes sequence numbers when the member is
+** numbered (#231) and strips trailing blanks.
 **
 ** Ref: SC28-1883-0 Chapter 16 (Exec Load Routine); GitHub #230
 **
@@ -172,6 +173,19 @@ int irx_ld_read_member(const char *ddname, const unsigned char *member8,
         /* No DD, or it would not open: this DD has no such exec. */
         bp_free(&pv, acc->env);
         return IRXLOAD_NOTFOUND;
+    }
+
+    switch (p->recfm & RECFM_FORMAT)
+    {
+        case RECFM_F:
+            irx_ld_begin_member(acc, IRX_LD_RECFM_F, (int)p->lrecl);
+            break;
+        case RECFM_V:
+            irx_ld_begin_member(acc, IRX_LD_RECFM_V, (int)p->lrecl);
+            break;
+        default:
+            irx_ld_begin_member(acc, IRX_LD_RECFM_UNKNOWN, 0);
+            break;
     }
 
     int rc = 0;
