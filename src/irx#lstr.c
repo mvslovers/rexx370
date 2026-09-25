@@ -199,9 +199,19 @@ struct lstr_alloc *irx_lstr_init(struct envblock *envblock)
         return NULL;
     }
 
+    /* The bridge lives as long as the environment, the callbacks only
+     * as long as the module that installed them. Under TSO every exec
+     * runs in a freshly LOADed IRXEXEC that is deleted when the EXEC
+     * subtask ends, so callbacks cached by an earlier exec point into
+     * a module that is gone -- harmless while the next copy happens to
+     * load at the same address, a branch into foreign code once it does
+     * not (#239). Re-bind them to this module on every call. */
     if (wkbi->wkbi_lstr_alloc != NULL)
     {
-        return (struct lstr_alloc *)wkbi->wkbi_lstr_alloc;
+        alloc = (struct lstr_alloc *)wkbi->wkbi_lstr_alloc;
+        alloc->alloc = rexx_lstr_alloc;
+        alloc->dealloc = rexx_lstr_dealloc;
+        return alloc;
     }
 
     rc = irxstor(RXSMGET, (int)sizeof(struct lstr_alloc), &mem, envblock);
