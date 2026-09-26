@@ -393,15 +393,21 @@ struct t11_env
     struct modnamet mn;
 };
 
-static void t11_setup(struct t11_env *e, int noload, const char *loaddd8)
+static void t11_setup_env(struct t11_env *e, int tso, int noload,
+                          const char *loaddd8)
 {
     memset(e, 0, sizeof(*e));
     memcpy(e->env.envblock_id, "ENVBLOCK", 8);
     e->env.envblock_parmblock = &e->pb;
     e->pb.parmblock_modnamet = &e->mn;
-    e->pb.tsofl = -1;
+    e->pb.tsofl = tso ? -1 : 0;
     e->pb.noloaddd = noload ? -1 : 0;
     memcpy(e->mn.modnamet_loaddd, loaddd8, 8);
+}
+
+static void t11_setup(struct t11_env *e, int noload, const char *loaddd8)
+{
+    t11_setup_env(e, 1, noload, loaddd8);
 }
 
 static int t11_load(struct t11_env *e, const char *member, char *dd_out)
@@ -450,6 +456,40 @@ static void test_noloaddd(void)
           "blank LOADDD defaults to SYSEXEC");
 }
 
+/* ------------------------------------------------------------------ */
+/*  T12: SYSPROC only in TSO-integrated environments (#248)           */
+/*                                                                      */
+/*  SC28-1883-0 p. 321 searches SYSPROC only when the environment is   */
+/*  integrated into TSO (TSOFL on). A non-TSO environment -- batch     */
+/*  IRXJCL -- searches the LOADDD alone, and with NOLOADDD on nothing. */
+/* ------------------------------------------------------------------ */
+
+static void test_sysproc_tso_only(void)
+{
+    struct t11_env e;
+    char dd[8];
+
+    printf("T12: SYSPROC only with TSOFL on\n");
+
+    t11_setup_env(&e, 0, 0, "        ");
+    CHECK(t11_load(&e, "HELLO   ", dd) == IRXLOAD_OK &&
+              memcmp(dd, "SYSEXEC ", 8) == 0,
+          "TSOFL off: SYSEXEC is searched");
+    CHECK(t11_load(&e, "PROCONLY", dd) == IRXLOAD_NOTFOUND,
+          "TSOFL off: SYSPROC is not searched");
+
+    t11_setup_env(&e, 0, 1, "        ");
+    CHECK(t11_load(&e, "HELLO   ", dd) == IRXLOAD_NOTFOUND,
+          "TSOFL off, NOLOADDD on: SYSEXEC is not searched");
+    CHECK(t11_load(&e, "PROCONLY", dd) == IRXLOAD_NOTFOUND,
+          "TSOFL off, NOLOADDD on: SYSPROC is not searched either");
+
+    t11_setup_env(&e, 1, 0, "        ");
+    CHECK(t11_load(&e, "PROCONLY", dd) == IRXLOAD_OK &&
+              memcmp(dd, "SYSPROC ", 8) == 0,
+          "TSOFL on: SYSPROC after SYSEXEC");
+}
+
 /* ================================================================== */
 /*  main                                                              */
 /* ================================================================== */
@@ -477,6 +517,7 @@ int main(void)
     test_instblk_ddname();
     test_load_empty_member();
     test_noloaddd();
+    test_sysproc_tso_only();
 
     printf("------------------------------\n");
     printf("Results: %d run, %d passed, %d failed\n",

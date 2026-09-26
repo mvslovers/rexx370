@@ -281,6 +281,12 @@ needed for a *complete* REXX.
 > TMP's environment from there. 27/27 installed after an IPL (JOB01333),
 > foreground green. KB `MVS-TSO-0003`.
 
+> **2026-09-26 — SYSPROC only in TSO environments (#248).** IRXLOAD now
+> searches SYSPROC only when the environment has TSOFL on, as SC28-1883-0
+> p. 321 does. Batch IRXJCL searches the LOADDD (SYSEXEC) alone, so an exec
+> that is only in SYSPROC is no longer found there. The TSO path is unchanged.
+> TSTLOAD T12 covers it, green on the host and on MVS (JOB01335).
+
 > **2026-09-25 — Explicit EXEC forms; usermod ZMG0002 installed on MVSCE-LAB.**
 > EXEC now follows the TSO/E rules measured on z/OS. Implicit: SYSEXEC is
 > REXX, SYSPROC only with a REXX comment in line 1. Explicit

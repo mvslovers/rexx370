@@ -9,10 +9,10 @@
 ** INIT, TERM, CLOSEDD: nothing to do (no DD outlives a LOAD), RC 0.
 ** STATUS: nothing is cached, so RC 4 (not loaded) and INSTBLK 0.
 **
-** DD search order (per ticket WP-CPS-07):
-**   1. EXECBLK_DDNAME if non-blank
-**   2. SYSEXEC
-**   3. SYSPROC
+** DD search order (SC28-1883-0 p. 321):
+**   1. EXECBLK_DDNAME if non-blank, alone
+**   2. the MODNAMET LOADDD (SYSEXEC when blank), unless NOLOADDD is on
+**   3. SYSPROC, only in a TSO-integrated environment (TSOFL on)
 **   SYSUEXEC is out of scope (TSO-specific; future separate ticket).
 **
 ** Source accumulation uses a single-pass approach with growable buffers:
@@ -395,10 +395,10 @@ static int irx_load_load(struct execblk *execblk,
     /* DD search list: the caller's DD alone, or the environment's search
      * (SC28-1883-0 p. 321): with NOLOADDD off the DD named in the
      * MODNAMET LOADDD field (SYSEXEC when blank) and then SYSPROC, with
-     * NOLOADDD on SYSPROC only. No environment, no PARMBLOCK: SYSEXEC
-     * then SYSPROC, as before. SYSPROC is searched whatever TSOFL says;
-     * V2 limits it to TSO-integrated environments, which would change
-     * what IRXJCL finds in batch -- not done here. */
+     * NOLOADDD on SYSPROC only. SYSPROC only in environments integrated
+     * into TSO (TSOFL on), so batch IRXJCL searches the LOADDD alone
+     * (#248). No environment, no PARMBLOCK: SYSEXEC then SYSPROC, as
+     * there is no TSOFL to read. */
     const char *try_dds[2];
     char loaddd[CL8_BUFLEN];
     int nd = 0;
@@ -430,7 +430,10 @@ static int irx_load_load(struct execblk *execblk,
         {
             try_dds[nd++] = loaddd;
         }
-        try_dds[nd++] = "SYSPROC";
+        if (pb == NULL || pb->tsofl)
+        {
+            try_dds[nd++] = "SYSPROC";
+        }
     }
 
     for (int di = 0; di < nd && !found; di++)
