@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 
 ---
 
@@ -273,6 +273,13 @@ needed for a *complete* REXX.
 > expect the predecessor instead; `architecture.md` §6.1, `irxanchr.h` and
 > `CLAUDE.md` describe the current rule (#224). Measured on mvsdev: JOB01181
 > (failing), JOB01183 (green, batch + TSO).
+
+> **2026-09-26 — Coexistence with BREXX/370 (#244).** BREXX writes its own
+> context into ECTENVBK and leaves it pointing at freed storage. A later REXX
+> exec then took S0C4 or found no environment. IKJCT437 now only compares
+> ECTENVBK with the live environments in IRXANCHR and otherwise takes the
+> TMP's environment from there. 27/27 installed after an IPL (JOB01333),
+> foreground green. KB `MVS-TSO-0003`.
 
 > **2026-09-25 — Explicit EXEC forms; usermod ZMG0002 installed on MVSCE-LAB.**
 > EXEC now follows the TSO/E rules measured on z/OS. Implicit: SYSEXEC is
