@@ -19,9 +19,16 @@
 *  ---- Why the checks are in this order ----
 *
 *  No BLDL.  The question is not "is REXX/370 on disk" but "is a REXX
-*  environment usable now", and ECTENVBK (ECT+X'30') answers it for
-*  free: NULL or no 'ENVBLOCK' eye-catcher means part A never ran, so
-*  we load nothing at all and hand the exec back to CLIST.
+*  environment usable now".  ECTENVBK (ECT+X'30') is only a HINT and
+*  is never dereferenced unchecked: BREXX/370 stores its own context
+*  there and leaves it behind pointing at storage it has freed
+*  (brexx370 asm/rxinit.hlasm UPDENV, asm/rxterm.hlasm), and reading
+*  through it took S0C4 reason 010 (JOB01315).  So the value is only
+*  COMPARED with the live environments in IRXANCHR.  Not one of them
+*  (BREXX active, or its pointer dangling): take this ECT's newest
+*  TSO-attached environment from IRXANCHR instead -- the one the TMP
+*  created at logon.  ECTENVBK itself is left alone: a BREXX exec that
+*  runs an implicit EXEC still owns it.  No environment: CLIST.
 *
 *  The exec is loaded through the environment's OWN exec load routine
 *  (IRXEXTE load_routine, named in MODNAMET EXROUT), not by LOADing
@@ -98,13 +105,23 @@ COMMON   BALR  R12,0
 * --- is a REXX environment up at all? ---
          LTR   R5,R5
          BZ    NOTREXX
-         L     R2,CPPLECT(,R5)    ECT
+         L     R3,CPPLECT(,R5)    ECT
+         LTR   R3,R3
+         BZ    NOTREXX
+*  IRXANCHR is in the job pack queue since IKJEFTRX LOADed it at
+*  logon, so this LOAD only finds it and counts it; DELETE undoes that.
+         LOAD  EP=IRXANCHR,ERRET=NOTREXX
+         LR    R4,R0              IRXANCHR table
+         SR    R2,R2
+         CLC   0(8,R4),ANCHEYE
+         BNE   ANCHDONE
+         L     R2,ECTENVBK(,R3)   candidate -- compared, not read
+         BAL   R11,FINDENV        R2 = live environment or 0
+ANCHDONE DS    0H
+         DELETE EP=IRXANCHR       R2 survives (R0/R1/R15 only)
          LTR   R2,R2
          BZ    NOTREXX
-         L     R2,ECTENVBK(,R2)   ENVBLOCK
-         LTR   R2,R2
-         BZ    NOTREXX
-         CLC   0(8,R2),ENVBEYE    valid block, not a stale slot?
+         CLC   0(8,R2),ENVBEYE    registered, so safe to read
          BNE   NOTREXX
 *
 * --- workarea ---
@@ -128,7 +145,7 @@ COMMON   BALR  R12,0
          ST    R1,8(,R13)
          LR    R13,R1
          USING WAREA,R13
-         ST    R2,WENV            ENVBLOCK (R2 since C3, untouched)
+         ST    R2,WENV            ENVBLOCK from FINDENV, untouched
 *
 * --- EXECBLK: member from the caller.  Implicit: DD blank, so the
 *     load routine runs its own search (LOADDD, then SYSPROC).
@@ -266,6 +283,55 @@ WASREXX  DS    0H
          BR    R14
 *
 * ------------------------------------------------------------------
+*  FINDENV - the environment to use, checked against IRXANCHR.
+*            R2 = ECTENVBK value (never read through), R3 -> ECT,
+*            R4 -> IRXANCHR table, link in R11.  Out: R2 = a live
+*            ENVBLOCK or 0.  Uses R0, R1, R14, R15.
+*            Table: 32-byte header (+16 used = high-watermark), then
+*            40-byte entries: +0 envblock_ptr (0 free, -1 sentinel),
+*            +32 flags (X'40' in the first byte: TSO-attached).
+*            ENVBLOCK+296 is envblock_ectptr (include/irxanchr.h,
+*            include/irx.h).
+* ------------------------------------------------------------------
+FINDENV  DS    0H
+         L     R1,16(,R4)         used
+         C     R1,=F'64'          never past the table
+         BNH   FEUSED
+         L     R1,=F'64'
+FEUSED   LTR   R1,R1
+         BNP   FENONE
+*  pass 1: is the ECTENVBK value itself a live environment?
+         LTR   R2,R2
+         BZ    FEPASS2
+         C     R2,=F'-1'
+         BE    FEPASS2
+         LR    R0,R1
+         LA    R15,32(,R4)        first entry
+FE1LP    C     R2,0(,R15)
+         BER   R11                yes: use it
+         LA    R15,40(,R15)
+         BCT   R0,FE1LP
+*  pass 2: the newest TSO-attached environment of this ECT
+FEPASS2  SR    R2,R2
+         LA    R15,32(,R4)
+FE2LP    L     R0,0(,R15)         envblock_ptr
+         LTR   R0,R0              free
+         BZ    FE2NEXT
+         C     R0,=F'-1'          sentinel
+         BE    FE2NEXT
+         TM    32(R15),X'40'      TSO-attached?
+         BNO   FE2NEXT
+         LR    R14,R0
+         C     R3,296(,R14)       envblock_ectptr = this ECT?
+         BNE   FE2NEXT
+         LR    R2,R0              later slots are newer: keep last
+FE2NEXT  LA    R15,40(,R15)
+         BCT   R1,FE2LP
+         BR    R11
+FENONE   SR    R2,R2
+         BR    R11
+*
+* ------------------------------------------------------------------
 *  CHKLINE1 - does line 1 start a comment that contains REXX?
 *             R4 -> INSTBLK, link in R11.  R15 = 4 yes, 0 no.
 *             SC28-1883 requires
@@ -306,6 +372,7 @@ CL1DONE  BR    R11
 *
 * --- read-only static data (RENT-safe) ---
 ENVBEYE  DC    C'ENVBLOCK'
+ANCHEYE  DC    C'IRXANCHR'
 EXECBEYE DC    C'IRXEXECB'
 DDPROC   DC    CL8'SYSPROC'
 BLANK8   DC    CL8' '
@@ -337,7 +404,7 @@ WLP2     DS    A
 WXVL     DS    10A                IRXEXEC VLIST
 WXRC     DS    F
 WLOADEP  DS    A                  load_routine entry (IRXEXTE)
-WENV     DS    A                  ENVBLOCK from ECTENVBK
+WENV     DS    A                  ENVBLOCK (IRXANCHR-checked)
 WHANDLED DS    X                  X'01' = the exec was run
 WEXFL    DS    X                  X'01' = IRXEXEC is loaded
          DS    0F
