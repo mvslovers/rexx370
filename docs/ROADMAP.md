@@ -54,7 +54,7 @@ Two execution paths exist:
 
 | Milestone | cps (n=2, gate verified) | note |
 |---|---|---|
-| pre-varcache (`cb0ebdb`) | 16,794 / 16,820 | spread 0.15 % |
+| pre-varcache (`696b32b`) | 16,794 / 16,820 | spread 0.15 % |
 | + varcache (#218) | 16,920 / 17,144 | spread 1.32 % |
 | BREXX/370 reference | *not yet measured* | needed before quoting any factor |
 
