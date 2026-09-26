@@ -144,7 +144,7 @@ anderem Namen testet nichts.
 - Der ZMG-Usermod (++MOD-Decks + ++JCLIN für die neuen Module, `++VER
   FMID(EBB1102) PRE(UY16532,UY13431)`), danach der Test im Vordergrund.
 - Teil B Phase 3: die expliziten `EXEC`-Formen.
-- In `SYS2.LINKLIB` liegt IRXLDTSO aus `a59bd0c`, **ohne** #231. Vor dem
+- In `SYS2.LINKLIB` liegt IRXLDTSO aus `d36f7d5`, **ohne** #231. Vor dem
   Einspielen ein Compress, siehe `TODO.md`.
 
 ## Stand 2026-09-25 (Vormittag): der Klassifizierer läuft durch
@@ -183,7 +183,7 @@ Behoben: R1 trägt die Adresse.
   braucht kein CLPA, nur dieselbe Extent-Vorsicht wie `SYS2.LINKLIB`
   (Link-List). Ob `EXEC` inzwischen komplett bindbar ist (IKJCT435, siehe
   `docs/REXX_TSO_INTEGRATION.md` „Bindung"), ist zu prüfen.
-- In `SYS2.LINKLIB` liegt IRXLDTSO aus `a59bd0c`, also **ohne** das
+- In `SYS2.LINKLIB` liegt IRXLDTSO aus `d36f7d5`, also **ohne** das
   Entfernen der Satznummern (#231). Einspielen erst nach einem Compress —
   26 Tracks frei, siehe `TODO.md`.
 - Teil B Phase 3: die expliziten `EXEC`-Formen.
@@ -312,7 +312,7 @@ Batch-Annahme über eine TSO-Umgebung legen.
 
 ### Die TSO-I/O-Routine existiert noch gar nicht
 
-> **Nachtrag 2026-09-25: erledigt, #228 / PR #229 (`b9ce45c`).** Es gibt jetzt
+> **Nachtrag 2026-09-25: erledigt, #228 / PR #229 (`2c9ba62`).** Es gibt jetzt
 > `IRXIOTSO`. IRXINIT lädt die Routine über die MODNAMET von `IRXTSPRM`,
 > nicht per `#ifdef`. Sie schreibt über **PUTLINE** und kommt ohne C-Runtime
 > aus. Ein erster Anlauf mit TPUT ging im Batch-TMP stillschweigend verloren:
