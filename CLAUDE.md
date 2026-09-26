@@ -481,6 +481,11 @@ rexx370 1.0.10 cannot be expressed and must not be released.
 Proposed: **`TRXX100`** for 1.0.0. Nothing has ever been installed, so the first
 level carries no `delete`; every level after it deletes the one before.
 
+**The TSO integration is not part of the FMID.** The patches to IBM's TMP
+(IKJEFT01 + IKJEFTRX) and EXEC (IKJCT430 + IKJCT437) live in `tso/` and ship as
+the usermod `ZMG0002` (`tso/usermod/`, FMID EBB1102). State and tests:
+`tso/TODO_IKJCT437.md`, `tso/lab/exec_test.py`.
+
 Never re-spend an id, and never install a test package under the real one: a
 test needs a throwaway id **and** throwaway module names, because SMP keys
 element ownership on `MOD(name)`, not on the target library. See the root
