@@ -92,3 +92,4 @@ dkms.conf
 # Test binaries
 test/test_*
 !test/test_*.c
+__pycache__/

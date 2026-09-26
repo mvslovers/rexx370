@@ -12,10 +12,11 @@ sources assembled against the MVS/CE macro libraries of the `mvs38src` project.
 | `IKJCT437.ASM` | Ours: decides whether an implicitly invoked member is REXX, and runs it |
 | `RXDRV.ASM` | Test driver: calls `IKJCT437` exactly as `IKJCT430` does, from a small load module |
 | `lmod_link.py` | Links decks on MVS against the INSTALLED load module, the way SMP does: `reference` proves the IBM source reproduces it, `testlib` puts the patched modules into `REXX370.TSO.LINKLIB` |
-| `lab/exec_test.py` | The EXEC language rules as a 23-case table: patched modules via STEPLIB, the IBM TMP, or what SMP installed |
+| `lab/exec_test.py` | The EXEC language rules as a 27-case table: patched modules via STEPLIB, the IBM TMP, or what SMP installed |
 | `usermod/ZMG0002.mcs`, `usermod.py` | The SMP4 usermod: MCS with cover letter, JCLIN and four `++MOD` decks, built into `build/tso/ZMG0002.smp` |
 | `lab/zmg_install.py` | Install step by step (backup, receive, applycheck, apply, verify; restore for a rebuilt test level) |
 | `lab/testlib_put.py` | Put rexx370 modules into the APF test library |
+| `lab/tsofg.py` | Drive one TSO foreground session through s3270 and log every screen (SAY on a terminal cannot be checked in batch) |
 | `lab/rep_*.py` | The MVSCE-LAB repair of 2026-09-25 (TK5 level for IKJEFT01/06/SC), kept for the record |
 | `TODO_IKJEFT01.md` | Part A (the TMP): build and link recipe, traps, measurements |
 | `TODO_IKJCT437.md` | Part B (the classifier): state, measurements, traps |
