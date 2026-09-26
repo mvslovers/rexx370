@@ -11,8 +11,10 @@ new-tmp and ibm-tmp run a batch TMP with STEPLIB=REXX370.TSO.LINKLIB, which
 supplies PGM=IKJEFT01 and the EXEC command processor ahead of the LPA and
 SYS1.CMDLIB. For ibm-tmp the library must hold the IBM IKJEFT01: once the
 usermod is in the LPA, a library without one gets the patched TMP from
-there. ibm-tmp puts the IBM module in (from <HLQ>.ZMG0002.BACKUP, taken
-before the APPLY); tso/lmod_link.py testlib ikjeft01 puts ours back.
+there. ibm-tmp puts an IBM TMP in: tso/lmod_link.py reference ikjeft01
+links the unpatched IBM IKJEFT01 against the installed module (the
+IKJEFTRX CSECT it carries along is dead code, nothing calls it), and
+that is copied over. tso/lmod_link.py testlib ikjeft01 puts ours back.
 
 The rules (measured on z/OS, docs/REXX_TSO_INTEGRATION.md):
 
@@ -85,6 +87,13 @@ CASES = [
     ("EXEC RXT(RXC)", "RXT.CLIST NOT IN CATALOG",
      "RXT.CLIST NOT IN CATALOG"),
     (f"EXEC '{PROC_DS}(RXC)'", C, C),
+    # BREXX/370 writes its own context into ECTENVBK and leaves it there,
+    # pointing at storage it has freed (brexx370 asm/rxinit.hlasm UPDENV,
+    # asm/rxterm.hlasm). REXX must still find the TMP's environment.
+    ("BREXX", "", ""),
+    ("%RXA", A, "COMMAND RXA NOT FOUND"),
+    ("BREXX RXA", "", ""),
+    ("%RXA", A, "COMMAND RXA NOT FOUND"),
     ("TIME", "IKJ56650I", "IKJ56650I"),
 ]
 
@@ -124,13 +133,20 @@ def drop_tmp(c, cfg):
 
 
 def ibm_tmp_in(c, cfg):
-    """Copy the IBM TMP (backup taken before the usermod APPLY) into the
-    test library, so the STEPLIB TMP creates no REXX environment."""
+    """Put an IBM TMP into the test library, so the STEPLIB TMP creates
+    no REXX environment: link the unpatched IKJEFT01 like SMP would
+    (lmod_link reference) and copy the result over."""
+    # The comparison inside reference() differs by design once the usermod
+    # is installed (the installed IKJEFT01 is then ours); only the linked
+    # module in RXLMOD.LOADREF is wanted here.
+    L.reference("ikjeft01")
+    if not c.dataset_exists(f"{cfg.hlq}.RXLMOD.LOADREF"):
+        raise SystemExit("IBM TMP link failed - not running ibm-tmp")
     jcl = jobcard("RXIBMTMP", cfg.jes_jobclass, cfg.jes_msgclass,
                   "IBM TMP IN") + f"""
 //COPY     EXEC PGM=IEBCOPY,REGION=4096K
 //SYSPRINT DD SYSOUT=*
-//IN       DD DSN={cfg.hlq}.ZMG0002.BACKUP,DISP=SHR
+//IN       DD DSN={cfg.hlq}.RXLMOD.LOADREF,DISP=SHR
 //OUT      DD DSN={LIB},DISP=SHR
 //SYSIN    DD *
   COPY INDD=IN,OUTDD=OUT
