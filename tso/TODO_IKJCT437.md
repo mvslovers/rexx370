@@ -1,5 +1,42 @@
 # IKJCT437 — Sprachentscheidung beim impliziten Aufruf
 
+## Stand 2026-09-26: Nebeneinander mit BREXX/370 (#244)
+
+**Befund:** BREXX schreibt seinen eigenen Kontext (`ENVCTX`, kein ENVBLOCK) ohne
+Prüfung nach ECTENVBK (brexx370 `asm/rxinit.hlasm`, UPDENV). Beim Beenden gibt
+es ihn frei und setzt ECTENVBK nicht zurück (`asm/rxterm.hlasm`). Danach:
+
+| Folge | Ergebnis vor #244 | Job |
+|---|---|---|
+| `%rxa`, `brexx`, `%rxa` | S0C4 Reason 010: CLC der Kennung über den verwaisten Zeiger X'208458' | JOB01315 |
+| `%rxa`, `brexx rxa`, `%rxa` | `COMMAND RXA NOT FOUND` (keine ENVBLOCK-Kennung → CLIST) | JOB01316 |
+
+**Fix:** IKJCT437 liest ECTENVBK nie mehr ungeprüft (Unterprogramm `FINDENV`):
+1. Der Wert wird nur **verglichen**, mit den lebenden Umgebungen in IRXANCHR.
+   IKJEFTRX hat IRXANCHR beim Logon geladen, `LOAD` findet es also nur und zählt
+   es, `DELETE` folgt.
+2. Steht er dort nicht, wird die neueste TSO-Umgebung dieses ECT aus IRXANCHR
+   genommen (`envblock_ectptr`, Flag `TSO_ATTACHED`), also die vom TMP.
+3. ECTENVBK wird **nicht** zurückgeschrieben, denn ein laufender BREXX-Exec, der
+   ein implizites EXEC anstößt, besitzt den Platz noch.
+
+**Tests:** `exec_test.py` hat vier BREXX-Fälle mehr (27 insgesamt).
+
+| Kombination | Job | Ergebnis |
+|---|---|---|
+| neuer TMP, über STEPLIB | JOB01319 | 27/27 |
+| IBM-TMP, über STEPLIB | JOB01324 | 27/27 (CC 12 vermutlich von BREXX, nicht gemessen) |
+| installiert, nach IPL | JOB01333 | 27/27 |
+| Vordergrund `foobar`/`brexx`/`brexx foobar` | s3270 | grün |
+
+KB: `MVS-TSO-0003`.
+
+**Lehre beim Einspielen:** Das Neueinspielen (APPLY JOB01330) hat SYS1.CMDLIB auf
+2 Extents gebracht. Bis zum IPL scheiterte jedes EXEC mit `IEA703I 106-F`
+(JOB01332). `zmg_install.py apply` vergleicht die Extents deshalb jetzt vorher
+und nachher und bricht bei Wachstum laut ab.
+
+
 ## Stand 2026-09-25 (Abend): Phase 3 — explizites EXEC, Regeln wie z/OS
 
 Die Regeln sind auf z/OS gemessen (Mike, Z07850, 2026-09-25). SC28-1883-0 nennt nur
