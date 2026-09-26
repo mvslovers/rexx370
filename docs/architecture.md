@@ -311,11 +311,16 @@ Functions: GETRLTE, GETRL, GETBLOCK.
   then SYSPROC (a SYSPROC member is REXX only with the REXX identifier);
 - `NOLOADDD` on: SYSPROC only.
 
+SYSPROC is searched only in environments that are integrated into TSO
+(`TSOFL` on), as in V2 (#248). A non-TSO environment, for example batch IRXJCL,
+searches the LOADDD alone, and with `NOLOADDD` on it searches nothing. A call
+without an environment keeps SYSEXEC then SYSPROC, since there is no `TSOFL` to
+read.
+
 IRXTSPRM and IRXPARMS ship with `NOLOADDD` off, so SYSEXEC is searched. That is
 the setting IBM later made the default. V2's defaults had it on (SYSPROC only),
 and an installation that wants that classic behaviour sets the flag in its
-parameters module. Deviation: SYSPROC is searched in every environment, while V2
-limits it to TSO-integrated ones (TSOFL). ALTLIB is future work.
+parameters module. ALTLIB is future work.
 
 ## 5.2 I/O Routine
 
