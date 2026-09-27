@@ -288,7 +288,11 @@ needed for a *complete* REXX.
 > message comes from EXEC (IKJCT430 MSGRTN), not from the TMP. IKJCT437 tests
 > the top input stack element the way PUTLINE does (INSEXEC on, INSTERM off),
 > and only switches when a REXX environment is reachable. 27/27 with the new
-> TMP and with the IBM TMP (JOB01347, JOB01350). Not yet installed on the LAB.
+> TMP and with the IBM TMP (JOB01347, JOB01350). Installed on the LAB:
+> VERIFY byte-identical, 27/27 installed (JOB01365), and the foreground `?`
+> shows the second level. Lesson on the way: compressing SYS1.CMDLIB in
+> place moved the resident-BLDL modules (IEABLD00: ALLOC, LOGON, LOGOFF) and
+> gave 106-F until the next IPL.
 
 > **2026-09-26 — SYSPROC only in TSO environments (#248).** IRXLOAD now
 > searches SYSPROC only when the environment has TSOFL on, as SC28-1883-0
