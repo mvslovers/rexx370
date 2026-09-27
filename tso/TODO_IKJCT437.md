@@ -1,5 +1,80 @@
 # IKJCT437 — Sprachentscheidung beim impliziten Aufruf
 
+## Stand 2026-09-27: IKJ56479I wie TSO/E (#246)
+
+**Die Meldung kommt nicht vom TMP, sondern von EXEC.** Findet der TMP einen
+Befehl nicht, ruft er EXEC implizit auf. IKJCT430 sucht den Namen in SYSPROC
+und meldet dann `M500` aus seiner Meldungstabelle IKJCT435:
+`IKJ56500I COMMAND x NOT FOUND`. Die frühere Notiz unten („kommt vom TMP“) war
+falsch. Deshalb reicht ein Eingriff in EXEC, das ZMG0002 ohnehin ändert.
+
+**Wann TSO/E `IKJ56479I` sagt** (gemessen auf z/OS): Wenn der unbekannte
+Befehl eine Zeile einer laufenden CLIST ist. Das betrifft ein SYSPROC-Exec ohne
+REXX-Kennung und `EXEC 'ds(m)'` ohne Schlüsselwort: Beide laufen als CLIST, und
+ihr `SAY` ist kein Befehl. Ein bei READY unbekannter Befehl, oder einer, den ein
+REXX-Exec absetzt, behält `IKJ56500I`.
+
+**Umsetzung:**
+
+- **IKJCT430, MSGRTN:** Ist die Meldung `M500` und fragt IKJCT43N mit „ja“,
+  wird daraus `M479` mit der Meldungstabelle IKJCT43M statt IKJCT435.
+- **IKJCT437, neuer Einstieg IKJCT43N:** Er prüft das oberste Element des
+  Eingabestapels. Der Weg geht über CPPL+12 (ECT), ECT+4 (IOSRL) und IOSRL+0
+  (oberstes Element), dann das Flag-Byte:
+  - `X'08'` (INSEXEC) muss gesetzt sein;
+  - `X'80'` (INSTERM) darf nicht gesetzt sein.
+
+  Das ist genau der Test von PUTLINE (IKJEFT40, Zeilen 96–106). INSTERM schließt
+  TERMIN aus: Dort steht das CLIST-Element auf `X'88'` (IKJCT436), während der
+  Benutzer am Terminal tippt.
+
+  **Nur mit REXX-Umgebung** (Mike, 2026-09-27, Variante a). Ohne Umgebung hilft
+  der Hinweis „/* REXX */ ergänzen“ niemandem, dann bleibt `IKJ56500I`. Geprüft
+  wird wie im Hauptpfad über IRXANCHR und FINDENV. IKJCT43N übernimmt dafür die
+  Basis von COMMON, damit FINDENV und die Literale ohne zweites `USING` auf R12
+  adressierbar bleiben.
+- **IKJCT437, neues CSECT IKJCT43M:** zwei `IKJTSMSG` wie `H502`/`M502` in
+  IKJCT435. `H479` ist die erste Ebene mit den Einsetzungen und dem `+`, `M479`
+  der Hinweis auf der zweiten Ebene.
+- **IKJCT435 (IBM) bleibt unverändert.** Die JCLIN von ZMG0002 ändert sich
+  nicht, denn IKJCT43M reist im Deck von IKJCT437 mit.
+
+**Tests:** `exec_test.py` erwartet jetzt die Meldungs-IDs, nicht nur den Text.
+
+| Kombination | Job | Ergebnis |
+|---|---|---|
+| neuer TMP + neues EXEC, über STEPLIB | JOB01347 | 27/27, dreimal `IKJ56479I` |
+| IBM-TMP + neues EXEC (keine Umgebung) | JOB01350 | 27/27, kein `IKJ56479I`, zehnmal `IKJ56500I` |
+| neuer TMP zurück, byte-gleich zum installierten | JOB01352 | 27/27 |
+
+Die erste Fassung ohne Umgebungsprüfung lief in JOB01340, JOB01343 und JOB01345.
+Dort erschien die Meldung auch unter dem IBM-TMP.
+
+Im Batch erscheint die zweite Ebene gleich darunter, Wort für Wort wie auf
+z/OS:
+
+```
+IKJ56479I COMMAND SAY NOT FOUND OR REXX IDENTIFIER IS MISSING+
+IKJ56479I SUPPLY '/* REXX */' AS THE FIRST RECORD TO EXECUTE AS A REXX EXEC OR, FOR AN EXPLICIT EXEC, SUPPLY THE EXEC KEYWORD ON THE
+ EXEC COMMAND
+```
+
+**Noch offen:**
+
+- Das neue ZMG0002 ist auf MVSCE-LAB noch nicht installiert.
+- Der Vordergrund ist deshalb noch nicht gemessen: erste Ebene mit `+`, zweite
+  per `?`.
+- SYS1.CMDLIB hat 2 Extents. Erst komprimieren, dann RESTORE und APPLY.
+- **`exec_test.py installed` ist bis dahin rot, und das ist Absicht.** Die
+  Erwartungen verlangen schon `IKJ56479I`, das installierte EXEC meldet noch
+  `IKJ56500I`. Das ist kein Fehler.
+- **Nicht gemessen:**
+  - Unter einem Befehl mit Unterbefehlen (z. B. EDIT) lautet die Meldung
+    `SUBCOMMAND x NOT FOUND OR REXX IDENTIFIER IS MISSING`, wie bei `M500`. Wie
+    z/OS dort meldet, ist nicht geprüft.
+  - Den TERMIN-Fall (`X'88'`) deckt nur der Präzedenzfall in IKJEFT40 ab,
+    kein Test.
+
 ## Stand 2026-09-26: Nebeneinander mit BREXX/370 (#244)
 
 **Befund:** BREXX schreibt seinen eigenen Kontext (`ENVCTX`, kein ENVBLOCK) ohne
@@ -81,8 +156,9 @@ trotzdem angenommen. Im Batch-TMP gibt es kein Präfix, der Test setzt
 `PROFILE PREFIX(IBMUSER)`. Die Meldung `IKJ56228I` von MVS 3.8 zeigt den Namen
 vor dem Präfix, DAIR hängt es trotzdem an.
 
-Nicht nachgebildet: `IKJ56479I … OR REXX IDENTIFIER IS MISSING`. Die Meldung
-kommt vom TMP beim CLIST-Befehl. Unter 3.8 erscheint `IKJ56500I`.
+Nicht nachgebildet: `IKJ56479I … OR REXX IDENTIFIER IS MISSING`. Unter 3.8
+erscheint `IKJ56500I`. **Nachtrag 2026-09-27:** nachgebildet mit #246. Die
+Meldung kommt nicht vom TMP, sondern von EXEC, siehe oben.
 
 
 ## Stand 2026-09-25 (Nachmittag): EXEC-Hook fertig, beide Kombinationen grün
