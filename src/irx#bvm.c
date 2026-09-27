@@ -79,11 +79,11 @@ struct bc_call_frame
 /*  BIF dispatch (WP-BC-04; local resolution per issue #200)          */
 /*                                                                    */
 /*  Handlers are resolved with irx_bif_find_local() (irx#bifs.c),      */
-/*  which returns an entry whose handler is linked into THIS module —  */
-/*  never the env registry's stored pointer, which is cross-module     */
-/*  when IRXINIT built the env and IRXEXEC runs the exec (wild branch  */
-/*  -> S0C1).  The env registry is still built (irxinit) and used by   */
-/*  the public irx_bif_find() API, just not for VM dispatch.           */
+/*  which returns an entry whose handler is linked into THIS module.   */
+/*  A pointer stored in the environment would be cross-module when     */
+/*  IRXINIT built the env and IRXEXEC runs the exec (wild branch ->    */
+/*  S0C1); the per-env registry that held such pointers is gone        */
+/*  (#254).                                                            */
 /* ================================================================== */
 
 /* ================================================================== */
@@ -156,24 +156,23 @@ static int get_entry(const char *table_base, int table_count, int idx,
 /*  Resolve the BIF named by sym_idx, using and populating a cache    */
 /*  array indexed by sym_idx (one slot per symbol-table entry, NULL = */
 /*  not yet resolved).  This replaces the per-call linear walk of the */
-/*  BIF registry (irx_bif_find, a linked list with a name-compare and */
-/*  a node->next pointer-chase per node) with an O(1) pointer load on  */
-/*  every call after the first for a given sym_idx.                   */
+/*  BIF table (irx_bif_find_local, a name-compare per entry) with an  */
+/*  O(1) pointer load on every call after the first for a given       */
+/*  sym_idx.                                                          */
 /*                                                                    */
-/*  Why the cache is sound (the registry-static assumption):          */
-/*   - The BIF registry is built one-shot at environment init and is  */
-/*     immutable thereafter — see irx#bifs.c: "Registration is one-   */
-/*     shot via irx_bif_register_all()".  A name therefore resolves    */
-/*     to the same entry for the life of the environment.             */
+/*  Why the cache is sound (the static-table assumption):             */
+/*   - The BIF table in irx#bifs.c is static and read-only, so a name */
+/*     resolves to the same entry for the life of the run.            */
 /*   - label_pc[sym_idx] is fixed for the whole run, so a given        */
 /*     sym_idx is consistently either a user label (handled before we  */
 /*     ever get here — see OP_CALL/OP_CALL_BIF) or a BIF.  The user-   */
 /*     defined-function path is never reached through this helper, so  */
 /*     it is left completely untouched.                               */
 /*   - Only found (non-NULL) entries are cached.  An unknown name      */
-/*     (irx_bif_find -> NULL) is the caller's error path and ends the  */
-/*     run without re-dispatching that sym_idx, so caching NULL is     */
-/*     unnecessary and a NULL slot safely means "not yet resolved".   */
+/*     (irx_bif_find_local -> NULL) is the caller's error path and    */
+/*     ends the run without re-dispatching that sym_idx, so caching   */
+/*     NULL is unnecessary and a NULL slot safely means "not yet      */
+/*     resolved".                                                     */
 /*                                                                    */
 /*  *bad_idx is set when sym_idx does not name a symbol-table entry    */
 /*  (corrupt bytecode) so the caller can raise IRXBC_ERR_OPCODE rather */
@@ -190,8 +189,7 @@ bvm_resolve_bif(struct envblock *envblock, const char *sym_base,
     int valid_idx = (bif_cache != NULL && sym_idx >= 0 && sym_idx < n_syms);
 
     *bad_idx = 0;
-    (void)envblock; /* handlers are resolved locally, not via the env
-                     * registry's cross-module pointers (issue #200) */
+    (void)envblock; /* handlers are resolved locally (issue #200) */
 
     /* Hot path: previously resolved — no symbol lookup, no table walk. */
     if (valid_idx && bif_cache[sym_idx] != NULL)
@@ -2320,7 +2318,7 @@ int irx_bc_execute(struct envblock *envblock,
                         int bad_idx;
 
                         /* WP-BC-OC09: cached per-symbol dispatch in place
-                         * of a per-call linear registry walk. */
+                         * of a per-call linear table walk. */
                         bife = bvm_resolve_bif(envblock, sym_base, n_syms,
                                                bif_cache, sym_idx, &bad_idx);
                         if (bife == NULL)
@@ -2442,7 +2440,7 @@ int irx_bc_execute(struct envblock *envblock,
                             goto done;
                         }
                         /* WP-BC-OC09: cached per-symbol dispatch in place
-                         * of a per-call linear registry walk. */
+                         * of a per-call linear table walk. */
                         bife = bvm_resolve_bif(envblock, sym_base, n_syms,
                                                bif_cache, sym_idx, &bad_idx);
                         if (bife == NULL)

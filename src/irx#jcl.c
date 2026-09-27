@@ -40,10 +40,12 @@
 
 #include "irx.h"
 #include "irx_init.h"
+#include "irxbvm.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxjcl.h"
 #include "irxload.h"
+#include "irxwkblk.h"
 
 /* MVS PDS member names are 1–8 characters (blank-padded to CL8). */
 #define MVS_MEMBER_LEN 8
@@ -59,6 +61,34 @@
 /* Byte value used to fill the ARGTABLE terminator entries.
  * ARGTABLE_END = 8 bytes of 0xFF (see include/irx.h). */
 #define ARGTAB_END_BYTE ((unsigned char)'\xFF')
+
+/* Bytecode path diagnostic (REXX370_BCDEBUG=1): the "[bc] exec=N
+ * fallback=M" line the cps measurements are gated on (ROADMAP,
+ * CON-12).  Emitted here, at the end of the run and while stdout still
+ * points at SYSTSPRT, rather than in IRXTERM: the environment core links
+ * no interpreter and no stdio (#254).  wkbi_bc_debug is only ever set
+ * when IRXINIT found a live C runtime, which is what makes printf safe. */
+static void jcl_bc_debug_report(struct envblock *env)
+{
+    struct irx_wkblk_int *wkbi =
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    if (wkbi == NULL || !wkbi->wkbi_bc_debug)
+    {
+        return;
+    }
+    printf("[bc] exec=%d fallback=%d\n",
+           wkbi->wkbi_bc_exec_count,
+           wkbi->wkbi_bc_fallback_count);
+    /* On a token-walk fallback, name the construct that forced it and
+     * the source line (WP-BC-DIAG). */
+    if (wkbi->wkbi_bc_fallback_count > 0)
+    {
+        printf("[bc] unsup: line %d, %s\n",
+               wkbi->wkbi_bc_unsup_line,
+               irx_bc_unsup_text(wkbi->wkbi_bc_unsup_reason));
+    }
+    fflush(stdout);
+}
 
 int irx_jcl_dispatch_main(const char *member,
                           const char *arg_string,
@@ -204,6 +234,10 @@ int irx_jcl_dispatch_main(const char *member,
 
     /* ---- Step 8: conditional IRXTERM + return ---------------------- */
 cleanup_env:
+    /* Report for a borrowed environment too: under the TSO integration a
+     * TMP-owned env always exists, so IRXJCL rarely owns the one it runs
+     * in.  The counters are per environment and therefore cumulative. */
+    jcl_bc_debug_report(env);
     if (own_env)
     {
         irxterm(env);

@@ -83,9 +83,6 @@ enum lstr_bucket_cap
     LSTR_CAP_128 = 128
 };
 
-static const int lstr_pool_caps[LSTR_POOL_BUCKET_COUNT] = {
-    LSTR_CAP_16, LSTR_CAP_32, LSTR_CAP_64, LSTR_CAP_128};
-
 /* pool_bucket_for() is intentionally not a separate function: the switch
  * is pasted directly into the two hot callers so the compiler never emits
  * a call — important both at -O0 on the host and with c2asm370 on MVS.    */
@@ -150,35 +147,6 @@ static void rexx_lstr_dealloc(void *ptr, size_t size, void *ctx)
         }
     }
     rexx_lstr_dealloc_raw(ptr, size, ctx);
-}
-
-void irx_lstr_pool_teardown(struct envblock *envblock)
-{
-    struct irx_wkblk_int *wkbi;
-    struct lstr_pool *pool;
-    int bkt;
-    int i;
-
-    if (envblock == NULL)
-    {
-        return;
-    }
-    wkbi = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
-    if (wkbi == NULL)
-    {
-        return;
-    }
-
-    pool = &wkbi->wkbi_lstr_pool;
-    for (bkt = 0; bkt < LSTR_POOL_BUCKET_COUNT; bkt++)
-    {
-        for (i = 0; i < pool->buckets[bkt].count; i++)
-        {
-            rexx_lstr_dealloc_raw(pool->buckets[bkt].items[i],
-                                  (size_t)lstr_pool_caps[bkt], envblock);
-        }
-        pool->buckets[bkt].count = 0;
-    }
 }
 
 struct lstr_alloc *irx_lstr_init(struct envblock *envblock)

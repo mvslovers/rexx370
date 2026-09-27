@@ -341,6 +341,14 @@ needed for a *complete* REXX.
 > (JOB01189), foreground SAY on the terminal (s3270 session). Reads (WP-33b)
 > are still open.
 
+> **2026-09-27 — module cut (#254).** IRXINIT and IRXTERM link only the
+> environment core: 44 K each instead of 331 K. They used to carry the whole
+> interpreter because IRXINIT filled a per-environment BIF registry that nobody
+> had read since #200. The registry is gone; `docs/architecture.md` §12 is the
+> authoritative module cut. Open in order: **#255** (default routines
+> `irxuid`/`irxmsgid`/`irxinout` as their own load modules, so IRXEXTE no longer
+> points into IRXINIT) and **#256** (IKJEFTRX deletes IRXINIT after INITENVB).
+
 > ⚠️ **The state of this axis is not currently known.** The core
 > IRXINIT/IRXTERM/IRXANCHR/parameter-module work (WP-I1a-d) was marked done
 > during the pre-REXXCPS push, but a family of **refinement and verification
@@ -363,7 +371,8 @@ Candidates to verify (not a committed work list until inventoried):
 - **Research** — IRXINT vs IRXINIT engine/API split. (The replaceable-routine
   load-module question is settled: each non-default routine is its own load
   module, named in the environment's MODNAMET, loaded by IRXINIT and deleted by
-  IRXTERM. IRXIOTSO in #228 and IRXLDTSO in #230 follow this pattern.)
+  IRXTERM. IRXIOTSO in #228 and IRXLDTSO in #230 follow this pattern. The
+  defaults follow in #255.)
 - **WP-33b** — PULL / LINEIN for TSO environments via GETLINE. The output half
   (WP-33-TSO) shipped in #228; IRXIOTSO returns 20 for reads until then.
 

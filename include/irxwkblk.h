@@ -179,17 +179,16 @@ struct irx_wkblk_int
     /* --- Condition tracking (WP-20) --- */
     struct irx_condition_info *wkbi_last_condition; /* last raised condition */
 
-    /* --- BIF registry (WP-21a) ------------------------------------- */
-    /* Opaque pointer to struct irx_bif_registry, allocated by irxinit
-     * and released by irxterm. Populated with all core built-ins at
-     * environment creation. See <irxbif.h>.                          */
-    void *wkbi_bif_registry;
+    /* --- Reserved (was the BIF registry, WP-21a) ------------------- */
+    /* Held the per-environment BIF registry until #254. Nothing reads
+     * or writes it; kept so the work block layout does not move.     */
+    void *wkbi_reserved_bifreg;
 
     /* --- RANDOM seed (WP-21b Phase C) ------------------------------ */
     /* Per-environment 32-bit LCG state used by the RANDOM() BIF.
      * Zero-initialized on env creation; RANDOM(,,seed) sets it      */
     /* explicitly. Consumed the last reserved word-slot documented    */
-    /* alongside wkbi_bif_registry above; add a new _reserved[] array */
+    /* alongside the BIF registry above; add a new _reserved[] array  */
     /* when a future WP needs another word.                           */
     unsigned int wkbi_random_seed;
 
@@ -209,7 +208,7 @@ struct irx_wkblk_int
      * four size buckets matching lstring370's round_capacity() sequence
      * (16, 32, 64, 128 bytes). Zero-initialized by irxstor(RXSMGET)
      * on wkbi allocation — no explicit init call needed.
-     * Released by irx_lstr_pool_teardown() during irxterm().          */
+     * Released by irxterm() as plain data (#254).                     */
     struct lstr_pool wkbi_lstr_pool;
 
     /* --- Bytecode engine opt-in (WP-BC-01) ------------------------- */

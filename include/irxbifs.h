@@ -1,9 +1,8 @@
 /* ------------------------------------------------------------------ */
-/*  irxbifs.h - REXX/370 Built-in Function Registration                */
+/*  irxbifs.h - REXX/370 Built-in Function internals                  */
 /*                                                                    */
-/*  Single entry point that registers every built-in function into    */
-/*  the per-environment BIF registry. Called once from irxinit()      */
-/*  after the registry has been allocated.                            */
+/*  Cross-module helpers exported by src/irx#bifs.c. BIF lookup is    */
+/*  irx_bif_find_local() in <irxbif.h>.                               */
 /*                                                                    */
 /*  The handlers themselves live in src/irx#bifs.c (string BIFs) and  */
 /*  src/irx#pars.c (parser-internal BIFs such as ARG).                */
@@ -16,14 +15,7 @@
 
 #include "lstring.h"
 
-struct envblock;
-struct irx_bif_registry;
 struct irx_parser;
-
-/* Register every built-in that ships with the core interpreter.
- * Returns IRX_BIF_OK on success or the first IRX_BIF_* error code. */
-int irx_bif_register_all(struct envblock *env,
-                         struct irx_bif_registry *reg) asm("IRXBIFAL");
 
 /* Parse a TRACE option string (shared by bif_trace and kw_trace).
  * Sets *letter_out (one of NAILRCFEO, upper-cased) and *toggle_out (0/1).

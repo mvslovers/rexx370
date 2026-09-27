@@ -1700,7 +1700,7 @@ static int kw_otherwise(struct irx_parser *p)
 /*  a pre-built PLstr argument array.                                 */
 /*                                                                    */
 /*  Returns IRXPARS_OK on success (*out holds the return value;       */
-/*  caller must Lfree it), -1 if the name is not in the registry,    */
+/*  caller must Lfree it), -1 if the name is not a known BIF,        */
 /*  or another IRXPARS_* code on handler failure.                     */
 /* ------------------------------------------------------------------ */
 
@@ -1710,8 +1710,7 @@ static int bif_dispatch(struct irx_parser *p,
 {
     const struct irx_bif_entry *bif;
 
-    /* Resolve to a handler linked into THIS module, not the env
-     * registry's cross-module pointer (issue #200). */
+    /* Resolve to a handler linked into THIS module (issue #200). */
     bif = irx_bif_find_local(name, name_len);
     if (bif == NULL)
     {
@@ -1842,7 +1841,7 @@ static int kw_call(struct irx_parser *p)
     label_pos = irx_ctrl_label_find(p, label, label_len);
     if (label_pos < 0)
     {
-        /* SC28-1883-0 §6.4 step 2: try the BIF registry. */
+        /* SC28-1883-0 §6.4 step 2: try the built-in functions. */
         PLstr argptrs[IRX_MAX_ARGS];
         Lstr bif_out;
         Lstr result_key;

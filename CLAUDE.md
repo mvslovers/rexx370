@@ -208,7 +208,7 @@ RC=0/1).
 | `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
 | `src/irx#exec.c` | IRX#EXEC | End-to-end execution pipeline irx_exec_run() (WP-18) |
 | `src/irx#cond.c` | IRX#COND | Condition raise helper (irx_cond_raise, WP-21a) |
-| `src/irx#bif.c`  | IRX#BIF  | BIF registry + argument-validation helpers (WP-21a) |
+| `src/irx#bif.c`  | IRX#BIF  | BIF argument-validation helpers (WP-21a); lookup is `irx_bif_find_local()` in IRX#BIFS |
 | `src/irx#bifs.c` | IRX#BIFS | All §4 BIFs — string (WP-21a) + numeric, conversion, reflection, environment (WP-21b) |
 
 New source files follow the same pattern: `src/irx#xxxx.c` where
@@ -399,7 +399,7 @@ run tstanrm     # ECTENVBK anchor TSOFL-conditional  (29/29)
 run tstfind     # FINDENVB + CHEKENVB (WP-I1c.2)     (44/44)
 run tstarit     # Arithmetic engine (WP-20)          (128/128)
 run tstarext    # Direct IRXARITH API (WP-20 + B)    (113/113)
-run tstbif      # BIF registry (WP-21a)              (29/29)
+run tstbif      # BIF lookup (WP-21a, #254)          (17/17)
 run tstbifs     # All §4 BIFs (WP-21a + WP-21b)      (410/410)
 ```
 

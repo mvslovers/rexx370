@@ -152,8 +152,8 @@ int irx_pars_eval_expr(struct irx_parser *p,
                        PLstr out) asm("IRXPAREV");
 
 /* ARG() BIF handler. Lives in the parser because it reads the
- * parser-private call_args / call_argc fields. Registered from
- * src/irx#bifs.c via irx_bif_register_all(). */
+ * parser-private call_args / call_argc fields. Resolved through
+ * irx_bif_find_local() in src/irx#bifs.c. */
 int irx_pars_bif_arg(struct irx_parser *p, int argc, PLstr *argv,
                      PLstr result) asm("IRXPARBA");
 
