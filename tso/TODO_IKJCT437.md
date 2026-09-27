@@ -56,6 +56,15 @@ IKJ56479I SUPPLY '/* REXX */' AS THE FIRST RECORD TO EXECUTE AS A REXX EXEC OR, 
 - Der Vordergrund ist deshalb noch nicht gemessen: erste Ebene mit `+`, zweite
   per `?`.
 - SYS1.CMDLIB hat 2 Extents. Erst komprimieren, dann RESTORE und APPLY.
+- **`exec_test.py installed` ist bis dahin rot, und das ist Absicht.** Die
+  Erwartungen verlangen schon `IKJ56479I`, das installierte EXEC meldet noch
+  `IKJ56500I`. Das ist kein Fehler.
+- **Nicht gemessen:**
+  - Unter einem Befehl mit Unterbefehlen (z. B. EDIT) lautet die Meldung
+    `SUBCOMMAND x NOT FOUND OR REXX IDENTIFIER IS MISSING`, wie bei `M500`. Wie
+    z/OS dort meldet, ist nicht geprüft.
+  - Den TERMIN-Fall (`X'88'`) deckt nur der Präzedenzfall in IKJEFT40 ab,
+    kein Test.
 
 ## Stand 2026-09-26: Nebeneinander mit BREXX/370 (#244)
 
