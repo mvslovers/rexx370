@@ -16,6 +16,16 @@
 *          R15 = 4   was REXX, already executed
 *          all registers except R15 restored
 *
+*  Entry IKJCT43N  is the command that was not found a line of a
+*                  running CLIST?  (IKJ56479I, rexx370 #246)
+*          R1  -> CPPL,  R14 -> return,  no savearea used
+*  Exit    R15 = 4   yes: the top of the input stack is an EXEC
+*                    element (X'08') and not a terminal one (X'80')
+*          R15 = 0   no
+*          only R1 and R15 changed
+*
+*  CSECT IKJCT43M  holds IKJ56479I for IKJEFF02, in IKJCT435 format.
+*
 *  ---- Why the checks are in this order ----
 *
 *  No BLDL.  The question is not "is REXX/370 on disk" but "is a REXX
@@ -80,6 +90,10 @@ R14      EQU   14
 R15      EQU   15
 CPPLECT  EQU   12                 CPPL -> ECT
 ECTENVBK EQU   X'30'              ECT  -> ENVBLOCK
+ECTIOWA  EQU   4                  ECT  -> IOSRL (I/O service work)
+IOSTELM  EQU   0                  IOSRL -> top input stack element
+INSEXEC  EQU   X'08'              element flag: EXEC (CLIST) owns it
+INSTERM  EQU   X'80'              element flag: terminal / TERMIN
 ENVEXTE  EQU   28                 ENVBLOCK -> IRXEXTE
 EXTELOAD EQU   8                  IRXEXTE  -> load_routine (EXROUT)
          PRINT GEN
@@ -283,6 +297,40 @@ WASREXX  DS    0H
          BR    R14
 *
 * ------------------------------------------------------------------
+*  IKJCT43N - was the command not found a line of a running CLIST?
+*             TSO/E then says IKJ56479I (REXX identifier missing)
+*             instead of IKJ56500I.  Measured on z/OS: a SYSPROC
+*             exec without the identifier, and EXEC 'ds(m)' without
+*             the EXEC keyword, both run as CLIST and their SAY gets
+*             IKJ56479I; a command unknown at READY, or one a REXX
+*             exec issues, gets IKJ56500I.
+*             The test is PUTLINE's (IKJEFT40): the top element of
+*             the input stack has INSEXEC on and INSTERM off.
+*             INSTERM excludes TERMIN, where the CLIST element reads
+*             X'88' while the user types at the terminal (IKJCT436).
+*             No base register: R15 is the result, not an address.
+* ------------------------------------------------------------------
+         ENTRY IKJCT43N
+IKJCT43N SR    R15,R15
+         LTR   R1,R1              CPPL
+         BZR   R14
+         L     R1,CPPLECT(,R1)    ECT
+         LTR   R1,R1
+         BZR   R14
+         L     R1,ECTIOWA(,R1)    IOSRL
+         LTR   R1,R1
+         BZR   R14
+         L     R1,IOSTELM(,R1)    top element
+         LTR   R1,R1
+         BZR   R14
+         TM    0(R1),INSEXEC
+         BNOR  R14
+         TM    0(R1),INSTERM
+         BNZR  R14
+         LA    R15,4
+         BR    R14
+*
+* ------------------------------------------------------------------
 *  FINDENV - the environment to use, checked against IRXANCHR.
 *            R2 = ECTENVBK value (never read through), R3 -> ECT,
 *            R4 -> IRXANCHR table, link in R11.  Out: R2 = a live
@@ -409,5 +457,19 @@ WHANDLED DS    X                  X'01' = the exec was run
 WEXFL    DS    X                  X'01' = IRXEXEC is loaded
          DS    0F
 WALEN    EQU   *-WAREA
+*
+* ------------------------------------------------------------------
+*  IKJCT43M - IKJ56479I for IKJEFF02, laid out like IKJCT435.
+*             M479 is the ID IKJCT430 issues; like M502/H502 there,
+*             H479 is the first-level line (inserts, trailing +) and
+*             M479 the second level.  Text as TSO/E prints it.
+* ------------------------------------------------------------------
+IKJCT43M CSECT
+         IKJTSMSG ('IKJ56479I ',,'COMMAND ',,' NOT FOUND OR REXX IDENTI*
+               FIER IS MISSING+'),H479
+         IKJTSMSG ('IKJ56479I SUPPLY ''/* REXX */'' AS THE FIRST RECORD*
+                TO EXECUTE AS A REXX EXEC OR, FOR AN EXPLICIT EXEC, SUP*
+               PLY THE EXEC KEYWORD ON THE EXEC COMMAND'),M479,H479
+         IKJTSMSG
 *
          END

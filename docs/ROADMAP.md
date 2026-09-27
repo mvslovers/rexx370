@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 ---
 
@@ -280,6 +280,15 @@ needed for a *complete* REXX.
 > ECTENVBK with the live environments in IRXANCHR and otherwise takes the
 > TMP's environment from there. 27/27 installed after an IPL (JOB01333),
 > foreground green. KB `MVS-TSO-0003`.
+
+> **2026-09-27 — IKJ56479I as on TSO/E (#246).** A command that a running
+> CLIST issues and that does not exist now gets `IKJ56479I … OR REXX IDENTIFIER
+> IS MISSING`, with the hint on the second level, instead of `IKJ56500I`. This
+> is typically a REXX exec that has no identifier and so runs as a CLIST. The
+> message comes from EXEC (IKJCT430 MSGRTN), not from the TMP. IKJCT437 tests
+> the top input stack element the way PUTLINE does (INSEXEC on, INSTERM off).
+> 27/27 with the new TMP and with the IBM TMP (JOB01340, JOB01343). Not yet
+> installed on the LAB.
 
 > **2026-09-26 — SYSPROC only in TSO environments (#248).** IRXLOAD now
 > searches SYSPROC only when the environment has TSOFL on, as SC28-1883-0

@@ -1804,6 +1804,21 @@ MSGRTN   STM   R14,R12,12(R13)                                  DSKC190 01690000
          OI    MTPUTLSW(R2),B'01000000'                         DSKC190 01711000
 *   MSGID=EXMSGID;                  /* ID OF THE MESSAGE TO BE ISSUED*/ 01712000
          MVC   MSGID(4,R2),EXMSGID                              DSKC190 01713000
+*REXX/370 -- a command not found while a CLIST runs: TSO/E      RXPTF   
+*        says IKJ56479I (REXX id missing), not IKJ56500I.       RXPTF   
+*        IKJCT43N tests the stack, IKJCT43M holds the text.     RXPTF   
+*        R2 survives the call; R1/R3/R14/R15 are reloaded below.RXPTF   
+         CLC   MSGID(4,R2),@CC01134   M500: command not found   RXPTF   
+         BNE   RXNOCL                                           RXPTF   
+         L     R1,CPPLPTR                                       RXPTF   
+         L     R15,=V(IKJCT43N)                                 RXPTF   
+         BALR  R14,R15                                          RXPTF   
+         LTR   R15,R15                                          RXPTF   
+         BZ    RXNOCL             not from a CLIST: IKJ56500I   RXPTF   
+         MVC   MSGID(4,R2),=C'M479'                             RXPTF   
+         L     R3,=V(IKJCT43M)                                  RXPTF   
+         ST    R3,MSGCSECT(,R2)                                 RXPTF   
+RXNOCL   DS    0H                                               RXPTF   
 *   DO ICTR=1 TO 2;                 /* INITIALIZE INSERTION VARIABLES*/ 01714000
          LA    R2,1                                             DSKC190 01715000
 @DL00623 DS    0H                                                  0624 01716000

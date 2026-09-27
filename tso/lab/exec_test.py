@@ -56,7 +56,10 @@ C = "HELLO FROM CLIST RXC"
 D = "HELLO FROM CLIST RXD"
 CLST = "HELLO FROM CLIST CLST"
 NOCMT = "HELLO FROM NOCMT"
-SAYNF = "COMMAND SAY NOT FOUND"
+# A CLIST line that is not a command: TSO/E says IKJ56479I (#246). The
+# message comes from EXEC, so the IBM TMP gets it as well. A command that
+# is unknown in SYSTSIN itself keeps IKJ56500I.
+SAYNF = "IKJ56479I COMMAND SAY NOT FOUND OR REXX IDENTIFIER IS MISSING"
 
 # (command, with a REXX environment, with the IBM TMP)
 # An expectation is a text the command's output must contain; a leading
@@ -64,15 +67,15 @@ SAYNF = "COMMAND SAY NOT FOUND"
 CASES = [
     # A batch TMP has no prefix; unqualified names need one (IBMUSER).
     ("PROFILE PREFIX(IBMUSER)", "", ""),
-    ("%RXA", A, "COMMAND RXA NOT FOUND"),
+    ("%RXA", A, "IKJ56500I COMMAND RXA NOT FOUND"),
     ("RXB", B, SAYNF),
     ("%RXC", C, C),
     ("%RXD", D, D),
     ("%RXD", D, D),                        # two comment CLISTs: #239
-    ("%RXA", A, "COMMAND RXA NOT FOUND"),  # ... REXX still works
-    ("%CLST", "!" + CLST, "COMMAND CLST NOT FOUND"),
+    ("%RXA", A, "IKJ56500I COMMAND RXA NOT FOUND"),  # ... REXX still works
+    ("%CLST", "!" + CLST, "IKJ56500I COMMAND CLST NOT FOUND"),
     ("%NOCMT", SAYNF, SAYNF),
-    ("%RXZZ", "COMMAND RXZZ NOT FOUND", "COMMAND RXZZ NOT FOUND"),
+    ("%RXZZ", "IKJ56500I COMMAND RXZZ NOT FOUND", "IKJ56500I COMMAND RXZZ NOT FOUND"),
     (f"EXEC '{EXEC_DS}(RXA)'", SAYNF, SAYNF),
     (f"EXEC '{EXEC_DS}(RXA)' EX", A, SAYNF),
     (f"EXEC '{EXEC_DS}(RXA)' E", A, SAYNF),
@@ -91,9 +94,9 @@ CASES = [
     # pointing at storage it has freed (brexx370 asm/rxinit.hlasm UPDENV,
     # asm/rxterm.hlasm). REXX must still find the TMP's environment.
     ("BREXX", "", ""),
-    ("%RXA", A, "COMMAND RXA NOT FOUND"),
+    ("%RXA", A, "IKJ56500I COMMAND RXA NOT FOUND"),
     ("BREXX RXA", "", ""),
-    ("%RXA", A, "COMMAND RXA NOT FOUND"),
+    ("%RXA", A, "IKJ56500I COMMAND RXA NOT FOUND"),
     ("TIME", "IKJ56650I", "IKJ56650I"),
 ]
 
