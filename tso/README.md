@@ -16,6 +16,7 @@ sources assembled against the MVS/CE macro libraries of the `mvs38src` project.
 | `usermod/ZMG0002.mcs`, `usermod.py` | The SMP4 usermod: MCS with cover letter, JCLIN and four `++MOD` decks, built into `build/tso/ZMG0002.smp` |
 | `lab/zmg_install.py` | Install step by step (backup, receive, applycheck, apply, verify; restore for a rebuilt test level) |
 | `lab/testlib_put.py` | Put rexx370 modules into the APF test library |
+| `lab/cmdlib_compress.py` | Back up (IEBCOPY unload, reads every member), compress in place, restore, VTOC listing of SYS1.CMDLIB. **An IPL must follow a compress** (resident BLDL, IEABLD00) |
 | `lab/tsofg.py` | Drive one TSO foreground session through s3270 and log every screen (SAY on a terminal cannot be checked in batch) |
 | `lab/rep_*.py` | The MVSCE-LAB repair of 2026-09-25 (TK5 level for IKJEFT01/06/SC), kept for the record |
 | `TODO_IKJEFT01.md` | Part A (the TMP): build and link recipe, traps, measurements |

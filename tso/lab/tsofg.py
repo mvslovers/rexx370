@@ -169,7 +169,9 @@ try:
         scr = snap(s, "logon prompt")
         if "Logon ===>" not in "\n".join(scr):
             raise RuntimeError("no 'Logon ===>' prompt -- refusing to type")
-    s.cmd(f'String("LOGON {USER}/{PW}")')
+    # TSOFG_RECONNECT=1 takes over a session left IN USE (LOGON ... R)
+    recon = " RECONNECT" if os.environ.get("TSOFG_RECONNECT") else ""
+    s.cmd(f'String("LOGON {USER}/{PW}{recon}")')
     press_enter(s)
     run_until_ready(s, "logon")
     for c in commands:
