@@ -1807,14 +1807,14 @@ MSGRTN   STM   R14,R12,12(R13)                                  DSKC190 01690000
 *REXX/370 -- a command not found while a CLIST runs: TSO/E      RXPTF   
 *        says IKJ56479I (REXX id missing), not IKJ56500I.       RXPTF   
 *        IKJCT43N tests the stack, IKJCT43M holds the text.     RXPTF   
-*        R2 survives the call; R1/R3/R14/R15 are reloaded below.RXPTF   
+*        IKJCT43N saves regs in MSGRTN's area; R15 = answer.    RXPTF   
          CLC   MSGID(4,R2),@CC01134   M500: command not found   RXPTF   
          BNE   RXNOCL                                           RXPTF   
          L     R1,CPPLPTR                                       RXPTF   
          L     R15,=V(IKJCT43N)                                 RXPTF   
          BALR  R14,R15                                          RXPTF   
          LTR   R15,R15                                          RXPTF   
-         BZ    RXNOCL             not from a CLIST: IKJ56500I   RXPTF   
+         BZ    RXNOCL             no CLIST/REXX: IKJ56500I      RXPTF   
          MVC   MSGID(4,R2),=C'M479'                             RXPTF   
          L     R3,=V(IKJCT43M)                                  RXPTF   
          ST    R3,MSGCSECT(,R2)                                 RXPTF   

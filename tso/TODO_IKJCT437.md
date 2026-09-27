@@ -27,6 +27,12 @@ REXX-Exec absetzt, behält `IKJ56500I`.
   Das ist genau der Test von PUTLINE (IKJEFT40, Zeilen 96–106). INSTERM schließt
   TERMIN aus: Dort steht das CLIST-Element auf `X'88'` (IKJCT436), während der
   Benutzer am Terminal tippt.
+
+  **Nur mit REXX-Umgebung** (Mike, 2026-09-27, Variante a). Ohne Umgebung hilft
+  der Hinweis „/* REXX */ ergänzen“ niemandem, dann bleibt `IKJ56500I`. Geprüft
+  wird wie im Hauptpfad über IRXANCHR und FINDENV. IKJCT43N übernimmt dafür die
+  Basis von COMMON, damit FINDENV und die Literale ohne zweites `USING` auf R12
+  adressierbar bleiben.
 - **IKJCT437, neues CSECT IKJCT43M:** zwei `IKJTSMSG` wie `H502`/`M502` in
   IKJCT435. `H479` ist die erste Ebene mit den Einsetzungen und dem `+`, `M479`
   der Hinweis auf der zweiten Ebene.
@@ -37,12 +43,15 @@ REXX-Exec absetzt, behält `IKJ56500I`.
 
 | Kombination | Job | Ergebnis |
 |---|---|---|
-| neuer TMP + neues EXEC, über STEPLIB | JOB01340 | 27/27 |
-| IBM-TMP + neues EXEC, über STEPLIB | JOB01343 | 27/27 |
-| neuer TMP zurück, byte-gleich zum installierten | JOB01345 | 27/27 |
+| neuer TMP + neues EXEC, über STEPLIB | JOB01347 | 27/27, dreimal `IKJ56479I` |
+| IBM-TMP + neues EXEC (keine Umgebung) | JOB01350 | 27/27, kein `IKJ56479I`, zehnmal `IKJ56500I` |
+| neuer TMP zurück, byte-gleich zum installierten | JOB01352 | 27/27 |
 
-Die Meldung kommt aus EXEC, also auch unter dem IBM-TMP. Im Batch erscheint die
-zweite Ebene gleich darunter, Wort für Wort wie auf z/OS:
+Die erste Fassung ohne Umgebungsprüfung lief in JOB01340, JOB01343 und JOB01345.
+Dort erschien die Meldung auch unter dem IBM-TMP.
+
+Im Batch erscheint die zweite Ebene gleich darunter, Wort für Wort wie auf
+z/OS:
 
 ```
 IKJ56479I COMMAND SAY NOT FOUND OR REXX IDENTIFIER IS MISSING+

@@ -17,12 +17,13 @@
 *          all registers except R15 restored
 *
 *  Entry IKJCT43N  is the command that was not found a line of a
-*                  running CLIST?  (IKJ56479I, rexx370 #246)
-*          R1  -> CPPL,  R14 -> return,  no savearea used
+*                  running CLIST, with REXX usable?  (IKJ56479I, #246)
+*          R1  -> CPPL,  R13 -> caller savearea,  R14 -> return
 *  Exit    R15 = 4   yes: the top of the input stack is an EXEC
-*                    element (X'08') and not a terminal one (X'80')
+*                    element (X'08') and not a terminal one (X'80'),
+*                    and a REXX environment is reachable
 *          R15 = 0   no
-*          only R1 and R15 changed
+*          all registers except R15 restored
 *
 *  CSECT IKJCT43M  holds IKJ56479I for IKJEFF02, in IKJCT435 format.
 *
@@ -308,26 +309,54 @@ WASREXX  DS    0H
 *             the input stack has INSEXEC on and INSTERM off.
 *             INSTERM excludes TERMIN, where the CLIST element reads
 *             X'88' while the user types at the terminal (IKJCT436).
-*             No base register: R15 is the result, not an address.
+* ------------------------------------------------------------------
+*             Only with a REXX environment: the second level tells
+*             the user to add '/* REXX */', which helps nobody on a
+*             system where REXX/370 is not up.  Same check as the
+*             main path: IRXANCHR, then FINDENV (Mike, 2026-09-27).
+*             The base is COMMON's: R12 is set to where COMMON's
+*             BALR would put it, so FINDENV and the literals resolve
+*             under the one USING above, with no second USING on R12.
 * ------------------------------------------------------------------
          ENTRY IKJCT43N
-IKJCT43N SR    R15,R15
+IKJCT43N STM   R14,R12,12(R13)
+         LR    R12,R15
+         LA    R0,IKJCT43N-COMMON-2
+         SR    R12,R0             = COMMON+2, the base USING names
+         SR    R5,R5              answer: no
          LTR   R1,R1              CPPL
-         BZR   R14
-         L     R1,CPPLECT(,R1)    ECT
-         LTR   R1,R1
-         BZR   R14
-         L     R1,ECTIOWA(,R1)    IOSRL
-         LTR   R1,R1
-         BZR   R14
-         L     R1,IOSTELM(,R1)    top element
-         LTR   R1,R1
-         BZR   R14
-         TM    0(R1),INSEXEC
-         BNOR  R14
-         TM    0(R1),INSTERM
-         BNZR  R14
-         LA    R15,4
+         BZ    N43RET
+         L     R3,CPPLECT(,R1)    ECT
+         LTR   R3,R3
+         BZ    N43RET
+         L     R2,ECTIOWA(,R3)    IOSRL
+         LTR   R2,R2
+         BZ    N43RET
+         L     R2,IOSTELM(,R2)    top element
+         LTR   R2,R2
+         BZ    N43RET
+         TM    0(R2),INSEXEC
+         BNO   N43RET
+         TM    0(R2),INSTERM
+         BNZ   N43RET
+*  a CLIST line -- is REXX usable here at all?
+         LOAD  EP=IRXANCHR,ERRET=N43RET
+         LR    R4,R0              IRXANCHR table
+         SR    R2,R2
+         CLC   0(8,R4),ANCHEYE
+         BNE   N43DEL
+         L     R2,ECTENVBK(,R3)   candidate -- compared, not read
+         BAL   R11,FINDENV        R2 = live environment or 0
+N43DEL   DS    0H
+         DELETE EP=IRXANCHR       R2 survives (R0/R1/R15 only)
+         LTR   R2,R2
+         BZ    N43RET
+         CLC   0(8,R2),ENVBEYE    registered, so safe to read
+         BNE   N43RET
+         LA    R5,4               yes: IKJ56479I
+N43RET   LR    R15,R5
+         L     R14,12(,R13)
+         LM    R0,R12,20(R13)
          BR    R14
 *
 * ------------------------------------------------------------------

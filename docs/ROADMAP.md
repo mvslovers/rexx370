@@ -286,9 +286,9 @@ needed for a *complete* REXX.
 > IS MISSING`, with the hint on the second level, instead of `IKJ56500I`. This
 > is typically a REXX exec that has no identifier and so runs as a CLIST. The
 > message comes from EXEC (IKJCT430 MSGRTN), not from the TMP. IKJCT437 tests
-> the top input stack element the way PUTLINE does (INSEXEC on, INSTERM off).
-> 27/27 with the new TMP and with the IBM TMP (JOB01340, JOB01343). Not yet
-> installed on the LAB.
+> the top input stack element the way PUTLINE does (INSEXEC on, INSTERM off),
+> and only switches when a REXX environment is reachable. 27/27 with the new
+> TMP and with the IBM TMP (JOB01347, JOB01350). Not yet installed on the LAB.
 
 > **2026-09-26 — SYSPROC only in TSO environments (#248).** IRXLOAD now
 > searches SYSPROC only when the environment has TSOFL on, as SC28-1883-0
