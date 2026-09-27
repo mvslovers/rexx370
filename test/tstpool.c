@@ -287,7 +287,7 @@ static void test_pool_teardown(void)
     CHECK(wkbi->wkbi_lstr_pool.buckets[2].count == 1,
           "bucket-2 has 1 item before teardown");
 
-    /* irxterm calls irx_lstr_pool_teardown; absence of crash = success. */
+    /* irxterm frees the pool as plain data; absence of crash = success. */
     CHECK(irxterm(env) == 0, "irxterm with 3 pooled items: rc=0");
 }
 

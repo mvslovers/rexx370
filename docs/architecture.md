@@ -439,6 +439,16 @@ IRXINIT determines the type via a two-tier strategy:
 9. Call initialization exit (if defined)
 10. Return ENVBLOCK pointer to caller
 
+IRXINIT builds the environment and nothing else. In particular it registers no
+built-in functions: BIFs live in a static table that is linked into every module
+that runs REXX, and the parser and the VM resolve them with
+`irx_bif_find_local()` in their own module. A per-environment BIF registry
+existed until #254; its handler pointers pointed into IRXINIT's copy of the
+BIFs, IRXEXEC wild-branched into them (#200), and filling it was the only reason
+IRXINIT linked the whole interpreter. The rule that follows: **no pointer an
+environment carries may point into a load module other than the one that owns
+the code** — see §12.
+
 ## 6.4 Termination (IRXTERM)
 
 Mirror of §6.3:
@@ -597,35 +607,43 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 
 ---
 
-# 12. Module structure (~200 KB total)
+# 12. Module structure
 
-| Module | Description | Phase |
+This section is the authoritative module cut; `project.toml` follows it, not the
+other way round. Sizes are load-module sizes as built on 2026-09-27 (#254).
+
+**The rule:** a load module links only what it calls. The environment core
+(IRXINIT, IRXTERM) carries no tokenizer, parser, VM or BIFs; the interpreter
+lives in the modules that run REXX. And no pointer stored in an environment
+points into a module that may not be resident when it is followed — IRXINIT is
+LOADed once and may be deleted, IRXEXEC is loaded per call (#200, #239).
+
+| Module | Contents | Size |
 |---|---|---|
-| IRXJCL | Batch entry | 5 |
-| IRXINIT | Env init | 1 |
-| IRXTERM | Env term | 1 |
-| IRXEXEC | Main interpreter (40K) | 2 |
-| IRXEXCOM | Variable access | 5 |
-| IRXSUBCM | Subcmd table | 5 |
-| IRXIC | Trace control | 5 |
-| IRXRLT | Result retrieval | 5 |
-| IRXLOAD | Exec load | 1 |
-| IRXIO | I/O | 2 |
-| IRXHCMD | Host command | 4 |
-| IRXSTK | Data stack | 4 |
-| IRXSTOR | Storage mgmt | 1 |
-| IRX#ANCH | ECTENVBK anchor (TSOFL-conditional) | 1 |
-| IRXUID | User ID | 1 |
-| IRXMSGID | Message ID | 1 |
-| IRXTOKN | Tokenizer | 2 |
-| IRXPARS | Parser/evaluator (20K) | 2 |
-| IRXARITH | Arithmetic (12K) | 3 |
-| IRX#COND | Condition reporting (shared) | 3 |
-| IRX#BIF | BIF registry infrastructure | 3 |
-| IRX#BIFS | Built-in functions — string + numeric/conversion/reflection/environment (~30K) | 3 |
-| IRXEFN | TSO/E ext fns | 7 |
-| IRXCMD | REXX commands | 4 |
-| IRXMSG | Messages | 7 |
+| IRXINIT | Environment core: INITENVB / FINDENVB / CHEKENVB, anchor, storage, default routines | 44 K |
+| IRXTERM | Same core as IRXINIT, entered at IRXTERM | 44 K |
+| IRXEXEC | Interpreter: tokenizer, parser, bytecode compiler + VM, BIFs, arithmetic, plus the core | 331 K |
+| IRXJCL | Batch entry (C runtime): IRXLOAD + interpreter + core | 374 K |
+| IRXLOAD | Exec load routine, stdio reader (needs a C runtime) | 72 K |
+| IRXLDTSO | Exec load routine, BPAM reader, no C runtime (TSO) | 33 K |
+| IRXIOTSO | I/O routine via PUTLINE (TSO) | 1 K |
+| IRXANCHR | Environment table | 3 K |
+| IRXPARMS / IRXTSPRM / IRXISPRM | Parameter modules (batch / TSO / ISPF) | < 1 K each |
+| IRXTMPW | Former TMP wrapper | < 1 K |
+| IRXDBG, IRX#HELO | Diagnostic dump and hello-world smoke test | 87 K / 369 K |
+
+**Open, in order:**
+
+- **#255** — the default routines `irxuid`, `irxmsgid` and `irxinout` still sit
+  inside the IRXINIT module, and IRXEXTE points at them there. They become their
+  own load modules, following IRXIOTSO. After that IRXINIT drops `irx#io.c` and
+  with it the stdio it pulls from the C library.
+- **#256** — then IKJEFTRX can DELETE IRXINIT right after INITENVB, so a TSO
+  session keeps no IRXINIT code resident.
+- IRXEXEC and IRXJCL each carry a full copy of the interpreter. Whether that
+  becomes one shared interpreter module is open. IBM has a separate `IRXINT`
+  module next to IRXINIT on z/OS (aliases IRXEX, IRXIO, IRXLD, …), presumably
+  the interpreter itself; this has not been researched (TSK-206).
 
 ---
 

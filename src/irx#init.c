@@ -33,12 +33,9 @@
 #include "irx.h"
 #include "irx_init.h"
 #include "irxanchr.h"
-#include "irxbif.h"
-#include "irxbifs.h"
 #include "irxenv.h"
 #include "irxfunc.h"
 #include "irxio.h"
-#include "irxpars.h"
 #include "irxwkblk.h"
 
 #ifdef __MVS__
@@ -412,7 +409,8 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
     }
 
     /* Bytecode path diagnostic. REXX370_BCDEBUG=1 (or true/yes/on)
-     * causes irxterm() to emit "[bc] exec=N fallback=M" to stdout.
+     * makes IRXJCL emit "[bc] exec=N fallback=M" to SYSTSPRT at the
+     * end of the run (irx_bc_debug_report).
      * Default off; no output, no overhead when not set. */
     wk->wkbi_bc_debug = 0;
     {
@@ -1226,9 +1224,11 @@ int irx_init_chekenvb(struct envblock *envblock, int *out_reason_code)
 /*  irx_init_initenvb() builds only the IBM control blocks (ENVBLOCK, */
 /*  PARMBLOCK, IRXEXTE, ECTENVBK anchor).  IRXEXEC additionally needs */
 /*  the interpreter Work Block (anchored in envblock_workblok_ext,    */
-/*  +0x18 — the IBM Work Block Extension slot), the SUBCOMTB and the  */
-/*  BIF registry; without them irx_lstr_init() finds no wkblk and     */
-/*  IRXEXEC fails RC=20.  Shared by the compat irxinit() wrapper and, */
+/*  +0x18 — the IBM Work Block Extension slot) and the SUBCOMTB;      */
+/*  without them irx_lstr_init() finds no wkblk and IRXEXEC fails     */
+/*  RC=20.  No BIFs are registered here: each module resolves BIFs in */
+/*  itself (irx_bif_find_local, #200), so IRXINIT links no            */
+/*  interpreter code (#254).  Shared by the compat irxinit() wrapper and, */
 /*  via irx_init_dispatch(), by the standalone IRXINIT load module —  */
 /*  so both env-creation paths yield an env IRXEXEC can run (the      */
 /*  module path previously skipped this, which is WP-VLIST-WPOOL's    */
@@ -1238,7 +1238,6 @@ static int irx_init_finish(struct envblock *envblk)
 {
     struct subcomtb_header *subcmd = NULL;
     struct irx_wkblk_int *wkbi = NULL;
-    struct irx_bif_registry *reg = NULL;
     int rc;
 
     /* SUBCOMTB (host command environments). */
@@ -1259,20 +1258,6 @@ static int irx_init_finish(struct envblock *envblk)
         return 20;
     }
     envblk->envblock_workblok_ext = wkbi;
-
-    /* BIF registry and core registrations (WP-21a). */
-    rc = irx_bif_create(envblk, &reg);
-    if (rc != 0)
-    {
-        return 20;
-    }
-    wkbi->wkbi_bif_registry = reg;
-
-    rc = irx_bif_register_all(envblk, reg);
-    if (rc != 0)
-    {
-        return 20;
-    }
 
     return 0;
 }
@@ -1329,8 +1314,8 @@ int irx_init_dispatch(const char funccode[IRXINIT_FUNCCODE_LEN],
 /*  irxinit — IBM-compatible IRXINIT wrapper                         */
 /*                                                                    */
 /*  Calls irx_init_initenvb() for the core 9 steps, then installs    */
-/*  the full IRXEXTE (real function pointers), SUBCOMTB, internal     */
-/*  Work Block, and BIF registry required by the interpreter.         */
+/*  the full IRXEXTE (real function pointers), SUBCOMTB and internal  */
+/*  Work Block required by the interpreter.                           */
 /*                                                                    */
 /*  On host (non-MVS) builds, mirrors the MVS step 8 contract on the */
 /*  simulated ECTENVBK slot: when the resolved env carries TSOFL=1   */
@@ -1370,7 +1355,7 @@ int irxinit(void *parms, struct envblock **envblock_ptr)
      * IRXEXTE overrides — e.g. self-references to the irxinit / irxterm
      * symbols for Phase 6 — would go here. None today. */
 
-    /* Attach SUBCOMTB + interpreter Work Block + BIF registry (the same
+    /* Attach SUBCOMTB + interpreter Work Block (the same
      * step the standalone IRXINIT load module runs via
      * irx_init_dispatch → irx_init_finish). */
     rc = irx_init_finish(envblk);

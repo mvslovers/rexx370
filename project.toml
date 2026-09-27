@@ -92,7 +92,12 @@ sources = ["asm/irxtmpw.asm"]
 # IRXTERM are independent load modules). The wrapper is the entry
 # point; the C-core (IRX#INIT, IRX#TERM, IRX#STOR, IRX#ANCH,
 # IRX#UID, IRX#MSID) is NCAL-linked into the same load module so
-# the BALR R14,R15 to =V(IRXIDISP) resolves.
+# the BALR R14,R15 to =V(IRXIDISP) resolves. IRX#IO carries the
+# default I/O routine IRXEXTE points at until #255.
+#
+# Environment core only - no tokenizer, parser, VM or BIFs (#254).
+# IRXINIT and IRXTERM link the same set; ld370 must resolve it
+# without --allow-unresolved. The interpreter lives in IRXEXEC.
 #
 # WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83.
 # ---------------------------------------------------------------
@@ -108,20 +113,7 @@ sources = [
   "src/irx#anch.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
-  "src/irx#cond.c",
-  "src/irx#bif.c",
-  "src/irx#bifs.c",
   "src/irx#io.c",
-  "src/irx#lstr.c",
-  "src/irx#tokn.c",
-  "src/irx#vpol.c",
-  "src/irx#pars.c",
-  "src/irx#ctrl.c",
-  "src/irx#exec.c",
-  "src/irx#bcom.c",
-  "src/irx#bvm.c",
-  "src/irx#bctl.c",
-  "src/irx#arith.c",
   "asm/istso.asm",
 ]
 
@@ -146,20 +138,7 @@ sources = [
   "src/irx#anch.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
-  "src/irx#cond.c",
-  "src/irx#bif.c",
-  "src/irx#bifs.c",
   "src/irx#io.c",
-  "src/irx#lstr.c",
-  "src/irx#tokn.c",
-  "src/irx#vpol.c",
-  "src/irx#pars.c",
-  "src/irx#ctrl.c",
-  "src/irx#exec.c",
-  "src/irx#bcom.c",
-  "src/irx#bvm.c",
-  "src/irx#bctl.c",
-  "src/irx#arith.c",
   "asm/istso.asm",
 ]
 

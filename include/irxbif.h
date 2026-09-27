@@ -1,14 +1,15 @@
 /* ------------------------------------------------------------------ */
-/*  irxbif.h - REXX/370 Built-in Function Registry                   */
+/*  irxbif.h - REXX/370 Built-in Function lookup and arg validation   */
 /*                                                                    */
-/*  Per-environment dynamic registry for built-in functions. The      */
-/*  parser calls irx_bif_find() during function-call dispatch; on     */
-/*  match it invokes the handler with argument validation already     */
-/*  performed.                                                        */
+/*  Built-in functions live in a static, read-only table compiled     */
+/*  into every module that runs REXX (irx#bifs.c). The parser and     */
+/*  the bytecode VM resolve a name with irx_bif_find_local(), which   */
+/*  always returns a handler linked into the running module.          */
 /*                                                                    */
-/*  Registration is one-shot: irxinit() registers all core BIFs       */
-/*  (string, misc, arithmetic) after wkbi_bif_registry has been       */
-/*  allocated. irxterm() frees the registry. No globals.              */
+/*  There is no per-environment registry any more: its handler        */
+/*  pointers pointed into IRXINIT's copy of the BIFs and IRXEXEC      */
+/*  wild-branched into them (#200), and building it was the only      */
+/*  reason IRXINIT linked the interpreter (#254).                     */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                            */
 /* ------------------------------------------------------------------ */
@@ -34,7 +35,7 @@ typedef int (*irx_bif_handler_t)(struct irx_parser *p,
                                  int argc, PLstr *argv, PLstr result);
 
 /* ================================================================== */
-/*  Registry entry                                                    */
+/*  Table entry                                                       */
 /* ================================================================== */
 
 struct irx_bif_entry
@@ -45,62 +46,19 @@ struct irx_bif_entry
     irx_bif_handler_t handler;
 };
 
-/* Opaque — full definition in irx#bif.c */
-struct irx_bif_registry;
-
 /* ================================================================== */
-/*  Return codes                                                      */
-/* ================================================================== */
-
-#define IRX_BIF_OK        0
-#define IRX_BIF_NOMEM     20
-#define IRX_BIF_NOTFOUND  21
-#define IRX_BIF_DUPLICATE 22
-#define IRX_BIF_BADARG    23
-
-/* ================================================================== */
-/*  Registry API                                                      */
+/*  Lookup                                                            */
 /*                                                                    */
 /*  asm() aliases are required because every entry point begins with  */
 /*  "irx_bif" — c2asm370 truncates identifiers to 8 characters and    */
 /*  they would collide otherwise.                                     */
 /* ================================================================== */
 
-/* Allocate a registry via irxstor. Returns IRX_BIF_OK on success. */
-int irx_bif_create(struct envblock *env,
-                   struct irx_bif_registry **out) asm("IRXBIFCR");
-
-/* Release every node and the registry itself. Safe on NULL. */
-void irx_bif_destroy(struct envblock *env,
-                     struct irx_bif_registry *reg) asm("IRXBIFDS");
-
-/* Add a single BIF to the registry. Name must be upper-case ASCII,
- * length 1..15. Duplicate names are rejected. */
-int irx_bif_register(struct envblock *env,
-                     struct irx_bif_registry *reg,
-                     const char *name, int min_args, int max_args,
-                     irx_bif_handler_t handler) asm("IRXBIFRG");
-
-/* Find a BIF by its upper-case name (length-delimited, not
- * NUL-terminated). Returns NULL if not registered. */
-const struct irx_bif_entry *
-irx_bif_find(const struct irx_bif_registry *reg,
-             const unsigned char *name, size_t len) asm("IRXBIFFN");
-
-/* Resolve a BIF by its upper-case name to the handler linked into THIS
- * module — bypassing the env registry, whose handler pointers are
- * cross-module when IRXINIT built the env and IRXEXEC runs the exec
- * (issue #200). Covers the static core-BIF table + ARG. NULL if not a
- * known BIF. */
+/* Resolve a BIF by its upper-case name (length-delimited, not
+ * NUL-terminated) to the handler linked into THIS module. Covers the
+ * static core-BIF table + ARG. NULL if not a known BIF. */
 const struct irx_bif_entry *
 irx_bif_find_local(const unsigned char *name, size_t len) asm("IRXBIFFL");
-
-/* Bulk-register every entry in a static table. Stops at the first
- * entry whose name field is empty. */
-int irx_bif_register_table(struct envblock *env,
-                           struct irx_bif_registry *reg,
-                           const struct irx_bif_entry *table,
-                           int count) asm("IRXBIFRT");
 
 /* ================================================================== */
 /*  Argument-validation helpers                                       */

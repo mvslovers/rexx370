@@ -20,7 +20,6 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */
 
-#include <stdio.h>
 #include <string.h>
 
 #ifdef __MVS__
@@ -30,10 +29,7 @@
 #include "irx.h"
 #include "irx_init.h"
 #include "irxanchr.h"
-#include "irxbif.h"
-#include "irxbvm.h"
 #include "irxfunc.h"
-#include "irxlstr.h"
 #include "irxwkblk.h"
 
 #ifdef __MVS__
@@ -224,43 +220,25 @@ int irxterm(struct envblock *envblk)
          * exec stack, token stream, label table, cache
          * that hang off wkbi before freeing wkbi itself. */
 
-        /* Release all pooled lstring buffers before freeing wkbi. */
-        irx_lstr_pool_teardown(envblk);
-
-        /* Bytecode path diagnostic (REXX370_BCDEBUG=1) — emit before
-         * wkbi is freed so the counters are still readable.  stdout
-         * on MVS/IRXJCL already points at SYSTSPRT at this point
-         * (irx_jcl_dispatch_main redirected it before exec; fclose
-         * happens after irxterm returns). */
-        if (wkbi->wkbi_bc_debug)
+        /* Release all pooled lstring buffers before freeing wkbi.  The
+         * pool is plain data in the work block and every buffer is an
+         * irxstor block, so it is freed here without any lstring code:
+         * IRXTERM must not link the interpreter or call back into
+         * IRXEXEC (#254). */
+        struct lstr_pool *pool = &wkbi->wkbi_lstr_pool;
+        for (int bkt = 0; bkt < LSTR_POOL_BUCKET_COUNT; bkt++)
         {
-            printf("[bc] exec=%d fallback=%d\n",
-                   wkbi->wkbi_bc_exec_count,
-                   wkbi->wkbi_bc_fallback_count);
-            /* On a token-walk fallback, name the construct that forced
-             * it and the source line (WP-BC-DIAG). */
-            if (wkbi->wkbi_bc_fallback_count > 0)
+            for (int i = 0; i < pool->buckets[bkt].count; i++)
             {
-                printf("[bc] unsup: line %d, %s\n",
-                       wkbi->wkbi_bc_unsup_line,
-                       irx_bc_unsup_text(wkbi->wkbi_bc_unsup_reason));
+                stor_free(&pool->buckets[bkt].items[i], envblk);
             }
-            fflush(stdout);
+            pool->buckets[bkt].count = 0;
         }
 
         /* Free the lstring370 allocator bridge if it was installed. */
         if (wkbi->wkbi_lstr_alloc != NULL)
         {
             stor_free(&wkbi->wkbi_lstr_alloc, envblk);
-        }
-
-        /* Free the BIF registry (WP-21a). */
-        if (wkbi->wkbi_bif_registry != NULL)
-        {
-            irx_bif_destroy(
-                envblk,
-                (struct irx_bif_registry *)wkbi->wkbi_bif_registry);
-            wkbi->wkbi_bif_registry = NULL;
         }
 
         envblk->envblock_workblok_ext = NULL;

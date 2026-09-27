@@ -7,9 +7,9 @@
 /*  conditions on failure.                                            */
 /*                                                                    */
 /*  All state is per-environment; no globals, no statics holding      */
-/*  mutable data. Registration is one-shot via irx_bif_register_all() */
-/*  which wires up every built-in — string BIFs from this module plus */
-/*  parser-internal BIFs (ARG) defined in src/irx#pars.c.             */
+/*  mutable data. Every built-in is an entry in the static, read-only */
+/*  g_bifstr_table (plus ARG from src/irx#pars.c), resolved with      */
+/*  irx_bif_find_local() below.                                       */
 /*                                                                    */
 /*  Note on the filename: SC28-1883-0 naming wants IRXBIFSTR but the  */
 /*  MVS PDS member limit is 8 characters; mbt truncates upper-cased   */
@@ -3656,33 +3656,18 @@ static const struct irx_bif_entry g_bifstr_table[] = {
 #define BIFSTR_COUNT \
     ((int)(sizeof(g_bifstr_table) / sizeof(g_bifstr_table[0])))
 
-int irx_bif_register_all(struct envblock *env, struct irx_bif_registry *reg)
-{
-    int rc = irx_bif_register_table(env, reg, g_bifstr_table,
-                                    BIFSTR_COUNT);
-    if (rc != IRX_BIF_OK)
-    {
-        return rc;
-    }
-
-    /* ARG() is implemented in src/irx#pars.c because it reads the
-     * parser-private call_args / call_argc fields. Its registration
-     * is consolidated here so there is a single entry point for all
-     * built-ins. */
-    return irx_bif_register(env, reg, "ARG", 0, 2, irx_pars_bif_arg);
-}
-
 /* ================================================================== */
 /*  irx_bif_find_local — resolve a BIF to a handler in THIS module     */
 /*                                                                    */
 /*  Issue #200: BIF dispatch must call the handler compiled into the   */
-/*  module that runs the VM (IRXEXEC), not the cross-module pointer    */
-/*  stored in the env registry — that registry is populated by IRXINIT */
-/*  and its handlers point into IRXINIT's copy of this file, so calling */
-/*  them from a separately-linked IRXEXEC wild-branches (S0C1).  These  */
-/*  static tables are re-linked into every module, so this always      */
-/*  resolves to a local, callable handler.  Covers g_bifstr_table plus */
-/*  ARG (handler in irx#pars.c, linked into the same load module).     */
+/*  module that runs the exec (IRXEXEC), never a pointer stored in the */
+/*  environment -- IRXINIT used to fill a per-env registry whose       */
+/*  handlers pointed into IRXINIT's own copy of this file, and calling */
+/*  them from a separately-linked IRXEXEC wild-branched (S0C1).  That  */
+/*  registry is gone (#254).  These static tables are linked into      */
+/*  every module that runs REXX, so this always resolves to a local,   */
+/*  callable handler.  Covers g_bifstr_table plus ARG (handler in      */
+/*  irx#pars.c, linked into the same load module).                     */
 /* ================================================================== */
 
 /* ARG(): handler lives in irx#pars.c but links into this same module. */
