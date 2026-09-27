@@ -629,7 +629,6 @@ LOADed once and may be deleted, IRXEXEC is loaded per call (#200, #239).
 | IRXIOTSO | I/O routine via PUTLINE (TSO) | 1 K |
 | IRXANCHR | Environment table | 3 K |
 | IRXPARMS / IRXTSPRM / IRXISPRM | Parameter modules (batch / TSO / ISPF) | < 1 K each |
-| IRXTMPW | Former TMP wrapper | < 1 K |
 | IRXDBG, IRX#HELO | Diagnostic dump and hello-world smoke test | 87 K / 369 K |
 
 **Open, in order:**
