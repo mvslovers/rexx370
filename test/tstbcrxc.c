@@ -231,7 +231,7 @@ static void test_bc_path(struct envblock *env)
     int bc_rc;
     int exit_rc = 0;
 
-    printf("\n[BC-path proof — REXXCPS indirect pattern (AC #6)]\n");
+    printf("\n[BC-path proof - REXXCPS indirect pattern (AC #6)]\n");
 
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
@@ -272,7 +272,7 @@ static void test_unsup_diag(struct envblock *env)
     int line = -1;
     int rc;
 
-    printf("\n[UNSUP diagnostic — WP-BC-DIAG]\n");
+    printf("\n[UNSUP diagnostic - WP-BC-DIAG]\n");
 
     rc = irx_bc_compile(env, SRC, (int)strlen(SRC), &bc, &reason, &line);
 
@@ -398,7 +398,7 @@ static void test_arith_equiv(struct envblock *env)
     int n = (int)(sizeof(cases) / sizeof(cases[0]));
     int i;
 
-    printf("\n[WP-BC-OC-ARITH — op-path integer fast-path equivalence]\n");
+    printf("\n[WP-BC-OC-ARITH - op-path integer fast-path equivalence]\n");
     for (i = 0; i < n; i++)
     {
         run_equiv(env, cases[i].src, cases[i].label);

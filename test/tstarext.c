@@ -545,7 +545,7 @@ static void test_roundtrip(struct envblock *env)
     int rc;
     int i;
 
-    printf("\n--- roundtrip: from_digits ↔ to_digits ---\n");
+    printf("\n--- roundtrip: from_digits <-> to_digits ---\n");
 
     /* Build via from_digits, parse back via to_digits, compare. */
     const struct

@@ -111,7 +111,7 @@ int main(void)
     struct envblock *initial_anchor;
     int rc;
 
-    printf("=== TSTANCH — REXX/370 anchor smoketest ===\n");
+    printf("=== TSTANCH - REXX/370 anchor smoketest ===\n");
 
     dump_ppaflag();
 

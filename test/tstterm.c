@@ -59,7 +59,7 @@ static int slot_reachable_or_skip(const char *label)
     {
         return 1;
     }
-    printf("  SKIP: %s (ECTENVBK slot unreachable — pure batch)\n", label);
+    printf("  SKIP: %s (ECTENVBK slot unreachable - pure batch)\n", label);
     tests_skipped++;
     return 0;
 }
@@ -109,7 +109,7 @@ static void test_t1_basic_term(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run T1\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run T1\n");
         return;
     }
 
@@ -180,7 +180,7 @@ static void test_t4_anchor_slot_freed(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run T4\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run T4\n");
         return;
     }
 
@@ -221,7 +221,7 @@ static void test_t5_idempotency(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run T5\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run T5\n");
         return;
     }
 
@@ -260,7 +260,7 @@ static void test_t6_ectenvbk_unchanged(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run T6\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run T6\n");
         return;
     }
 
@@ -288,7 +288,7 @@ static void test_t6_ectenvbk_unchanged(void)
     else
     {
         /* Batch: slot unreachable — the test is vacuously satisfied. */
-        CHECK(1, "ECTENVBK not reachable (batch) — CON-3 trivially holds");
+        CHECK(1, "ECTENVBK not reachable (batch) - CON-3 trivially holds");
     }
 }
 
@@ -316,7 +316,7 @@ static void test_t7_irxterm_minimal_init(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run T7\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run T7\n");
         return;
     }
 
@@ -354,7 +354,7 @@ static void test_t8_irxterm_full_init(void)
     rc = irxinit(NULL, &envblk);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irxinit failed — cannot run T8\n");
+        printf("  SKIP: irxinit failed - cannot run T8\n");
         return;
     }
 
@@ -389,7 +389,7 @@ static void test_t9_tso_rollback_to_null(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- T9: TSO single env — IRXTERM rolls ECTENVBK to NULL ---\n");
+    printf("\n--- T9: TSO single env - IRXTERM rolls ECTENVBK to NULL ---\n");
 
     irx_anchor_table_reset();
     if (!slot_reachable_or_skip("T9"))
@@ -435,7 +435,7 @@ static void test_t10_tso_rollback_to_outer(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- T10: TSO two-env stack — IRXTERM rolls to outer ---\n");
+    printf("\n--- T10: TSO two-env stack - IRXTERM rolls to outer ---\n");
 
     irx_anchor_table_reset();
     if (!slot_reachable_or_skip("T10"))
@@ -496,7 +496,7 @@ static void test_t11_failure_ectenvbk_unchanged(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- T11: IRXTERM failure — ECTENVBK unchanged (AC-7) ---\n");
+    printf("\n--- T11: IRXTERM failure - ECTENVBK unchanged (AC-7) ---\n");
 
     irx_anchor_table_reset();
     if (!slot_reachable_or_skip("T11"))

@@ -127,7 +127,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -173,7 +173,7 @@ static int no_fallback(struct envblock *env, const char *src,
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -221,7 +221,7 @@ static int ran_bc(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -254,7 +254,7 @@ static int ran_bc(struct envblock *env, const char *src, const char *tag)
 
 static void test_say_continuation(struct envblock *env)
 {
-    printf("\n[continuation in SAY — blank concatenation]\n");
+    printf("\n[continuation in SAY - blank concatenation]\n");
 
     /* The minimal reproducer: two numbers across a line continuation. */
     equiv(env, "say 1,\n    2", "say 1,<nl>2");

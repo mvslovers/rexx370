@@ -376,7 +376,7 @@ int main(void)
 {
     printf("=== ECTENVBK TSOFL-conditional anchor tests (TSK-195) ===\n");
     printf("    mode: %s\n", is_tso() ? "TSO (ECT reachable)"
-                                      : "batch (no ECT — slot-state "
+                                      : "batch (no ECT - slot-state "
                                         "assertions will skip)");
 
     /* Silence unused-function warning on host where _test_get_anchor

@@ -107,7 +107,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -155,7 +155,7 @@ static int bc_only(struct envblock *env, const char *src,
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -185,7 +185,7 @@ static int bc_only(struct envblock *env, const char *src,
 
 static void test_proc_isolation(struct envblock *env)
 {
-    printf("\n[PROCEDURE — scope isolation]\n");
+    printf("\n[PROCEDURE - scope isolation]\n");
 
     /* Callee with PROCEDURE cannot see caller's variable */
     equiv(env,
@@ -243,7 +243,7 @@ static void test_proc_isolation(struct envblock *env)
 
 static void test_proc_expose(struct envblock *env)
 {
-    printf("\n[PROCEDURE EXPOSE — direct sharing]\n");
+    printf("\n[PROCEDURE EXPOSE - direct sharing]\n");
 
     /* Callee modification of exposed var is visible in caller */
     equiv(env,
@@ -317,7 +317,7 @@ static void test_proc_expose(struct envblock *env)
 
 static void test_proc_return_value(struct envblock *env)
 {
-    printf("\n[PROCEDURE EXPOSE — return value]\n");
+    printf("\n[PROCEDURE EXPOSE - return value]\n");
 
     /* Function expression with PROCEDURE and ARG */
     bc_only(env,
@@ -363,7 +363,7 @@ static void test_proc_return_value(struct envblock *env)
 
 static void test_proc_expose_indirect(struct envblock *env)
 {
-    printf("\n[PROCEDURE EXPOSE — indirect expose]\n");
+    printf("\n[PROCEDURE EXPOSE - indirect expose]\n");
 
     /* Indirect EXPOSE: names = 'a b', expose a and b */
     equiv(env,
@@ -392,7 +392,7 @@ static void test_proc_expose_indirect(struct envblock *env)
           "PROCEDURE EXPOSE (names)\n"
           "x = 99\n"
           "RETURN\n",
-          "EXPOSE (indirect): empty list — caller x unchanged");
+          "EXPOSE (indirect): empty list - caller x unchanged");
 }
 
 /* ------------------------------------------------------------------ */
@@ -401,7 +401,7 @@ static void test_proc_expose_indirect(struct envblock *env)
 
 static void test_proc_nested(struct envblock *env)
 {
-    printf("\n[PROCEDURE EXPOSE — nested calls]\n");
+    printf("\n[PROCEDURE EXPOSE - nested calls]\n");
 
     /* Inner call (no PROCEDURE) inside PROCEDURE EXPOSE function */
     equiv(env,

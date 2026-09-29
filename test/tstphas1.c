@@ -311,7 +311,7 @@ int main(void)
 {
     printf("=== REXX/370 Phase 1 Smoke Test ===\n");
     printf("    mode: %s\n", is_tso() ? "TSO (ECT reachable)"
-                                      : "batch (no ECT — anchor "
+                                      : "batch (no ECT - anchor "
                                         "checks will skip)");
 
     s_tso_pred = tso_predecessor(anch_curr());

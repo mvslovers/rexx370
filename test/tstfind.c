@@ -93,7 +93,7 @@ static void test_f1_empty_table(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F1: findenvb — empty anchor table ---\n");
+    printf("\n--- F1: findenvb - empty anchor table ---\n");
 
     irx_anchor_table_reset();
 
@@ -120,7 +120,7 @@ static void test_f2_nonreentrant_env(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F2: findenvb — one non-reentrant env ---\n");
+    printf("\n--- F2: findenvb - one non-reentrant env ---\n");
 
     irx_anchor_table_reset();
 #ifndef __MVS__
@@ -137,7 +137,7 @@ static void test_f2_nonreentrant_env(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run F2\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run F2\n");
         return;
     }
 
@@ -164,7 +164,7 @@ static void test_f3_reentrant_env(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F3: findenvb — reentrant env skipped ---\n");
+    printf("\n--- F3: findenvb - reentrant env skipped ---\n");
 
     irx_anchor_table_reset();
 #ifndef __MVS__
@@ -188,7 +188,7 @@ static void test_f3_reentrant_env(void)
     rc = irx_init_initenvb(NULL, &caller_pb, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run F3\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run F3\n");
         return;
     }
 
@@ -215,7 +215,7 @@ static void test_f4_highest_token_returned(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F4: findenvb — highest-token env returned ---\n");
+    printf("\n--- F4: findenvb - highest-token env returned ---\n");
 
     irx_anchor_table_reset();
 #ifndef __MVS__
@@ -231,14 +231,14 @@ static void test_f4_highest_token_returned(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &env1, &reason);
     if (rc != 0 || env1 == NULL)
     {
-        printf("  SKIP: env1 creation failed — cannot run F4\n");
+        printf("  SKIP: env1 creation failed - cannot run F4\n");
         return;
     }
 
     rc = irx_init_initenvb(NULL, NULL, 0, &env2, &reason);
     if (rc != 0 || env2 == NULL)
     {
-        printf("  SKIP: env2 creation failed — cannot run F4\n");
+        printf("  SKIP: env2 creation failed - cannot run F4\n");
         irxterm(env1);
         return;
     }
@@ -282,7 +282,7 @@ static void test_f5_dispatch_findenvb(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run F5\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run F5\n");
         return;
     }
 
@@ -310,7 +310,7 @@ static void test_c1_null_envblock(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- C1: chekenvb — NULL envblock ---\n");
+    printf("\n--- C1: chekenvb - NULL envblock ---\n");
 
     irx_anchor_table_reset();
 
@@ -330,7 +330,7 @@ static void test_c2_valid_envblock(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- C2: chekenvb — valid registered envblock ---\n");
+    printf("\n--- C2: chekenvb - valid registered envblock ---\n");
 
     irx_anchor_table_reset();
 #ifndef __MVS__
@@ -346,7 +346,7 @@ static void test_c2_valid_envblock(void)
     rc = irx_init_initenvb(NULL, NULL, 0, &envblk, &reason);
     if (rc != 0 || envblk == NULL)
     {
-        printf("  SKIP: irx_init_initenvb failed — cannot run C2\n");
+        printf("  SKIP: irx_init_initenvb failed - cannot run C2\n");
         return;
     }
 
@@ -369,7 +369,7 @@ static void test_c3_bad_eyecatcher(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- C3: chekenvb — bad eye-catcher ---\n");
+    printf("\n--- C3: chekenvb - bad eye-catcher ---\n");
 
     irx_anchor_table_reset();
 
@@ -395,7 +395,7 @@ static void test_c4_not_in_anchor(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- C4: chekenvb — correct eye-catcher, not in IRXANCHR ---\n");
+    printf("\n--- C4: chekenvb - correct eye-catcher, not in IRXANCHR ---\n");
 
     irx_anchor_table_reset();
 
@@ -540,7 +540,7 @@ static void test_f7_stage1a_stale_cache(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F7: findenvb Stage 1a stale → Stage 1b secondary ---\n");
+    printf("\n--- F7: findenvb Stage 1a stale -> Stage 1b secondary ---\n");
 
     irx_anchor_table_reset();
     _simulated_is_tso = 1;
@@ -575,7 +575,7 @@ static void test_f7_stage1a_stale_cache(void)
 
     rc = irx_init_findenvb(&found, &reason);
 
-    CHECK(rc == 0, "F7: findenvb returns 0 after stale cache → Stage 1b secondary");
+    CHECK(rc == 0, "F7: findenvb returns 0 after stale cache -> Stage 1b secondary");
     CHECK(found == &fake_eb, "F7: findenvb returns the valid TSO env");
 
     /* Stage 1b secondary must have repopulated the cache. */
@@ -612,7 +612,7 @@ static void test_f8_stage1b_secondary_no_cache(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F8: findenvb Stage 1b secondary — no cache ---\n");
+    printf("\n--- F8: findenvb Stage 1b secondary - no cache ---\n");
 
     irx_anchor_table_reset();
     _simulated_is_tso = 1;
@@ -673,7 +673,7 @@ static void test_f9_stage1b_no_tso_env(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F9: findenvb Stage 1b secondary — only non-TSO env ---\n");
+    printf("\n--- F9: findenvb Stage 1b secondary - only non-TSO env ---\n");
 
     irx_anchor_table_reset();
     _simulated_is_tso = 1;
@@ -792,7 +792,7 @@ static void test_f11_stage1b_secondary_token_max(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F11: Stage 1b secondary — token-max selection ---\n");
+    printf("\n--- F11: Stage 1b secondary - token-max selection ---\n");
 
     irx_anchor_table_reset();
     _simulated_is_tso = 1;
@@ -855,7 +855,7 @@ static void test_f12_stage1b_secondary_skips_reentrant(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- F12: Stage 1b secondary — skips reentrant TSO env ---\n");
+    printf("\n--- F12: Stage 1b secondary - skips reentrant TSO env ---\n");
 
     irx_anchor_table_reset();
     _simulated_is_tso = 1;
@@ -885,7 +885,7 @@ static void test_f12_stage1b_secondary_skips_reentrant(void)
 
     rc = irx_init_findenvb(&found, &reason);
 
-    CHECK(rc == 4, "F12: Stage 1b secondary skips reentrant TSO env → RC=4");
+    CHECK(rc == 4, "F12: Stage 1b secondary skips reentrant TSO env -> RC=4");
     CHECK(found == NULL, "F12: out_envblock is NULL");
     CHECK(reason == 4, "F12: reason code is 4");
 

@@ -875,7 +875,7 @@ static void test_phase_d_byte_conv(void)
     EXPECT_OK("C2X(X2C('fF'))", "FF", "X2C mixed-case input");
     EXPECT_OK("C2X(X2C('4 1 4 2'))", "4142", "X2C strips blanks");
     EXPECT_OK("C2X(X2C('F'))", "0F", "X2C odd length left-pads '0'");
-    EXPECT_OK("C2X(X2C('ABC'))", "0ABC", "X2C 3 digits → 4 digits padded");
+    EXPECT_OK("C2X(X2C('ABC'))", "0ABC", "X2C 3 digits -> 4 digits padded");
 
     /* B2X — binary → hex. */
     EXPECT_OK("B2X('')", "", "B2X empty");
@@ -897,7 +897,7 @@ static void test_phase_d_byte_conv(void)
     /* Byte-conversion round-trips. */
     EXPECT_OK("X2B(B2X('10101010'))", "10101010", "RT X2B(B2X) 8 bits");
     EXPECT_OK("X2B(B2X('1'))", "0001", "RT X2B(B2X) left-pads to 4");
-    EXPECT_OK("X2B(B2X('101'))", "0101", "RT X2B(B2X) 3 bits → 0101");
+    EXPECT_OK("X2B(B2X('101'))", "0101", "RT X2B(B2X) 3 bits -> 0101");
     EXPECT_OK("C2X(X2C('deadbeef'))", "DEADBEEF",
               "RT C2X(X2C) uppercases");
     EXPECT_OK("C2X(X2C('00112233'))", "00112233",
@@ -909,7 +909,7 @@ static void test_phase_d_c2d_x2d(void)
     printf("\n--- Phase D: C2D / X2D ---\n");
 
     /* AC-D1 — C2D without n: unsigned big-endian interpretation. */
-    EXPECT_OK("C2D('')", "0", "C2D empty → 0");
+    EXPECT_OK("C2D('')", "0", "C2D empty -> 0");
     EXPECT_OK("C2D(X2C('00'))", "0", "C2D one zero byte");
     EXPECT_OK("C2D(X2C('01'))", "1", "C2D single byte 01");
     EXPECT_OK("C2D(X2C('FF'))", "255", "C2D single byte FF");
@@ -919,35 +919,35 @@ static void test_phase_d_c2d_x2d(void)
 
     /* C2D with n — two's complement. */
     EXPECT_OK("C2D('',0)", "0", "C2D empty n=0");
-    EXPECT_OK("C2D(X2C('FF'),0)", "0", "C2D nonempty n=0 → 0");
-    EXPECT_OK("C2D(X2C('81'),1)", "-127", "AC-D10 C2D 81 n=1 → -127");
-    EXPECT_OK("C2D(X2C('81'),2)", "129", "C2D 81 n=2 (pad left) → 129");
-    EXPECT_OK("C2D(X2C('FF'),1)", "-1", "C2D FF n=1 → -1");
-    EXPECT_OK("C2D(X2C('FF'),2)", "255", "C2D FF n=2 → 255 (pad)");
+    EXPECT_OK("C2D(X2C('FF'),0)", "0", "C2D nonempty n=0 -> 0");
+    EXPECT_OK("C2D(X2C('81'),1)", "-127", "AC-D10 C2D 81 n=1 -> -127");
+    EXPECT_OK("C2D(X2C('81'),2)", "129", "C2D 81 n=2 (pad left) -> 129");
+    EXPECT_OK("C2D(X2C('FF'),1)", "-1", "C2D FF n=1 -> -1");
+    EXPECT_OK("C2D(X2C('FF'),2)", "255", "C2D FF n=2 -> 255 (pad)");
     EXPECT_OK("C2D(X2C('7F'),1)", "127", "AC-D10 MSB-off boundary");
     EXPECT_OK("C2D(X2C('80'),1)", "-128", "AC-D10 MSB-on boundary");
     EXPECT_OK("C2D(X2C('FFFF'),1)", "-1", "C2D FFFF n=1 truncates left");
     EXPECT_OK("C2D(X2C('00FF'),4)", "255", "C2D 00FF n=4 pads left");
 
     /* X2D without n. */
-    EXPECT_OK("X2D('')", "0", "X2D empty → 0");
+    EXPECT_OK("X2D('')", "0", "X2D empty -> 0");
     EXPECT_OK("X2D('0')", "0", "X2D single '0'");
     EXPECT_OK("X2D('FF')", "255", "X2D FF unsigned");
     EXPECT_OK("X2D('ff')", "255", "X2D lowercase");
     EXPECT_OK("X2D('F F')", "255", "AC-D8 X2D blanks tolerated");
-    EXPECT_OK("X2D('100')", "256", "X2D 100 → 256");
+    EXPECT_OK("X2D('100')", "256", "X2D 100 -> 256");
 
     /* X2D with n — n counts HEX DIGITS, not bytes. */
-    EXPECT_OK("X2D('81',2)", "-127", "X2D 81 n=2 → -127");
-    EXPECT_OK("X2D('81',3)", "129", "X2D 81 n=3 pad → 129");
-    EXPECT_OK("X2D('81',4)", "129", "X2D 81 n=4 pad → 129");
+    EXPECT_OK("X2D('81',2)", "-127", "X2D 81 n=2 -> -127");
+    EXPECT_OK("X2D('81',3)", "129", "X2D 81 n=3 pad -> 129");
+    EXPECT_OK("X2D('81',4)", "129", "X2D 81 n=4 pad -> 129");
     EXPECT_OK("X2D('7F',2)", "127", "X2D 7F n=2 MSB off");
     EXPECT_OK("X2D('80',2)", "-128", "X2D 80 n=2 MSB on");
     EXPECT_OK("X2D('F',1)", "-1", "X2D F n=1 single-nibble signed");
     EXPECT_OK("X2D('7',1)", "7", "X2D 7 n=1 single-nibble positive");
-    EXPECT_OK("X2D('8',1)", "-8", "X2D 8 n=1 → -8");
-    EXPECT_OK("X2D('FFFF',2)", "-1", "X2D truncated to n=2 → -1");
-    EXPECT_OK("X2D('0080',3)", "128", "X2D 0080 n=3 truncates → 080 = 128");
+    EXPECT_OK("X2D('8',1)", "-8", "X2D 8 n=1 -> -8");
+    EXPECT_OK("X2D('FFFF',2)", "-1", "X2D truncated to n=2 -> -1");
+    EXPECT_OK("X2D('0080',3)", "128", "X2D 0080 n=3 truncates -> 080 = 128");
 
     /* Odd-nibble two's-complement round-trip sanity. */
     EXPECT_OK("X2D('FFF',3)", "-1", "X2D FFF n=3 (12-bit -1)");
@@ -960,11 +960,11 @@ static void test_phase_d_c2d_x2d(void)
     /* dropped, MSN = 'B' has bit 3 set, so the 12-bit two's-complement    */
     /* value is 0x0BCD - 2^12 = -1075.                                     */
     EXPECT_OK("X2D('ABCD',3)", "-1075",
-              "X2D ABCD n=3 truncates → BCD (neg, TSO/E-verified)");
+              "X2D ABCD n=3 truncates -> BCD (neg, TSO/E-verified)");
     EXPECT_OK("X2D('A7CD',3)", "1997",
-              "X2D A7CD n=3 truncates → 7CD (pos, non-negation path)");
+              "X2D A7CD n=3 truncates -> 7CD (pos, non-negation path)");
     EXPECT_OK("X2D('A00D',3)", "13",
-              "X2D A00D n=3 truncates → 00D (pos, small value)");
+              "X2D A00D n=3 truncates -> 00D (pos, small value)");
 }
 
 static void test_phase_d_d2c_d2x(void)
@@ -972,14 +972,14 @@ static void test_phase_d_d2c_d2x(void)
     printf("\n--- Phase D: D2C / D2X ---\n");
 
     /* AC-D3 charset-independent byte checks via C2X wrapper. */
-    EXPECT_OK("D2C(0)", "", "D2C(0) → empty");
-    EXPECT_OK("C2X(D2C(0,0))", "", "D2C(0,0) → empty");
-    EXPECT_OK("C2X(D2C(0,1))", "00", "D2C(0,1) → 00x");
-    EXPECT_OK("C2X(D2C(1))", "01", "D2C(1) → 01x");
-    EXPECT_OK("C2X(D2C(255))", "FF", "D2C(255) → FFx");
-    EXPECT_OK("C2X(D2C(256))", "0100", "D2C(256) → 0100x");
-    EXPECT_OK("C2X(D2C(65))", "41", "AC-D3 D2C(65) → 0x41 byte");
-    EXPECT_OK("C2X(D2C(193))", "C1", "AC-D3 D2C(193) → 0xC1 byte");
+    EXPECT_OK("D2C(0)", "", "D2C(0) -> empty");
+    EXPECT_OK("C2X(D2C(0,0))", "", "D2C(0,0) -> empty");
+    EXPECT_OK("C2X(D2C(0,1))", "00", "D2C(0,1) -> 00x");
+    EXPECT_OK("C2X(D2C(1))", "01", "D2C(1) -> 01x");
+    EXPECT_OK("C2X(D2C(255))", "FF", "D2C(255) -> FFx");
+    EXPECT_OK("C2X(D2C(256))", "0100", "D2C(256) -> 0100x");
+    EXPECT_OK("C2X(D2C(65))", "41", "AC-D3 D2C(65) -> 0x41 byte");
+    EXPECT_OK("C2X(D2C(193))", "C1", "AC-D3 D2C(193) -> 0xC1 byte");
 
     /* D2C with length — padding and truncation. */
     EXPECT_OK("C2X(D2C(1,4))", "00000001", "D2C(1,4) left-pads 00s");
@@ -987,30 +987,30 @@ static void test_phase_d_d2c_d2x(void)
     EXPECT_OK("C2X(D2C(256,2))", "0100", "D2C(256,2) fits exactly");
 
     /* D2C negative — two's complement. */
-    EXPECT_OK("C2X(D2C(-1,1))", "FF", "D2C(-1,1) → FFx");
-    EXPECT_OK("C2X(D2C(-1,2))", "FFFF", "D2C(-1,2) → FFFFx");
-    EXPECT_OK("C2X(D2C(-1,4))", "FFFFFFFF", "D2C(-1,4) → FFFFFFFFx");
-    EXPECT_OK("C2X(D2C(-128,1))", "80", "D2C(-128,1) → 80x");
-    EXPECT_OK("C2X(D2C(-256,2))", "FF00", "D2C(-256,2) → FF00x");
-    EXPECT_OK("C2X(D2C(-257,2))", "FEFF", "D2C(-257,2) → FEFFx");
+    EXPECT_OK("C2X(D2C(-1,1))", "FF", "D2C(-1,1) -> FFx");
+    EXPECT_OK("C2X(D2C(-1,2))", "FFFF", "D2C(-1,2) -> FFFFx");
+    EXPECT_OK("C2X(D2C(-1,4))", "FFFFFFFF", "D2C(-1,4) -> FFFFFFFFx");
+    EXPECT_OK("C2X(D2C(-128,1))", "80", "D2C(-128,1) -> 80x");
+    EXPECT_OK("C2X(D2C(-256,2))", "FF00", "D2C(-256,2) -> FF00x");
+    EXPECT_OK("C2X(D2C(-257,2))", "FEFF", "D2C(-257,2) -> FEFFx");
 
     /* AC-D4 — D2X / X2D basic. */
-    EXPECT_OK("D2X(0)", "0", "AC-D4 D2X(0) → '0'");
-    EXPECT_OK("D2X(0,0)", "", "D2X(0,0) → empty");
-    EXPECT_OK("D2X(0,4)", "0000", "D2X(0,4) → 0000");
+    EXPECT_OK("D2X(0)", "0", "AC-D4 D2X(0) -> '0'");
+    EXPECT_OK("D2X(0,0)", "", "D2X(0,0) -> empty");
+    EXPECT_OK("D2X(0,4)", "0000", "D2X(0,4) -> 0000");
     EXPECT_OK("D2X(1)", "1", "D2X(1) no leading zero");
     EXPECT_OK("D2X(15)", "F", "D2X(15) single digit");
-    EXPECT_OK("D2X(16)", "10", "D2X(16) → 10");
-    EXPECT_OK("D2X(255)", "FF", "AC-D4 D2X(255) → FF");
-    EXPECT_OK("D2X(256)", "100", "D2X(256) → 100");
+    EXPECT_OK("D2X(16)", "10", "D2X(16) -> 10");
+    EXPECT_OK("D2X(255)", "FF", "AC-D4 D2X(255) -> FF");
+    EXPECT_OK("D2X(256)", "100", "D2X(256) -> 100");
     EXPECT_OK("D2X(255,4)", "00FF", "D2X(255,4) pad");
-    EXPECT_OK("D2X(-1,2)", "FF", "D2X(-1,2) → FF");
-    EXPECT_OK("D2X(-1,3)", "FFF", "D2X(-1,3) → FFF (odd length)");
-    EXPECT_OK("D2X(-1,4)", "FFFF", "D2X(-1,4) → FFFF");
-    EXPECT_OK("D2X(-256,3)", "F00", "D2X(-256,3) → F00 (odd, MSB nibble)");
+    EXPECT_OK("D2X(-1,2)", "FF", "D2X(-1,2) -> FF");
+    EXPECT_OK("D2X(-1,3)", "FFF", "D2X(-1,3) -> FFF (odd length)");
+    EXPECT_OK("D2X(-1,4)", "FFFF", "D2X(-1,4) -> FFFF");
+    EXPECT_OK("D2X(-256,3)", "F00", "D2X(-256,3) -> F00 (odd, MSB nibble)");
 
     /* Whole-number inputs expressed as decimals/scientific still work. */
-    EXPECT_OK("C2X(D2C('1E2'))", "64", "D2C scientific → 100 → 0x64");
+    EXPECT_OK("C2X(D2C('1E2'))", "64", "D2C scientific -> 100 -> 0x64");
     EXPECT_OK("C2X(D2C('1.0'))", "01", "D2C '1.0' whole");
 }
 
@@ -1019,14 +1019,14 @@ static void test_phase_d_roundtrips(void)
     printf("\n--- Phase D: round-trips (AC-D4/D10) ---\n");
 
     /* X2D(D2X(n)) = n for a spectrum of values including BCD-path ones. */
-    EXPECT_OK("X2D(D2X(0))", "0", "RT X2D∘D2X 0");
-    EXPECT_OK("X2D(D2X(1))", "1", "RT X2D∘D2X 1");
-    EXPECT_OK("X2D(D2X(127))", "127", "RT X2D∘D2X 127");
-    EXPECT_OK("X2D(D2X(128))", "128", "RT X2D∘D2X 128");
-    EXPECT_OK("X2D(D2X(255))", "255", "RT X2D∘D2X 255");
-    EXPECT_OK("X2D(D2X(256))", "256", "RT X2D∘D2X 256");
-    EXPECT_OK("X2D(D2X(65535))", "65535", "RT X2D∘D2X 65535");
-    EXPECT_OK_BIG("X2D(D2X(1073741824))", "1073741824", "RT X2D∘D2X 2^30");
+    EXPECT_OK("X2D(D2X(0))", "0", "RT X2D(D2X) 0");
+    EXPECT_OK("X2D(D2X(1))", "1", "RT X2D(D2X) 1");
+    EXPECT_OK("X2D(D2X(127))", "127", "RT X2D(D2X) 127");
+    EXPECT_OK("X2D(D2X(128))", "128", "RT X2D(D2X) 128");
+    EXPECT_OK("X2D(D2X(255))", "255", "RT X2D(D2X) 255");
+    EXPECT_OK("X2D(D2X(256))", "256", "RT X2D(D2X) 256");
+    EXPECT_OK("X2D(D2X(65535))", "65535", "RT X2D(D2X) 65535");
+    EXPECT_OK_BIG("X2D(D2X(1073741824))", "1073741824", "RT X2D(D2X) 2^30");
 
     /* Two's-complement C2D(D2C(n,k),k) = n. */
     EXPECT_OK("C2D(D2C(-1,1),1)", "-1", "RT 2c -1 @1B");
@@ -1054,28 +1054,28 @@ static void test_phase_d_bcd_path(void)
     /* Construct input via X2C so the test is byte-exact regardless of */
     /* host code page.                                                 */
     EXPECT_OK_BIG("C2D(X2C('0100000000'))", "4294967296",
-                  "AC-D9 C2D 5 bytes → 2^32");
+                  "AC-D9 C2D 5 bytes -> 2^32");
     EXPECT_OK_BIG("C2D(X2C('FF00000000'))", "1095216660480",
                   "AC-D9 C2D 5 bytes 0xFF00000000");
 
     /* Unsigned 4-byte with MSB set: signed `long` on MVS overflows;   */
     /* the 4-byte BCD path covers this too.                            */
     EXPECT_OK_BIG("C2D(X2C('FFFFFFFF'))", "4294967295",
-                  "AC-D9 C2D 4 bytes FFFFFFFF (unsigned overflow) → BCD");
+                  "AC-D9 C2D 4 bytes FFFFFFFF (unsigned overflow) -> BCD");
     EXPECT_OK_BIG("C2D(X2C('80000000'))", "2147483648",
-                  "C2D 4 bytes 0x80000000 unsigned → BCD");
+                  "C2D 4 bytes 0x80000000 unsigned -> BCD");
 
     /* X2D 9+ hex digits exceeds 32-bit unsigned — BCD path. */
     EXPECT_OK_BIG("X2D('100000000')", "4294967296",
-                  "AC-D9 X2D 9 digits → 2^32");
+                  "AC-D9 X2D 9 digits -> 2^32");
     EXPECT_OK_BIG("X2D('FFFFFFFF')", "4294967295",
-                  "X2D 8 digits FFFFFFFF unsigned overflow → BCD");
+                  "X2D 8 digits FFFFFFFF unsigned overflow -> BCD");
     EXPECT_OK_BIG("X2D('1234567890')", "78187493520",
                   "AC-D9 X2D 10 digits");
 
     /* D2C(2^32) → 5-byte output via BCD (irx_arith_to_digits path). */
     EXPECT_OK_BIG("C2X(D2C(4294967296))", "0100000000",
-                  "AC-D9 D2C(2^32) → 0100000000x");
+                  "AC-D9 D2C(2^32) -> 0100000000x");
     EXPECT_OK_BIG("C2X(D2C(4294967296,5))", "0100000000",
                   "D2C(2^32,5) BCD fixed-width");
     EXPECT_OK_BIG("C2X(D2C(4294967296,4))", "00000000",
@@ -1093,7 +1093,7 @@ static void test_phase_d_bcd_path(void)
 
     /* D2X BCD. */
     EXPECT_OK_BIG("D2X(4294967296)", "100000000",
-                  "D2X(2^32) BCD → 9 digits");
+                  "D2X(2^32) BCD -> 9 digits");
     EXPECT_OK_BIG("D2X(4294967296,12)", "000100000000",
                   "D2X(2^32,12) left-pads");
 }
@@ -1104,11 +1104,11 @@ static void test_phase_d_errors(void)
 
     /* AC-D7 — X2C / X2D / X2B non-hex → SYNTAX 40.25. */
     run_expect_fail("x = X2C('GG')\n", SYNTAX_BAD_CALL, ERR40_BAD_HEX,
-                    "X2C non-hex → 40.25");
+                    "X2C non-hex -> 40.25");
     run_expect_fail("x = X2D('GG')\n", SYNTAX_BAD_CALL, ERR40_BAD_HEX,
-                    "AC-D7 X2D non-hex → 40.25");
+                    "AC-D7 X2D non-hex -> 40.25");
     run_expect_fail("x = X2B('GG')\n", SYNTAX_BAD_CALL, ERR40_BAD_HEX,
-                    "X2B non-hex → 40.25");
+                    "X2B non-hex -> 40.25");
     /* Non-hex character surrounded by legitimate blanks — the blank-   */
     /* skipping loop must NOT suppress the non-hex detection.           */
     run_expect_fail("x = X2D('F G F')\n", SYNTAX_BAD_CALL, ERR40_BAD_HEX,
@@ -1118,7 +1118,7 @@ static void test_phase_d_errors(void)
 
     /* B2X non-binary → SYNTAX 40.24. */
     run_expect_fail("x = B2X('12')\n", SYNTAX_BAD_CALL, ERR40_BAD_BINARY,
-                    "B2X contains '2' → 40.24");
+                    "B2X contains '2' -> 40.24");
     run_expect_fail("x = B2X('10102')\n", SYNTAX_BAD_CALL,
                     ERR40_BAD_BINARY, "B2X bad digit mid-string");
 
