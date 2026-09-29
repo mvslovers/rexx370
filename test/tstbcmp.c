@@ -125,7 +125,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
 
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -172,7 +172,7 @@ static int bc_exact(struct envblock *env, const char *src,
 
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;

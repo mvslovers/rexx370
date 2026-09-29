@@ -107,7 +107,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -155,7 +155,7 @@ static int bc_only(struct envblock *env, const char *src,
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -185,7 +185,7 @@ static int bc_only(struct envblock *env, const char *src,
 
 static void test_parse_arg(struct envblock *env)
 {
-    printf("\n[PARSE ARG — word splitting]\n");
+    printf("\n[PARSE ARG - word splitting]\n");
 
     /* PARSE ARG with no args: var gets empty string, SAY outputs blank line */
     bc_only(env,
@@ -241,7 +241,7 @@ static void test_parse_arg(struct envblock *env)
 
 static void test_parse_arg_multi(struct envblock *env)
 {
-    printf("\n[PARSE ARG — multi-template]\n");
+    printf("\n[PARSE ARG - multi-template]\n");
 
     /* Comma-separated args for multi-template */
     bc_only(env,
@@ -641,7 +641,7 @@ static void test_parse_pull(struct envblock *env)
     int src_len, rc, exit_rc = 0;
     const char *src = "PARSE PULL x\nSAY x\n";
 
-    printf("\n[PARSE PULL — WP-33b stub]\n");
+    printf("\n[PARSE PULL - WP-33b stub]\n");
 
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)

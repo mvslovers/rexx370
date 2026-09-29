@@ -367,13 +367,13 @@ static void test_8_is_tso_flag(void)
     irx_anchor_alloc_slot(ENV(40), TCB(1), /*is_tso=*/1, &tok);
     e = irx_anchor_find_by_envblock(ENV(40));
     CHECK(e != NULL && e->flags == IRXANCHR_FLAG_TSO_ATTACHED,
-          "T8: is_tso=1 → flags == 0x40000000");
+          "T8: is_tso=1 -> flags == 0x40000000");
 
     /* Non-TSO env → flag clear. */
     irx_anchor_alloc_slot(ENV(41), TCB(1), /*is_tso=*/0, &tok);
     e = irx_anchor_find_by_envblock(ENV(41));
     CHECK(e != NULL && e->flags == 0U,
-          "T8: is_tso=0 → flags == 0x00000000");
+          "T8: is_tso=0 -> flags == 0x00000000");
 
     /* Both env kinds findable via find_by_envblock. */
     CHECK(irx_anchor_find_by_envblock(ENV(40)) != NULL,

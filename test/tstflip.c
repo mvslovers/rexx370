@@ -112,7 +112,7 @@ static void test_env_zero(void)
     printf("\n--- FLIP#02: REXX370_BYTECODE=0 ---\n");
 
     setenv("REXX370_BYTECODE", "0", 1);
-    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=0 → flag 0");
+    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=0 -> flag 0");
     unsetenv("REXX370_BYTECODE");
 }
 
@@ -124,7 +124,7 @@ static void test_env_one(void)
     printf("\n--- FLIP#03: REXX370_BYTECODE=1 ---\n");
 
     setenv("REXX370_BYTECODE", "1", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=1 → flag 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=1 -> flag 1");
     unsetenv("REXX370_BYTECODE");
 }
 
@@ -136,22 +136,22 @@ static void test_env_false_variants(void)
     printf("\n--- FLIP#04: false/no/off variants ---\n");
 
     setenv("REXX370_BYTECODE", "false", 1);
-    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=false → flag 0");
+    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=false -> flag 0");
 
     setenv("REXX370_BYTECODE", "FALSE", 1);
-    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=FALSE → flag 0");
+    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=FALSE -> flag 0");
 
     setenv("REXX370_BYTECODE", "no", 1);
-    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=no → flag 0");
+    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=no -> flag 0");
 
     setenv("REXX370_BYTECODE", "NO", 1);
-    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=NO → flag 0");
+    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=NO -> flag 0");
 
     setenv("REXX370_BYTECODE", "off", 1);
-    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=off → flag 0");
+    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=off -> flag 0");
 
     setenv("REXX370_BYTECODE", "OFF", 1);
-    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=OFF → flag 0");
+    CHECK(wkbi_flag_after_init() == 0, "REXX370_BYTECODE=OFF -> flag 0");
 
     unsetenv("REXX370_BYTECODE");
 }
@@ -164,22 +164,22 @@ static void test_env_true_variants(void)
     printf("\n--- FLIP#05: true/yes/on variants ---\n");
 
     setenv("REXX370_BYTECODE", "true", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=true → flag 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=true -> flag 1");
 
     setenv("REXX370_BYTECODE", "TRUE", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=TRUE → flag 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=TRUE -> flag 1");
 
     setenv("REXX370_BYTECODE", "yes", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=yes → flag 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=yes -> flag 1");
 
     setenv("REXX370_BYTECODE", "YES", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=YES → flag 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=YES -> flag 1");
 
     setenv("REXX370_BYTECODE", "on", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=on → flag 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=on -> flag 1");
 
     setenv("REXX370_BYTECODE", "ON", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=ON → flag 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=ON -> flag 1");
 
     unsetenv("REXX370_BYTECODE");
 }
@@ -192,10 +192,10 @@ static void test_env_garbage(void)
     printf("\n--- FLIP#06: garbage value ---\n");
 
     setenv("REXX370_BYTECODE", "banana", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=banana → flag stays 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE=banana -> flag stays 1");
 
     setenv("REXX370_BYTECODE", "", 1);
-    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE= (empty) → flag stays 1");
+    CHECK(wkbi_flag_after_init() == 1, "REXX370_BYTECODE= (empty) -> flag stays 1");
 
     unsetenv("REXX370_BYTECODE");
 }

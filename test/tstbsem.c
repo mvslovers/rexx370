@@ -119,7 +119,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -171,7 +171,7 @@ static int no_fallback(struct envblock *env, const char *src,
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;

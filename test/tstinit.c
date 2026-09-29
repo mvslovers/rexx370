@@ -434,7 +434,7 @@ static void test_t9_tsofl_set_flag(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- T9: TSOFL=1 → IRXANCHR slot TSO_ATTACHED ---\n");
+    printf("\n--- T9: TSOFL=1 -> IRXANCHR slot TSO_ATTACHED ---\n");
 
     irx_anchor_table_reset();
     build_parmblock_with_tsofl(&pb, /*tso=*/1);
@@ -449,7 +449,7 @@ static void test_t9_tsofl_set_flag(void)
         if (slot != NULL)
         {
             CHECK(slot->flags == IRXANCHR_FLAG_TSO_ATTACHED,
-                  "T9: TSOFL=1 → flags == 0x40000000");
+                  "T9: TSOFL=1 -> flags == 0x40000000");
         }
 
         irxterm(envblk);
@@ -467,7 +467,7 @@ static void test_t10_tsofl_clear_flag(void)
     int reason = -1;
     int rc;
 
-    printf("\n--- T10: TSOFL=0 → IRXANCHR slot non-TSO ---\n");
+    printf("\n--- T10: TSOFL=0 -> IRXANCHR slot non-TSO ---\n");
 
     irx_anchor_table_reset();
     build_parmblock_with_tsofl(&pb, /*tso=*/0);
@@ -482,7 +482,7 @@ static void test_t10_tsofl_clear_flag(void)
         if (slot != NULL)
         {
             CHECK(slot->flags == 0U,
-                  "T10: TSOFL=0 → flags == 0x00000000");
+                  "T10: TSOFL=0 -> flags == 0x00000000");
         }
 
         irxterm(envblk);
@@ -512,7 +512,7 @@ static int slot_reachable_or_skip(const char *test_label)
     {
         return 1;
     }
-    printf("  SKIP: %s (ECTENVBK slot unreachable — pure batch)\n",
+    printf("  SKIP: %s (ECTENVBK slot unreachable - pure batch)\n",
            test_label);
     tests_skipped++;
     return 0;
@@ -615,7 +615,7 @@ static void test_t13_stacked_tsofl1_latest_wins(void)
     struct envblock *second = NULL;
     int rc;
 
-    printf("\n--- T13: stacked TSOFL=1 IRXINITs — latest wins ---\n");
+    printf("\n--- T13: stacked TSOFL=1 IRXINITs - latest wins ---\n");
 
     irx_anchor_table_reset();
     if (!slot_reachable_or_skip("T13"))

@@ -314,7 +314,7 @@ static void test_pa06_var_relative_backward(void)
      * a gets [3..2] = "" (empty: backward retreat means preceding var empty).
      * After -3: scan retreats to max(0, 3-3)=0.
      * b gets [0..end]="ABCDEFGH". */
-    CHECK(output_contains("a="), "a = '' (empty — backward move)");
+    CHECK(output_contains("a="), "a = '' (empty - backward move)");
     CHECK(output_contains("b=ABCDEFGH"), "b = 'ABCDEFGH'");
 }
 
@@ -508,7 +508,7 @@ static void test_pa14_pull_syntax_error(void)
     int exit_rc = -1;
     int rc;
 
-    printf("\n--- PA#14: PARSE PULL → SYNTAX error ---\n");
+    printf("\n--- PA#14: PARSE PULL -> SYNTAX error ---\n");
 
     rc = run_src(
         "/* REXX */\n"
@@ -658,7 +658,7 @@ static void test_pa18_absolute_backward(void)
      *         scan retreats to 4.
      *   c = remainder from 4 = "EFGHIJKLMNOP". */
     CHECK(output_contains("a=ABCDEFGHI"), "a = 'ABCDEFGHI'");
-    CHECK(output_contains("b="), "b = '' (empty — backward retreat)");
+    CHECK(output_contains("b="), "b = '' (empty - backward retreat)");
     CHECK(output_contains("c=EFGHIJKLMNOP"), "c = 'EFGHIJKLMNOP'");
 }
 

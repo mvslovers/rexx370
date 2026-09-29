@@ -123,7 +123,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -170,7 +170,7 @@ static int no_fallback(struct envblock *env, const char *src,
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -219,7 +219,7 @@ static int ran_bc(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -256,7 +256,7 @@ static int ran_bc(struct envblock *env, const char *src, const char *tag)
 
 static void test_omitted_vs_empty_call(struct envblock *env)
 {
-    printf("\n[omitted != empty string — CALL to internal routine]\n");
+    printf("\n[omitted != empty string - CALL to internal routine]\n");
 
     /* Leading omitted arg 1 -> ARG(1,'O')=1 ARG(1,'E')=0 -> "1 0". */
     equiv(env,
@@ -344,7 +344,7 @@ static void test_omitted_vs_empty_call(struct envblock *env)
 
 static void test_omitted_parse_arg(struct envblock *env)
 {
-    printf("\n[omitted args — PARSE ARG]\n");
+    printf("\n[omitted args - PARSE ARG]\n");
 
     /* Omitted arg 1 -> PARSE ARG a yields empty -> "<>". */
     equiv(env,
@@ -381,7 +381,7 @@ static void test_omitted_parse_arg(struct envblock *env)
 
 static void test_omitted_expr_userfunc(struct envblock *env)
 {
-    printf("\n[omitted args — expression call to internal routine]\n");
+    printf("\n[omitted args - expression call to internal routine]\n");
 
     no_fallback(env,
                 "y = rep(,'b')\nsay y\nexit\n"
@@ -418,11 +418,11 @@ static void test_omitted_expr_userfunc(struct envblock *env)
 
 static void test_omitted_bif(struct envblock *env)
 {
-    printf("\n[omitted args to a BIF — FORMAT and friends]\n");
+    printf("\n[omitted args to a BIF - FORMAT and friends]\n");
 
     /* The literal REXXCPS-166 construct. */
     equiv(env, "total = 3\nsay format(total,,1)",
-          "format(total,,1) — REXXCPS blocker");
+          "format(total,,1) - REXXCPS blocker");
     ran_bc(env, "total = 3\nsay format(total,,1)",
            "format(total,,1) compiles on bytecode path");
 

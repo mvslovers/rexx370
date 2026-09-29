@@ -107,7 +107,7 @@ static int bc_only(struct envblock *env, const char *src,
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -148,7 +148,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -186,7 +186,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
 
 static void test_compound_basic(struct envblock *env)
 {
-    printf("\n[Compound variable — basic read/write]\n");
+    printf("\n[Compound variable - basic read/write]\n");
 
     /* Constant tail: A.1 = "one"; say A.1 */
     equiv(env,
@@ -240,7 +240,7 @@ static void test_compound_basic(struct envblock *env)
 
 static void test_compound_multilevel(struct envblock *env)
 {
-    printf("\n[Compound variable — multi-level]\n");
+    printf("\n[Compound variable - multi-level]\n");
 
     /* A.B.C with all variable tails */
     equiv(env,
@@ -284,7 +284,7 @@ static void test_compound_multilevel(struct envblock *env)
 
 static void test_compound_stem_default(struct envblock *env)
 {
-    printf("\n[Compound variable — stem default]\n");
+    printf("\n[Compound variable - stem default]\n");
 
     /* Default read: A. = \"def\"; various tails → \"def\" */
     bc_only(env,
@@ -322,7 +322,7 @@ static void test_compound_stem_default(struct envblock *env)
 
 static void test_compound_stem_reset(struct envblock *env)
 {
-    printf("\n[Compound variable — bare-stem assignment resets tails]\n");
+    printf("\n[Compound variable - bare-stem assignment resets tails]\n");
 
     /* (1) Core bug: bare-stem default clears a previously set tail. */
     bc_only(env,
@@ -371,19 +371,19 @@ static void test_compound_stem_reset(struct envblock *env)
 
 static void test_compound_drop(struct envblock *env)
 {
-    printf("\n[Compound variable — DROP]\n");
+    printf("\n[Compound variable - DROP]\n");
 
     /* DROP simple variable */
     bc_only(env,
             "X = \"hello\"\nDROP X\nSAY X\n",
             "X\n",
-            "DROP simple variable → NOVALUE");
+            "DROP simple variable -> NOVALUE");
 
     /* DROP specific compound entry: DROP A.1 */
     bc_only(env,
             "A.1 = \"one\"\nDROP A.1\nSAY A.1\n",
             "A.1\n",
-            "DROP A.1 → entry removed, NOVALUE");
+            "DROP A.1 -> entry removed, NOVALUE");
 
     /* DROP A.I where I is a variable */
     bc_only(env,
@@ -422,7 +422,7 @@ static void test_compound_drop(struct envblock *env)
 
 static void test_compound_expr(struct envblock *env)
 {
-    printf("\n[Compound variable — in expressions]\n");
+    printf("\n[Compound variable - in expressions]\n");
 
     /* Arithmetic with compound variable */
     bc_only(env,
@@ -461,7 +461,7 @@ static void test_compound_expr(struct envblock *env)
 
 static void test_compound_do(struct envblock *env)
 {
-    printf("\n[Compound variable — in DO loops]\n");
+    printf("\n[Compound variable - in DO loops]\n");
 
     /* Build array via compound assignment in loop */
     bc_only(env,
@@ -488,7 +488,7 @@ static void test_compound_do(struct envblock *env)
 
 static void test_compound_call(struct envblock *env)
 {
-    printf("\n[Compound variable — across CALL/RETURN]\n");
+    printf("\n[Compound variable - across CALL/RETURN]\n");
 
     /* Caller sets A.1; callee reads A.1 (shared vpool without PROCEDURE) */
     bc_only(env,

@@ -107,7 +107,7 @@ static int equiv(struct envblock *env, const char *src, const char *tag)
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -157,7 +157,7 @@ static int bc_only(struct envblock *env, const char *src,
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
     {
-        printf("  FAIL: %s — no work block\n", tag);
+        printf("  FAIL: %s - no work block\n", tag);
         tests_run++;
         tests_failed++;
         return 0;
@@ -226,7 +226,7 @@ static void test_bif_expr(struct envblock *env)
 
 static void test_call_bif_stmt(struct envblock *env)
 {
-    printf("\n[CALL stmt — BIF]\n");
+    printf("\n[CALL stmt - BIF]\n");
 
     /* CALL stores result in RESULT variable */
     equiv(env,

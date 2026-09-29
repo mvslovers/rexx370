@@ -659,7 +659,7 @@ static void test_vl_on_p9(void)
     struct envblock *env;
     int rc;
 
-    printf("T12: VL on P9 (P10 omitted) — dispatch still works\n");
+    printf("T12: VL on P9 (P10 omitted) - dispatch still works\n");
 
     env = make_env();
     if (!env)
@@ -695,7 +695,7 @@ static void test_vl_on_p9(void)
 /* ================================================================== */
 static void test_vl_on_p10_note(void)
 {
-    printf("T13: VL on P10 (*P10 = RC) — ASM wrapper only; "
+    printf("T13: VL on P10 (*P10 = RC) - ASM wrapper only; "
            "skipped in C host test\n");
     /* No CHECK calls: this case is asm-wrapper behavior, not C. */
 }
