@@ -34,12 +34,12 @@ EXEC_MEM = "RXA"
 EXEC_TEXT = "SAY 'HELLO FROM SYSEXEC RXA -- NO COMMENT NEEDED'\n"
 SAY_TEXT = "HELLO FROM SYSEXEC RXA"
 
-IRXJCL_REGIONS = [512, 640, 768, 896, 1024]
+IRXJCL_REGIONS = [512, 640, 704, 768, 896, 1024]
 TMP_REGIONS = [256, 384, 512, 640, 768]
 
 # Lines that name a cause; a failing step without any of them is SILENT.
 EXPLAIN = re.compile(r"IEA70\d|IKJ56500I|IKJ56641I|@@CRT1|getmain request"
-                     r"|SYSIN DD not defined|IEC\d{3}I")
+                     r"|SYSIN DD not defined|Out of memory|IEC\d{3}I")
 
 
 def steps():
@@ -107,8 +107,11 @@ def main():
         "GET", f"/restjobs/jobs/{r.jobname}/{r.jobid}/files")
     recs = {f.get("stepname"): f.get("record-count")
             for f in files if f.get("ddname") == "SYSTSPRT"}
+    # IEF142I prints the last four decimal digits of the full return code
+    # (IRXJCL's 20005 reads 0005), so prefer IEFACTRT's condition code.
     cc = dict(re.findall(
         r"IEF142I \S+ (\S+) - STEP WAS EXECUTED - COND CODE (\d+)", sp))
+    cc.update(re.findall(r"IEFACTRT (\S+)\s*/\S+\s*/[^/]*/[^/]*/(\d+)/", sp))
     abend = dict(re.findall(r"IEF450I \S+ (\S+) - ABEND (\S+ \S+)", sp))
     virt = dict(re.findall(r"IEF374I STEP /(\S+)\s*/ STOP .*VIRT\s+(\d+K)",
                            sp))
