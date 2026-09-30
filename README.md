@@ -75,4 +75,4 @@ See: [REXX/370 Architecture Design v0.1.0](doc/) and the
 
 ## License
 
-(c) 2026 mvslovers
+MIT License, Copyright (c) 2026 Mike Großmann. See [LICENSE](LICENSE).
