@@ -369,6 +369,135 @@ static void test_return_top(struct envblock *env)
 }
 
 /* ------------------------------------------------------------------ */
+/*  bc_exit: run src via the bytecode VM with an argument string and  */
+/*  check SAY output, the exec's exit code and irx_exec_run's rc.     */
+/*  want_rc < 0 accepts any non-zero rc (runtime error).              */
+/* ------------------------------------------------------------------ */
+
+static void bc_exit(struct envblock *env, const char *src, const char *args,
+                    const char *expected, int want_exit, int want_rc,
+                    const char *tag)
+{
+    struct irx_wkblk_int *wk;
+    int rc;
+    int exit_rc = -1;
+    char label[128];
+
+    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    cap_reset();
+    wk->wkbi_use_bytecode = 1;
+    rc = irx_exec_run(src, (int)strlen(src), args,
+                      args != NULL ? (int)strlen(args) : 0, &exit_rc, env);
+    wk->wkbi_use_bytecode = 0;
+
+    snprintf(label, sizeof(label), "bc_exit: %s (output)", tag);
+    CHECK(strcmp(g_cap, expected) == 0, label);
+    if (strcmp(g_cap, expected) != 0)
+    {
+        printf("    expected:[%s]\n", expected);
+        printf("    got:     [%s]\n", g_cap);
+    }
+
+    snprintf(label, sizeof(label), "bc_exit: %s (rc)", tag);
+    CHECK(want_rc < 0 ? rc != 0 : rc == want_rc, label);
+    if (want_rc >= 0)
+    {
+        snprintf(label, sizeof(label), "bc_exit: %s (exit)", tag);
+        CHECK(exit_rc == want_exit, label);
+        if (exit_rc != want_exit)
+        {
+            printf("    exit_rc=%d want %d\n", exit_rc, want_exit);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  EXIT or a runtime error inside a called routine, and the exec's   */
+/*  own ARG() across calls (#262).  Before the fix the VM freed a     */
+/*  pointer into its call-frame array at cleanup (abort on the host)  */
+/*  and lost the exec's arguments after the first RETURN.            */
+/* ------------------------------------------------------------------ */
+
+static void test_exit_in_routine(struct envblock *env)
+{
+    printf("\n[EXIT / error inside a routine (#262)]\n");
+
+    bc_exit(env,
+            "CALL f\n"
+            "SAY \"back\"\n"
+            "EXIT\n"
+            "f:\n"
+            "EXIT 7\n",
+            NULL, "", 7, 0, "EXIT in CALLed routine");
+
+    bc_exit(env,
+            "v = f(1)\n"
+            "SAY \"back\"\n"
+            "EXIT\n"
+            "f:\n"
+            "EXIT 5\n",
+            NULL, "", 5, 0, "EXIT in function");
+
+    bc_exit(env,
+            "CALL f\n"
+            "EXIT\n"
+            "f:\n"
+            "CALL g\n"
+            "EXIT\n"
+            "g:\n"
+            "EXIT 4\n",
+            NULL, "", 4, 0, "EXIT two frames deep");
+
+    bc_exit(env,
+            "CALL f\n"
+            "EXIT\n"
+            "f: PROCEDURE\n"
+            "EXIT 3\n",
+            NULL, "", 3, 0, "EXIT in PROCEDURE routine");
+
+    bc_exit(env,
+            "CALL f\n"
+            "EXIT\n"
+            "f:\n"
+            "EXIT 6\n",
+            "hello", "", 6, 0, "EXIT in routine, exec has args");
+
+    bc_exit(env,
+            "v = f(1)\n"
+            "SAY \"back\"\n"
+            "EXIT\n"
+            "f:\n"
+            "RETURN 1/0\n",
+            "hello", "", 0, -1, "runtime error in function");
+
+    bc_exit(env,
+            "SAY ARG(1)\n"
+            "CALL f\n"
+            "SAY ARG(1)\n"
+            "EXIT\n"
+            "f:\n"
+            "RETURN\n",
+            "hello", "hello\nhello\n", 0, 0, "exec ARG(1) after CALL");
+
+    bc_exit(env,
+            "v = f()\n"
+            "SAY ARG(1)\n"
+            "EXIT\n"
+            "f:\n"
+            "RETURN 1\n",
+            "hello", "hello\n", 0, 0, "exec ARG(1) after function");
+
+    bc_exit(env,
+            "CALL f\n"
+            "EXIT\n"
+            "f:\n"
+            "SIGNAL x\n"
+            "x:\n"
+            "SAY ARG(1)\n",
+            "hello", "hello\n", 0, 0, "exec ARG(1) after SIGNAL out");
+}
+
+/* ------------------------------------------------------------------ */
 /*  BIF calls in various expression positions                          */
 /* ------------------------------------------------------------------ */
 
@@ -526,6 +655,7 @@ int main(void)
     test_internal_call(env);
     test_arg_bif(env);
     test_return_top(env);
+    test_exit_in_routine(env);
     test_bif_contexts(env);
     test_bif_dispatch_cache(env);
 

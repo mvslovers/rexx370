@@ -19,7 +19,7 @@ that stop it were moved into members of their own:
 
 | member | split from | reason |
 |---|---|---|
-| ARGOPT | ARG | `ARG(1,'Exists')` (option word longer than one letter) aborts rexx370 (exit 134, buffered stdout lost) |
+| ARGOPT | ARG | `ARG(1,'Exists')` (option word longer than one letter) is rejected (#280) and ends the exec (run_rc 24); before #262 was fixed, that error inside a routine aborted rexx370 (exit 134) |
 | COMPNOT | COMPOPS | `\<<` / `\>>` are misparsed; in COMPOPS they stopped the whole exec (run_rc 20) |
 | COMPSLSH | COMPOPS | `/=` / `/==` are rejected at compile time (run_rc 20) |
 | COMPCHN | COMPOPS | chained comparisons (`2=2=2`), known error 20 |
@@ -288,13 +288,13 @@ Token-walk (`REXX370_BYTECODE=0`): died after case 19 (run_rc 24); no FAIL.
 
 ### ARGOPT (2 cases: 0 manual examples, 2 derived)
 
-Host run, bytecode VM: aborted without @@RESULT (exit 134, stdout lost); no FAIL.  
+Host run, bytecode VM: died before case 1 (run_rc 24, #280); no FAIL. Before the #262 fix: aborted without @@RESULT (exit 134, stdout lost).  
 Token-walk (`REXX370_BYTECODE=0`): died before case 1 (run_rc 24); no FAIL.
 
 | # | expression | expected | spec | source | BREXX said | note |
 |---|---|---|---|---|---|---|
-| 1 | `opt('x',,'y')` | `'1 1 0 1 0'` | p.79 derived: "only the capitalized letter is significant"; a null string is explicitly specified | spec |  | split from ARG: ARG(1,'Exists') aborts rexx370 (exit 134) |
-| 2 | `opt('')` | `'1 1 0 1 1'` | p.79 derived: "only the capitalized letter is significant"; a null string is explicitly specified | spec |  | split from ARG: ARG(1,'Exists') aborts rexx370 (exit 134) |
+| 1 | `opt('x',,'y')` | `'1 1 0 1 0'` | p.79 derived: "only the capitalized letter is significant"; a null string is explicitly specified | spec |  | split from ARG: ARG(1,'Exists') ends rexx370's exec (#280) |
+| 2 | `opt('')` | `'1 1 0 1 1'` | p.79 derived: "only the capitalized letter is significant"; a null string is explicitly specified | spec |  | split from ARG: ARG(1,'Exists') ends rexx370's exec (#280) |
 
 ### COMPOPS (65 cases: 14 manual examples, 51 derived)
 
