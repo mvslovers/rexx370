@@ -116,7 +116,7 @@ call t 103, v4, '12.34'
 call t 104, length(format(1,60)), '60'
 call t 105, strip(format(1,60)), '1'
 call t 106, length(format(1,2,60)), '63'
-/* inferred from p.47: FORMAT rounds its number to NUMERIC DIGITS */
+/* p.47 vs p.77: FORMAT rounds to DIGITS; z/OS decided (09-30) */
 call t 107, format(1.000000045,,7), '1.0000001'
 numeric digits 3
 v1 = format('12345.73',,,2,2)

@@ -159,7 +159,7 @@ ERROR-CASEs (specified outcome is an error; not in the exec, waiting for SIGNAL 
 
 ## D2C (p.88) -- member `D2C`
 
-21 cases: 9 manual examples, 12 derived. BREXX source: `d2c.rexx`.
+23 cases: 9 manual examples, 14 derived. BREXX source: `d2c.rexx`.
 
 | # | expression | expected | spec | source | BREXX said | note |
 |---|---|---|---|---|---|---|
@@ -184,6 +184,8 @@ ERROR-CASEs (specified outcome is an error; not in the exec, waiting for SIGNAL 
 | 19 | `d2c(129,0)` | `''` | p.88 derived from the d2c(12,0) example | brexx:d2c.rexx:22 |  |  |
 | 20 | `d2c(256+129,2)` | `'0181'x` | p.88 derived: 'If n is specified ... the input string will be sign-extended to the required length. If the number is too big to fit into n characters, then the result will be truncated on the left' | brexx:d2c.rexx:24 |  |  |
 | 21 | `d2c(256*256+256+129,3)` | `'010181'x` | p.88 derived: 'If n is specified ... the input string will be sign-extended to the required length. If the number is too big to fit into n characters, then the result will be truncated on the left' | brexx:d2c.rexx:25 |  |  |
+| 22 | `c2x(d2c(0))` | `'00'x` | p.88 manual unclear (p.85 vs p.10 / p.88); decided by z/OS behaviour, maintainer run 2026-09-30 | z/OS |  |  |
+| 23 | `length(d2c(0))` | `'1'` | p.88 manual unclear (p.85 vs p.10 / p.88); decided by z/OS behaviour, maintainer run 2026-09-30 | z/OS |  |  |
 
 ERROR-CASEs (specified outcome is an error; not in the exec, waiting for SIGNAL ON SYNTAX):
 
@@ -192,15 +194,9 @@ ERROR-CASEs (specified outcome is an error; not in the exec, waiting for SIGNAL 
 | `d2c(-127)` | ERROR-CASE | p.88: 'If n is not specified, wholenumber must be a nonnegative number or an error will result' |
 | `d2c(1.5)` | ERROR-CASE | p.88 syntax names a wholenumber; error inferred |
 
-Dropped:
-
-| case | reason |
-|---|---|
-| d2c(0) (not in BREXX, considered) | not settled: 'no leading 00x characters' read literally gives '', the binary representation of 0 gives '00'x |
-
 ## D2X (p.88-89) -- member `D2X`
 
-22 cases: 9 manual examples, 13 derived. BREXX source: `d2x.rexx`.
+23 cases: 9 manual examples, 14 derived. BREXX source: `d2x.rexx`.
 
 | # | expression | expected | spec | source | BREXX said | note |
 |---|---|---|---|---|---|---|
@@ -226,6 +222,7 @@ Dropped:
 | 20 | `d2x(129,0)` | `''` | p.89 derived from the d2x(12,0) example | brexx:d2x.rexx:23 |  |  |
 | 21 | `d2x(256+129,4)` | `'0181'` | p.88 derived: 'If n is specified ... the input string will be sign-extended to the required length. If the number is too big to fit into n characters, it will be truncated on the left' | brexx:d2x.rexx:25 |  |  |
 | 22 | `d2x(256*256+256+129,6)` | `'010181'` | p.88 derived: 'If n is specified ... the input string will be sign-extended to the required length. If the number is too big to fit into n characters, it will be truncated on the left' | brexx:d2x.rexx:26 |  |  |
+| 23 | `d2x(0)` | `'0'` | p.88 manual unclear (p.85 vs p.10 / p.88); decided by z/OS behaviour, maintainer run 2026-09-30 | brexx:d2x.rexx:10; z/OS |  |  |
 
 ERROR-CASEs (specified outcome is an error; not in the exec, waiting for SIGNAL ON SYNTAX):
 
@@ -234,15 +231,9 @@ ERROR-CASEs (specified outcome is an error; not in the exec, waiting for SIGNAL 
 | `d2x(-1)` | ERROR-CASE | p.88: 'If n is not specified, wholenumber must be a nonnegative number or an error will result' |
 | `d2x(1.5)` | ERROR-CASE | p.88 syntax names a wholenumber; error inferred |
 
-Dropped:
-
-| case | reason |
-|---|---|
-| brexx:d2x.rexx:10 `d2x(0)` -> '0' | not settled: 'no leading 0 characters' read literally gives '', the hexadecimal representation of 0 gives '0' |
-
 ## DATATYPE (p.84-85) -- member `DATATYPE`
 
-88 cases: 12 manual examples, 76 derived. BREXX source: `datatyp.rexx`.
+90 cases: 12 manual examples, 78 derived. BREXX source: `datatyp.rexx`.
 
 | # | expression | expected | spec | source | BREXX said | note |
 |---|---|---|---|---|---|---|
@@ -334,12 +325,13 @@ Dropped:
 | 86 | `datatype('1E10','W')` | `'0'` | p.147 derived: 'it must be possible to express its integer part simply as digits within the precision set by NUMERIC DIGITS' (11 digits > 9) | new |  |  |
 | 87 | `datatype(' F7','X')` | `'0'` | p.85 derived: blanks 'only ... between pairs of hexadecimal characters' (leading blank) | new |  |  |
 | 88 | `datatype('F7 ','X')` | `'0'` | p.85 derived (trailing blank) | new |  |  |
+| 89 | `datatype('A BC DF','X')` | `'1'` | p.85 manual unclear (p.85 vs p.10 / p.88); decided by z/OS behaviour, maintainer run 2026-09-30 | brexx:datatyp.rexx:61; z/OS |  |  |
+| 90 | `datatype('1 d8','X')` | `'1'` | p.85 manual unclear (p.85 vs p.10 / p.88); decided by z/OS behaviour, maintainer run 2026-09-30 | z/OS |  |  |
 
 Dropped:
 
 | case | reason |
 |---|---|
-| brexx:datatyp.rexx:61 `datatype('A BC DF','X')` -> 1 | ambiguous: DATATYPE says blanks 'only appear between pairs of hexadecimal characters' (the leading 'A' is no pair -> 0), while hex strings (p.9-10, example "1 d8"x) and X2C/X2D (p.108-109) pad a leading 0 and allow blanks at byte boundaries (-> 1) |
 | brexx:datatyp.rexx:79-81 `datatype(x,'T')` | BREXX extension, type T does not exist in SC28-1883-0 |
 | brexx:datatyp.rexx:82-83 `datatype('123.0000003','W')` / `'123.0000004'` under NUMERIC DIGITS 9 (commented out in BREXX, #194) | not settled: the result depends on whether DATATYPE rounds to NUMERIC DIGITS before the whole-number test (rounded: 123.000000 -> 1; unrounded -> 0). p.85 says 'under the current setting of NUMERIC DIGITS' and p.147 says numbers used directly are rounded, but DATATYPE is not in p.147's list |
 | type C, D (p.85) | DBCS types, out of scope for this suite |

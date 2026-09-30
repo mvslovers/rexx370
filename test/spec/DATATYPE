@@ -91,6 +91,8 @@ call t 85, datatype('Fred','Uppercase'), '0'
 call t 86, datatype('1E10','W'), '0'
 call t 87, datatype(' F7','X'), '0'
 call t 88, datatype('F7 ','X'), '0'
+call t 89, datatype('A BC DF','X'), '1'
+call t 90, datatype('1 d8','X'), '1'
 say 'DATATYPE done, failed:' fails
 exit fails
 

@@ -380,8 +380,8 @@ Candidates to verify (not a committed work list until inventoried):
 
 - **SC28-1883-0 conformance suite** (#261) — `test/spec/` + `TSTSPEC`, about
   1,500 checks whose expected values are checked against the 1988 manual
-  (`docs/spec-tests/`). 33 of 81 execs pass; the other 48 are listed as known
-  failures with their defect issues (#262-#281), so a fix shows up as XPASS.
+  (`docs/spec-tests/`). 32 of 81 execs pass; the other 49 are listed as known
+  failures with their defect issues (#262-#283), so a fix shows up as XPASS.
   The spec-completeness work of Axis 3 can be driven from that list.
 - **MBT issue #33** — first-class test support in the build tool. The practical
   driver: test programs are re-uploaded on every MVS build, and the upload time

@@ -25,6 +25,7 @@ call t 19, d2x(-129,5), 'FFF7F'
 call t 20, d2x(129,0), ''
 call t 21, d2x(256+129,4), '0181'
 call t 22, d2x(256*256+256+129,6), '010181'
+call t 23, d2x(0), '0'
 say 'D2X      done, failed:' fails
 exit fails
 

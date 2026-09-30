@@ -75,7 +75,7 @@ static const struct spec_member spec_members[] = {
     {"CONCAT", 0, 0},
     {"CONCATX", 264, 0},
     {"COPIES", 0, 0},
-    {"D2C", 0, 0},
+    {"D2C", 283, 0},
     {"D2X", 0, 0},
     {"DATATYPE", 272, 0},
     {"DATE", 276, 0},

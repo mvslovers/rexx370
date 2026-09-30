@@ -63,21 +63,26 @@ pass is reported as XPASS and fails the run, so the entry is removed together
 with the fix. `ARGOPT` is not run at all (`norun`) because #262 takes the
 whole address space down.
 
-## Open interpretations
+## Where the manual is unclear
 
-The manual leaves these open. The suite takes the reading below and marks the
-affected rows as inferred:
+SC28-1883-0 is binding. Where it is silent or contradicts itself, the
+behaviour of TSO/E REXX on z/OS decides (maintainer run of the disputed cases,
+2026-09-30). Rows decided that way say so in their spec column:
 
-- **FORMAT counts as an "arithmetic built-in function" (p.47).** So NUMERIC
-  DIGITS rounds its number and NUMERIC FORM ENGINEERING applies (FORMAT
-  100-103, 107-109, FORMATBL 4).
-- **Blanks in DATATYPE(,'X').** p.85 allows them "only between pairs", which
-  contradicts the odd leading group that hex strings allow (p.10). The
-  disputed cases are dropped.
-- **`d2x(0)` / `d2c(0)`.** p.88 does not say whether the result is a null
-  string or `'0'` (`'00'x`). Dropped.
-- **TRACE after `trace('F')`.** Whether the function reports `F` or `N` is not
-  stated. Dropped.
+- **NUMERIC and FORMAT.** p.47 says NUMERIC DIGITS/FORM apply to "arithmetic
+  built-in functions"; p.77 says built-in functions are "unaffected by
+  changes to the NUMERIC settings, except where stated". z/OS applies DIGITS
+  and FORM to FORMAT (`numeric digits 3; format('12345.73',,,2,2)` gives
+  `1.23E+04`): FORMAT 100-103, 107-109, FORMATBL 4.
+- **Blanks in DATATYPE(,'X').** p.85 says "only between pairs", p.10 allows
+  an odd leading group in hex strings. z/OS: `datatype('A BC DF','X')` is 1
+  (DATATYPE 89, 90).
+- **`d2x(0)` / `d2c(0)`.** p.88 does not say. z/OS: `'0'` and `'00'x`
+  (D2X 23, D2C 22-23).
+
+Still dropped, with the reason in the group tables: cases the manual does not
+settle and that were not run on z/OS (for example WORDPOS with an empty
+phrase, TRACE after `trace('F')`).
 
 rexx370 also implements binary strings, B2X and X2B, which are not in the
 1988 manual; the suite has no cases for them.

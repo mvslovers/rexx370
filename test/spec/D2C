@@ -24,6 +24,8 @@ call t 18, c2x(d2c(-129,2)), 'FF7F'
 call t 19, c2x(d2c(129,0)), ''
 call t 20, c2x(d2c(256+129,2)), '0181'
 call t 21, c2x(d2c(256*256+256+129,3)), '010181'
+call t 22, c2x(d2c(0)), '00'
+call t 23, length(d2c(0)), '1'
 say 'D2C      done, failed:' fails
 exit fails
 
