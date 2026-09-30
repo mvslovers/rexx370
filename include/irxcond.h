@@ -15,15 +15,30 @@
 struct envblock; /* forward decl to avoid circular include */
 
 /* ================================================================== */
-/*  SYNTAX error primary codes (SC28-1883-0 Appendix E)               */
+/*  SYNTAX error numbers (SC28-1883-0 Appendix A, p.395 ff).          */
+/*  Error n is reported as message IRX00nnI; its text is              */
+/*  irx_cond_errortext(n).                                            */
 /* ================================================================== */
 
-#define SYNTAX_BAD_OPERAND 24 /* arithmetic operand not a number  */
-#define SYNTAX_OVERFLOW    26 /* overflow / underflow             */
-#define SYNTAX_BAD_BOOL    34 /* logical value not 0 or 1         */
-#define SYNTAX_BAD_CALL    40 /* incorrect call to routine        */
-#define SYNTAX_BAD_ARITH   41 /* bad arithmetic conversion         */
-#define SYNTAX_DIVZERO     42 /* divide by zero                   */
+#define SYNTAX_STORAGE      5  /* machine storage exhausted        */
+#define SYNTAX_CTL_STACK    11 /* control stack full               */
+#define SYNTAX_NO_LABEL     16 /* label not found                  */
+#define SYNTAX_WHOLE_NUMBER 26 /* invalid whole number             */
+#define SYNTAX_BAD_RESULT   33 /* invalid expression result        */
+#define SYNTAX_BAD_BOOL     34 /* logical value not 0 or 1         */
+#define SYNTAX_BAD_CALL     40 /* incorrect call to routine        */
+#define SYNTAX_BAD_ARITH    41 /* bad arithmetic conversion         */
+/* Overflow, underflow and division by zero share error 42 (p.402;
+ * z/OS reports 1/0 as IRX0042I, ERRTEST in #281). */
+#define SYNTAX_OVERFLOW   42 /* arithmetic overflow/underflow    */
+#define SYNTAX_DIVZERO    42 /* division by zero                 */
+#define SYNTAX_NO_ROUTINE 43 /* routine not found                */
+#define SYNTAX_SYSTEM     48 /* failure in system service        */
+#define SYNTAX_INTERNAL   49 /* interpreter failure              */
+
+/* Range of SYNTAX error numbers (IRX0003I - IRX0049I). */
+#define SYNTAX_MIN 3
+#define SYNTAX_MAX 49
 
 /* ================================================================== */
 /*  SYNTAX 40.x subcodes — incorrect call to routine                  */
