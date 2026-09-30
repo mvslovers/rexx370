@@ -1,0 +1,117 @@
+/* REXX -- DATATYPE conformance, SC28-1883-0 p.84-85                */
+/* Cases: examples of SC28-1883-0 and brexx370 test/datatyp.rexx    */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/conversion.md.                  */
+fails = 0
+call t 1, datatype(' 12 '), 'NUM'
+call t 2, datatype(''), 'CHAR'
+call t 3, datatype('123*'), 'CHAR'
+call t 4, datatype('12.3','N'), '1'
+call t 5, datatype('12.3','W'), '0'
+call t 6, datatype('Fred','M'), '1'
+call t 7, datatype('','M'), '0'
+call t 8, datatype('Fred','L'), '0'
+call t 9, datatype('?20K','S'), '1'
+call t 10, datatype('BCd3','X'), '1'
+call t 11, datatype('BC d3','X'), '1'
+call t 12, datatype(1,), 'NUM'
+call t 13, datatype('Minx','L'), '0'
+call t 14, datatype('3d?','s'), '1'
+call t 15, datatype('foobar'), 'CHAR'
+call t 16, datatype('foo bar'), 'CHAR'
+call t 17, datatype('123.456.789'), 'CHAR'
+call t 18, datatype('123.456'), 'NUM'
+call t 19, datatype('DeadBeef','A'), '1'
+call t 20, datatype('Dead Beef','A'), '0'
+call t 21, datatype('1234ABCD','A'), '1'
+call t 22, datatype('','A'), '0'
+call t 23, datatype('foobar','B'), '0'
+call t 24, datatype('01001101','B'), '1'
+call t 25, datatype('0110 1101','B'), '0'
+call t 26, datatype('','B'), '0'
+call t 27, datatype('foobar','L'), '1'
+call t 28, datatype('FooBar','L'), '0'
+call t 29, datatype('foo bar','L'), '0'
+call t 30, datatype('','L'), '0'
+call t 31, datatype('foobar','M'), '1'
+call t 32, datatype('FooBar','M'), '1'
+call t 33, datatype('foo bar','M'), '0'
+call t 34, datatype('FOOBAR','M'), '1'
+call t 35, datatype('foo bar','N'), '0'
+call t 36, datatype('1324.1234','N'), '1'
+call t 37, datatype('123.456.789','N'), '0'
+call t 38, datatype('','N'), '0'
+call t 39, datatype('foo bar','S'), '0'
+call t 40, datatype('','S'), '0'
+call t 41, datatype('foo bar','U'), '0'
+call t 42, datatype('Foo Bar','U'), '0'
+call t 43, datatype('FOOBAR','U'), '1'
+call t 44, datatype('','U'), '0'
+call t 45, datatype('Foobar','W'), '0'
+call t 46, datatype('123','W'), '1'
+call t 47, datatype('','W'), '0'
+call t 48, datatype('123.123','W'), '0'
+call t 49, datatype('123.123E3','W'), '1'
+call t 50, datatype('123.0000005','W'), '0'
+call t 51, datatype('123.0000006','W'), '0'
+call t 52, datatype(' 23','W'), '1'
+call t 53, datatype(' 23 ','W'), '1'
+call t 54, datatype('23 ','W'), '1'
+call t 55, datatype('123.00','W'), '1'
+call t 56, datatype('123000E-2','W'), '1'
+call t 57, datatype('123000E+2','W'), '1'
+call t 58, datatype('Foobar','X'), '0'
+call t 59, datatype('DeadBeef','X'), '1'
+call t 60, datatype('A B C','X'), '0'
+call t 61, datatype('123ABC','X'), '1'
+call t 62, datatype('123AHC','X'), '0'
+call t 63, datatype('','X'), '1'
+call t 64, datatype('0.000E-2','w'), '1'
+call t 65, datatype('0.000E-1','w'), '1'
+call t 66, datatype('0.000E0','w'), '1'
+call t 67, datatype('0.000E1','w'), '1'
+call t 68, datatype('0.000E2','w'), '1'
+call t 69, datatype('0.000E3','w'), '1'
+call t 70, datatype('0.000E4','w'), '1'
+call t 71, datatype('0.000E5','w'), '1'
+call t 72, datatype('0.000E6','w'), '1'
+call t 73, datatype('0E-1','w'), '1'
+call t 74, datatype('0E0','w'), '1'
+call t 75, datatype('0E1','w'), '1'
+call t 76, datatype('0E2','w'), '1'
+call t 77, datatype('??@##_Foo$Bar!!!','S'), '1'
+call t 78, datatype(' + 0.003 '), 'NUM'
+call t 79, datatype('17.'), 'NUM'
+call t 80, datatype('.5'), 'NUM'
+call t 81, datatype('4E9'), 'NUM'
+call t 82, datatype('0.73e-7'), 'NUM'
+call t 83, datatype('.'), 'CHAR'
+call t 84, datatype('12','Number'), '1'
+call t 85, datatype('Fred','Uppercase'), '0'
+call t 86, datatype('1E10','W'), '0'
+call t 87, datatype(' F7','X'), '0'
+call t 88, datatype('F7 ','X'), '0'
+call t 89, datatype('A BC DF','X'), '1'
+call t 90, datatype('1 d8','X'), '1'
+say 'DATATYPE done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'DATATYPE' right(n,3) 'PASS'
+else do
+  say 'DATATYPE' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'DATATYPE' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

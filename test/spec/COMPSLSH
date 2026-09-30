@@ -1,0 +1,33 @@
+/* REXX -- slash comparison conformance, SC28-1883-0 p.15-16        */
+/* Cases: examples and rules of SC28-1883-0, expectations           */
+/* derived from the 1988 manual only.                               */
+/* See docs/spec-tests/language.md.                                 */
+fails = 0
+/* /= and /== are listed with \= and \== on p.15-16 */
+call t 1, 'a' /= 'b', '1'
+call t 2, 'a' /= 'a ', '0'
+call t 3, 'a' /== 'a ', '1'
+call t 4, 'a' /== 'a', '0'
+call t 5, 1 /= '1.0', '0'
+say 'COMPSLSH done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'COMPSLSH' right(n,3) 'PASS'
+else do
+  say 'COMPSLSH' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'COMPSLSH' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

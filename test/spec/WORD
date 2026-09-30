@@ -1,0 +1,38 @@
+/* REXX -- WORD conformance, SC28-1883-0 p.106                       */
+/* Cases: examples of SC28-1883-0 and brexx370 test/word.rexx        */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the      */
+/* 1988 manual. See docs/spec-tests/words.md.                        */
+fails = 0
+call t 1, word('Now is the time',3), 'the'
+call t 2, word('Now is the time',5), ''
+call t 3, word('This is certainly a test',1), 'This'
+call t 4, word(' This is certainly a test',1), 'This'
+call t 5, word('This is certainly a test',2), 'is'
+call t 6, word('This is certainly a test',5), 'test'
+call t 7, word('This is certainly a test ',5), 'test'
+call t 8, word('This is certainly a test',6), ''
+call t 9, word('',1), ''
+call t 10, word('',10), ''
+call t 11, word('test ',2), ''
+say 'WORD     done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison             */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'WORD    ' right(n,3) 'PASS'
+else do
+  say 'WORD    ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                            */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'WORD    ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

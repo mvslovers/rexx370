@@ -1,0 +1,36 @@
+/* REXX -- X2C conformance, SC28-1883-0 p.108-109                   */
+/* Cases: examples of SC28-1883-0 and brexx370 test/x2c.rexx        */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/conversion.md.                  */
+fails = 0
+call te 1, x2c('F7F2 A2'), '72s'
+call te 2, x2c('F7f2a2'), '72s'
+call t 3, c2x(x2c('F')), '0F'
+call te 4, x2c('C18283'), 'Abc'
+call t 5, c2x(x2c('DeadBeef')), 'DEADBEEF'
+call t 6, c2x(x2c('1 02 03')), '010203'
+call t 7, c2x(x2c('11 0222 3333 044444')), '1102223333044444'
+call t 8, c2x(x2c('')), ''
+call t 9, c2x(x2c('2')), '02'
+say 'X2C      done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'X2C     ' right(n,3) 'PASS'
+else do
+  say 'X2C     ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'X2C     ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

@@ -1,0 +1,80 @@
+/* REXX -- SYMBOL conformance, SC28-1883-0 p.10, 18-21, 101         */
+/* Cases: examples of SC28-1883-0 and brexx370 test/symbol.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* examples of p.101 */
+drop A.3; j = 3
+call t 1, symbol('J'), 'VAR'
+call t 2, symbol(J), 'LIT'
+call t 3, symbol('a.j'), 'LIT'
+call t 4, symbol(2), 'LIT'
+call t 5, symbol('*'), 'BAD'
+/* brexx symbol.rexx 6-17 (setup by assignment, not PARSE) */
+alpha = 'foobar'; beta = 'foobar'; gamma.foobar = 'foobar'
+omega = 'FOOBAR'
+call t 6, symbol('HEPP'), 'LIT'
+call t 7, symbol('ALPHA'), 'VAR'
+call t 8, symbol('Un*x'), 'BAD'
+call t 9, symbol('gamma.delta'), 'LIT'
+call t 10, symbol('gamma.FOOBAR'), 'VAR'
+call t 11, symbol('gamma.alpha'), 'LIT'
+call t 12, symbol('gamma.omega'), 'VAR'
+call t 13, symbol('Un*x.gamma'), 'BAD'
+call t 14, symbol('!!'), 'LIT'
+call t 15, symbol(''), 'BAD'
+call t 16, symbol(x2c('00')), 'BAD'
+call t 17, symbol('foo-bar'), 'BAD'
+/* symbol characters of p.10, constant symbols of p.19 */
+call t 18, symbol('@#$.!?_'), 'LIT'
+call t 19, symbol('12e5'), 'LIT'
+call t 20, symbol('17.3E-12'), 'LIT'
+call t 21, symbol('a b'), 'BAD'
+/* values of constant and simple symbols, p.18-19 */
+x = 12e5
+call t 22, x, '12E5'
+x = 3D
+call t 23, x, '3D'
+x = .12345
+call t 24, x, '.12345'
+drop freda
+fred = freda
+call t 25, fred, 'FREDA'
+call t 26, Whatagoodidea?, 'WHATAGOODIDEA?'
+/* compound symbols, the example of p.20 */
+drop a b c fred; drop a. c. x.
+a=3; b=4; c='Fred'; a.b='Fred'; a.fred=5; a.c='Bill'
+c.c=a.fred; x.a.b='Annie'
+v = a b c a.a a.b a.c c.a a.fred x.a.4
+call t 27, v, '3 4 Fred A.3 Fred Bill C.3 5 Annie'
+/* stems, p.20-21 */
+hole. = 'empty'
+hole.9 = 'full'
+call t 28, hole.1 hole.mouse hole.9, 'empty empty full'
+call t 29, symbol('hole.xyz'), 'VAR'
+total. = 0
+null = ''
+total.null = total.null + 5
+call t 30, total. total.null, '0 5'
+say 'SYMBOL   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'SYMBOL  ' right(n,3) 'PASS'
+else do
+  say 'SYMBOL  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'SYMBOL  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

@@ -1,0 +1,35 @@
+/* REXX -- SIGN conformance, SC28-1883-0 p.98-99                    */
+/* Cases: examples of SC28-1883-0 and brexx370 test/sign.rexx       */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+fails = 0
+call t 1, sign('12.3'), '1'
+call t 2, sign(' -0.307'), '-1'
+call t 3, sign(0.0), '0'
+call t 4, sign('0'), '0'
+call t 5, sign('-0'), '0'
+call t 6, sign('0.4'), '1'
+call t 7, sign('-10'), '-1'
+call t 8, sign('15'), '1'
+say 'SIGN     done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'SIGN    ' right(n,3) 'PASS'
+else do
+  say 'SIGN    ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'SIGN    ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

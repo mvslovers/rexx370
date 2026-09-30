@@ -1,0 +1,80 @@
+/* REXX -- DATE conformance, SC28-1883-0 p.85-86                    */
+/* Cases: examples of SC28-1883-0 and brexx370 test/date.rexx       */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* formats and relationships only: every check is one expression, */
+/* so all DATE calls in it use one time stamp (p.86)              */
+ok = length(date('S')) = 8 & datatype(date('S'),'W')
+call t 1, ok, '1'
+ok = date() == date('N')
+call t 2, ok, '1'
+ok = words(date()) = 3
+call t 3, ok, '1'
+/* dd mon yyyy, no leading zero on the day, p.85 */
+ok = word(date('N'),1) == substr(date('S'),7,2) + 0
+call t 4, ok, '1'
+ok = word(date('N'),2) == left(date('M'),3)
+call t 5, ok, '1'
+ok = word(date('N'),3) == left(date('S'),4)
+call t 6, ok, '1'
+/* European, Usa, p.86 */
+ok = date('E') == substr(date('S'),7,2)'/'substr(date('S'),5,2)'/'||,
+  substr(date('S'),3,2)
+call t 7, ok, '1'
+ok = date('U') == substr(date('S'),5,2)'/'substr(date('S'),7,2)'/'||,
+  substr(date('S'),3,2)
+call t 8, ok, '1'
+/* Julian yyddd, Days ddd without leading zeros, p.86 */
+ok = length(date('J')) = 5 & left(date('J'),2) == substr(date('S'),3,2)
+call t 9, ok, '1'
+ok = right(date('J'),3) == right(date('D'),3,'0')
+call t 10, ok, '1'
+ok = datatype(date('D'),'W') & left(date('D'),1) \== '0'
+call t 11, ok, '1'
+/* Month: full English name of the month in date('S'), p.86 */
+m = 'January February March April May June July August September',
+  'October November December'
+ok = date('M') == word(m, substr(date('S'),5,2))
+call t 12, ok, '1'
+/* Basedate, p.85: days before today since 1 Jan 0001, Gregorian */
+ok = date('B') - date('D') + 1 == ,
+  (left(date('S'),4)-1)*365 + (left(date('S'),4)-1)%4 - ,
+  (left(date('S'),4)-1)%100 + (left(date('S'),4)-1)%400
+call t 13, ok, '1'
+/* Weekday: DATE('B')//7 is 0 for Monday, p.85-86 */
+w = 'Monday Tuesday Wednesday Thursday Friday Saturday Sunday'
+ok = date('W') == word(w, date('B')//7 + 1)
+call t 14, ok, '1'
+ok = datatype(date('B'),'W') & left(date('B'),1) \== '0'
+call t 15, ok, '1'
+/* only the capitalized letter is needed, p.85 */
+ok = date('Sorted') == date('S') & date('Weekday') == date('W')
+call t 16, ok, '1'
+ok = date('Normal') == date() & date('Basedate') == date('B')
+call t 17, ok, '1'
+/* the option letter may be lowercase, p.77 */
+ok = date('s') == date('S') & date('w') == date('W')
+call t 18, ok, '1'
+say 'DATE     done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'DATE    ' right(n,3) 'PASS'
+else do
+  say 'DATE    ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'DATE    ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

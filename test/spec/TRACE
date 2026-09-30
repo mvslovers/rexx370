@@ -1,0 +1,58 @@
+/* REXX -- TRACE function conformance, SC28-1883-0 p.64-67, 103     */
+/* Cases: examples of SC28-1883-0 and brexx370 test/trace.rexx      */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* the default setting is Normal, p.65 */
+call t 1, trace(), 'N'
+/* TRACE(option) returns the setting in effect before, p.103 */
+call t 2, trace('O'), 'N'
+call t 3, trace(), 'O'
+call t 4, trace('N'), 'O'
+call t 5, trace('Error'), 'N'
+call t 6, trace(), 'E'
+call t 7, trace('F'), 'E'
+x = trace('Normal')
+call t 8, trace(), 'N'
+/* the TRACE instruction, read back with TRACE(), p.64-66 */
+trace off
+call t 9, trace(), 'O'
+trace
+call t 10, trace(), 'N'
+trace value 'E'
+call t 11, trace(), 'E'
+trace Normal
+call t 12, trace(), 'N'
+/* the option letter may be lowercase, p.77 */
+call t 13, trace('e'), 'N'
+call t 14, trace(), 'E'
+x = trace('N')
+/* trace actions are saved across routine calls, p.34 */
+call sub
+call t 15, result, 'O'
+call t 16, trace(), 'N'
+say 'TRACE    done, failed:' fails
+exit fails
+
+sub: trace off
+return trace()
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'TRACE   ' right(n,3) 'PASS'
+else do
+  say 'TRACE   ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'TRACE   ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

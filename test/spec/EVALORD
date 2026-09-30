@@ -1,0 +1,103 @@
+/* REXX -- evaluation order conformance, SC28-1883-0 p.13-17, 33, 71*/
+/* Cases: examples of SC28-1883-0 and brexx370 test/evalord.rexx    */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* examples of p.16 */
+call t 1, 3+2*5, '13'
+call t 2, -3**2, '9'
+/* examples of p.17, A has the value 3 */
+a = 3
+call t 3, a+5, '8'
+call t 4, a-4*2, '-5'
+call t 5, a/2, '1.5'
+call t 6, 0.5**2, '0.25'
+/* precedence table, p.16 */
+call t 7, 2*3**2, '18'
+call t 8, 2**3**2, '64'
+call t 9, 10-2-3, '5'
+call t 10, 12/2/3, '2'
+call t 11, 7//2*3, '3'
+call t 12, 1 || 2+3, '15'
+call t 13, 2+3 || 4, '54'
+call t 14, 'a' 'b' = 'a b', '1'
+call t 15, 1 = 1 & 2 = 2, '1'
+call t 16, 1 | 0 & 0, '1'
+call t 17, 0 & 0 | 1, '1'
+call t 18, 1 && 1 & 0, '1'
+call t 19, 1 | 1 && 1, '0'
+call t 20, 1 + 1 || 1, '21'
+/* terms are evaluated left to right as met, p.16 (brexx) */
+$ = ''
+do j = 0 to 7
+  $ = $ fff(j)
+end
+call t 21, $, ' 12 12 12 12 12 12 12 12'
+call t 22, j, '8'
+a = 1; b = 2
+call t 23, a + (b * setab()), '3'
+x = 1
+call t 24, x + setx(), '1'
+/* arguments are evaluated left to right, p.33 and p.71 */
+x = 1
+call t 25, args(x, setx()), '1 0'
+x = 1
+call args x, setx()
+call t 26, result, '1 0'
+call t 27, twice(3) + twice(4), '14'
+log = ''
+call t 28, args(lg('a'), lg('b')) log, 'a b ab'
+/* an expression is always wholly evaluated, p.13 */
+cnt = 0
+x = 0 & bump()
+call t 29, cnt, '1'
+x = 1 | bump()
+call t 30, cnt, '2'
+/* assignment target, DO control and DO BY (brexx) */
+x = 'a'
+x = x || setxs()
+call t 31, x, 'ab'
+s = ''
+do i = 1 to 3; s = s || i || one(); end
+call t 32, s i, '112131 4'
+n = 0
+do k = 1 to 5 by 2; n = n + one(); end
+call t 33, n k, '3 7'
+say 'EVALORD  done, failed:' fails
+exit fails
+
+fff:   $ = 12
+       return $
+setab: a = 100; b = 200
+       return 1
+setx:  x = 10
+       return 0
+setxs: x = 'z'
+       return 'b'
+args:  return arg(1) arg(2)
+twice: return arg(1)*2
+one:   return 1
+lg:    log = log || arg(1)
+       return arg(1)
+bump:  cnt = cnt + 1
+       return 1
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'EVALORD ' right(n,3) 'PASS'
+else do
+  say 'EVALORD ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'EVALORD ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

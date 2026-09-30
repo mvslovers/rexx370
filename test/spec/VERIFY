@@ -1,0 +1,45 @@
+/* REXX -- VERIFY conformance, SC28-1883-0 p.106                      */
+/* Cases: examples of SC28-1883-0 and brexx370                        */
+/* test/verify.rexx (CMS-370-BREXX, Unlicense), expectations          */
+/* checked against the 1988 manual.                                   */
+/* See docs/spec-tests/strings.md.                                    */
+fails = 0
+call t 1, verify('123','1234567890'), '0'
+call t 2, verify('1Z3','1234567890'), '2'
+call t 3, verify('AB4T','1234567890'), '1'
+call t 4, verify('AB4T','1234567890','M'), '3'
+call t 5, verify('AB4T','1234567890','N'), '1'
+call t 6, verify('1P3Q4','1234567890',,3), '4'
+call t 7, verify('AB3CD5','1234567890','M',4), '6'
+call t 8, verify('foobar','barfo','N',1), '0'
+call t 9, verify('foobar','barfo','M',1), '1'
+call t 10, verify('','barfo'), '0'
+call t 11, verify('foobar',''), '1'
+call t 12, verify('foobar','barf','N',3), '3'
+call t 13, verify('foobar','barf','N',4), '0'
+call t 14, verify('',''), '0'
+call t 15, verify('foobar','','M'), '0'
+call t 16, verify('abc','abc',,4), '0'
+call t 17, verify('AB4T','1234567890','match'), '3'
+say 'VERIFY   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison              */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'VERIFY  ' right(n,3) 'PASS'
+else do
+  say 'VERIFY  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                             */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'VERIFY  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

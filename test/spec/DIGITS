@@ -1,0 +1,44 @@
+/* REXX -- DIGITS conformance, SC28-1883-0 p.87                     */
+/* Cases: examples and rules of SC28-1883-0, expectations           */
+/* derived from the 1988 manual only.                               */
+/* See docs/spec-tests/numeric.md.                                  */
+fails = 0
+call t 1, digits(), '9'
+numeric digits 5
+v = digits()
+numeric digits 9
+call t 2, v, '5'
+numeric digits 12
+v = digits()
+numeric digits 9
+call t 3, v, '12'
+numeric digits 4+1
+v = digits()
+numeric digits 9
+call t 4, v, '5'
+/* last: NUMERIC DIGITS without expression ends the exec today */
+numeric digits 12
+numeric digits
+call t 5, digits(), '9'
+say 'DIGITS   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'DIGITS  ' right(n,3) 'PASS'
+else do
+  say 'DIGITS  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'DIGITS  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

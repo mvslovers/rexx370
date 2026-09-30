@@ -1,0 +1,43 @@
+/* REXX -- MIN conformance, SC28-1883-0 p.95                        */
+/* Cases: examples of SC28-1883-0 and brexx370 test/min.rexx        */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+fails = 0
+call t 1, min(12,6,7,9), '6'
+call t 2, min(17.3,19,17.03), '17.03'
+call t 3, min(-7,-3,-4.3), '-7'
+call t 4, min( 10.1 ), '10.1'
+call t 5, min( -10.1, 3.8 ), '-10.1'
+call t 6, min( 10.1, 10.2, 10.3 ), '10.1'
+call t 7, min( 10.1, 10.2, 10.1 ), '10.1'
+call t 8, min( 10.4, 10.1, 10.3 ), '10.1'
+call t 9, min( 10.3, 10.2, 10.1 ), '10.1'
+call t 10, min( 5, 2, 4, 1 ), '1'
+call t 11, min( -0, 0 ), '0'
+call t 12, min( 8,2,3,4,5,6,7,1,7,6,5,4,3,2 ), '1'
+numeric digits 3
+v = min(9.876, 10)
+numeric digits 9
+call t 13, v, '9.88'
+say 'MIN      done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'MIN     ' right(n,3) 'PASS'
+else do
+  say 'MIN     ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'MIN     ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

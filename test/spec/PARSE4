@@ -1,0 +1,105 @@
+/* REXX -- PARSE sources conformance, SC28-1883-0 p.50-52, 133, 138 */
+/* Cases: examples of SC28-1883-0 and brexx370 test/parse.rexx      */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* PARSE ARG with several strings, p.133 */
+call fred 'This is the first string', 2
+call t 1, first, 'This is the first string'
+call t 2, second, '2'
+/* p.138: word1 string1, string2, num */
+call m3 'alpha beta  gamma', 'second', 7
+call t 3, word1, 'alpha'
+call t 4, string1, 'beta  gamma'
+call t 5, string2, 'second'
+call t 6, num, '7'
+call m3 'alpha'
+call t 7, word1 '/' string1, 'alpha / '
+call t 8, string2 || num, ''
+/* one string only: variables after a comma are null, p.138 */
+parse value 'x y' with p1, p2
+call t 9, p1, 'x y'
+call t 10, p2, ''
+/* brexx parse.rexx 4 */
+call math 25, 2
+call t 11, n, '25'
+call t 12, precision, '2'
+/* PARSE UPPER ARG and PARSE ARG */
+call up 'Easy Rider'
+call t 13, u1 u2, 'EASY RIDER'
+call t 14, l1 l2, 'Easy Rider'
+/* PARSE NUMERIC, p.51 */
+parse numeric var1
+call t 15, var1, '9 0 SCIENTIFIC'
+numeric digits 5
+numeric fuzz 1
+numeric form engineering
+parse numeric var1
+call t 16, var1, '5 1 ENGINEERING'
+numeric digits 9
+numeric fuzz 0
+numeric form scientific
+/* PARSE SOURCE, p.51-52: 9 tokens, the first one TSO */
+parse source src
+call t 17, word(src,1), 'TSO'
+call t 18, words(src), '9'
+/* PARSE VERSION, p.52: five words, the first one REXX370 */
+parse version ver
+call t 19, word(ver,1), 'REXX370'
+call t 20, words(ver), '5'
+/* WITH is a subkeyword only in PARSE VALUE, p.52 */
+x = 'My dog has fleas'
+parse var x with y
+call t 21, with, 'My'
+call t 22, y, 'dog has fleas'
+drop with
+/* a template may be omitted, p.50 */
+queue 'gone'
+queue 'next'
+parse pull
+parse pull q1
+call t 23, q1, 'next'
+/* PARSE PULL, p.51 (last: the data stack) */
+queue 'one two  three'
+parse pull q1 q2
+call t 24, q1, 'one'
+call t 25, q2, 'two  three'
+queue 'Up'
+parse upper pull q1
+call t 26, q1, 'UP'
+queue 'one two'
+parse pull with y
+call t 27, with '/' y, 'one / two'
+say 'PARSE4   done, failed:' fails
+exit fails
+
+
+fred: parse arg first, second
+return
+m3: parse arg word1 string1, string2, num
+return
+math: parse arg N , precision
+return
+up: parse upper arg u1 u2
+parse arg l1 l2
+return
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'PARSE4  ' right(n,3) 'PASS'
+else do
+  say 'PARSE4  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'PARSE4  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

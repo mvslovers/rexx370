@@ -1,0 +1,34 @@
+/* REXX -- LENGTH conformance, SC28-1883-0 p.94                       */
+/* Cases: examples of SC28-1883-0 and brexx370                        */
+/* test/length.rexx (CMS-370-BREXX, Unlicense), expectations          */
+/* checked against the 1988 manual.                                   */
+/* See docs/spec-tests/strings.md.                                    */
+fails = 0
+call t 1, length('abcdefgh'), '8'
+call t 2, length('abc defg'), '8'
+call t 3, length(''), '0'
+call t 4, length('a'), '1'
+call t 5, length('abc'), '3'
+call t 6, length('abcdefghij'), '10'
+say 'LENGTH   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison              */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'LENGTH  ' right(n,3) 'PASS'
+else do
+  say 'LENGTH  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                             */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'LENGTH  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

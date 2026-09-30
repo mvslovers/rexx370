@@ -1,0 +1,32 @@
+/* REXX -- abuttal with X conformance, SC28-1883-0 p.9, 17          */
+/* Cases: examples and rules of SC28-1883-0, expectations           */
+/* derived from the 1988 manual only.                               */
+/* See docs/spec-tests/language.md.                                 */
+fails = 0
+/* example of p.17: X is a hex string marker only as a symbol of */
+/* its own ("the X cannot be part of a longer symbol", p.9)      */
+drop xxx x1
+call t 1, '!'xxx'!', '!XXX!'
+call t 2, 'a'x1, 'aX1'
+say 'CONCATX  done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'CONCATX ' right(n,3) 'PASS'
+else do
+  say 'CONCATX ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'CONCATX ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

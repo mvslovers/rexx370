@@ -1,0 +1,68 @@
+/* REXX -- TIME conformance, SC28-1883-0 p.102-103                  */
+/* Cases: examples of SC28-1883-0 and brexx370 test/time.rexx       */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* the first call of the elapsed-time clock returns 0, p.103 */
+call t 1, time('E'), '0'
+/* formats and relationships only: every check is one expression, */
+/* so all TIME calls in it use one time stamp (p.86, p.103)       */
+ok = length(time()) = 8 & time() == time('N')
+call t 2, ok, '1'
+ok = substr(time(),3,1) || substr(time(),6,1) == '::'
+call t 3, ok, '1'
+/* Hours and Minutes and Seconds since midnight, p.102 */
+ok = time('H') == left(time('N'),2) + 0
+call t 4, ok, '1'
+ok = time('M') == left(time('N'),2) * 60 + substr(time('N'),4,2)
+call t 5, ok, '1'
+ok = time('S') == left(time('N'),2) * 3600 +,
+  substr(time('N'),4,2) * 60 + substr(time('N'),7,2)
+call t 6, ok, '1'
+/* Long: hh:mm:ss.uuuuuu, p.102 */
+ok = length(time('L')) = 15 & left(time('L'),8) == time('N')
+call t 7, ok, '1'
+ok = substr(time('L'),9,1) == '.' & datatype(right(time('L'),6),'W')
+call t 8, ok, '1'
+/* Civil: hh:mmxx, no leading zero, 12:00am is midnight, p.102 */
+h = '12 1 2 3 4 5 6 7 8 9 10 11'
+ok = time('C') == word(h, left(time('N'),2)//12 + 1)':' ||,
+  substr(time('N'),4,2) || substr('ampm', 1+2*(left(time('N'),2)>11),2)
+call t 9, ok, '1'
+/* Elapsed and Reset, p.102-103 */
+e = time('E')
+call t 10, datatype(e,'N') & e >= 0, '1'
+ok = time('E') == time('E')
+call t 11, ok, '1'
+r = time('R')
+call t 12, datatype(r,'N') & r >= 0, '1'
+/* only the capitalized letter is needed, p.102 */
+ok = time('Hours') == time('H') & time('Normal') == time()
+call t 13, ok, '1'
+ok = time('Minutes') == time('M') & time('Seconds') == time('S')
+call t 14, ok, '1'
+/* the option letter may be lowercase, p.77 */
+ok = time('h') == time('H') & time('n') == time('N')
+call t 15, ok, '1'
+say 'TIME     done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'TIME    ' right(n,3) 'PASS'
+else do
+  say 'TIME    ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'TIME    ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

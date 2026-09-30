@@ -1,0 +1,83 @@
+/* REXX -- ERRORTEXT conformance, SC28-1883-0 p.89, 395-403         */
+/* Cases: examples of SC28-1883-0 and brexx370 test/errorte.rexx    */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* examples of p.89 */
+call t 1, errortext(16), 'Label not found'
+call t 2, errortext(60), ''
+/* the texts of Appendix A, after 'line nn:' (p.395-403) */
+call t 3, errortext(3), 'Program is unreadable'
+call t 4, errortext(4), 'Program interrupted'
+call t 5, errortext(5), 'Machine storage exhausted'
+call t 6, errortext(7), 'WHEN or OTHERWISE expected'
+call t 7, errortext(8), 'Unexpected THEN or ELSE'
+call t 8, errortext(9), 'Unexpected WHEN or OTHERWISE'
+call t 9, errortext(10), 'Unexpected or unmatched END'
+call t 10, errortext(11), 'Control stack full'
+call t 11, errortext(12), 'Clause > 500 characters'
+call t 12, errortext(13), 'Invalid character in data'
+call t 13, errortext(14), 'Incomplete DO/SELECT/IF'
+call t 14, errortext(15), 'Invalid hex constant'
+call t 15, errortext(17), 'Unexpected PROCEDURE'
+call t 16, errortext(18), 'THEN expected'
+call t 17, errortext(19), 'String or symbol expected'
+call t 18, errortext(20), 'Symbol expected'
+call t 19, errortext(21), 'Invalid data on end of clause'
+call t 20, errortext(22), 'Invalid character string'
+call t 21, errortext(23), 'Invalid SBCS/DBCS mixed string'
+call t 22, errortext(24), 'Invalid TRACE request'
+call t 23, errortext(25), 'Invalid sub-keyword found'
+call t 24, errortext(26), 'Invalid whole number'
+call t 25, errortext(27), 'Invalid DO syntax'
+call t 26, errortext(28), 'Invalid LEAVE or ITERATE'
+call t 27, errortext(29), 'Environment name too long'
+call t 28, errortext(30), 'Name or string > 250 characters'
+call t 29, errortext(32), 'Invalid use of stem'
+call t 30, errortext(33), 'Invalid expression result'
+call t 31, errortext(34), 'Logical value not 0 or 1'
+call t 32, errortext(35), 'Invalid expression'
+call t 33, errortext(38), 'Invalid template or pattern'
+call t 34, errortext(39), 'Evaluation stack overflow'
+call t 35, errortext(40), 'Incorrect call to routine'
+call t 36, errortext(41), 'Bad arithmetic conversion'
+call t 37, errortext(42), 'Arithmetic overflow/underflow'
+call t 38, errortext(43), 'Routine not found'
+call t 39, errortext(44), 'Function did not return data'
+call t 40, errortext(45), 'No data specified on function RETURN'
+call t 41, errortext(48), 'Failure in system service'
+call t 42, errortext(49), 'Interpreter failure'
+/* numbers in 0-99 without a message give the null string, p.89 */
+call t 43, errortext(1), ''
+call t 44, errortext(2), ''
+call t 45, errortext(46), ''
+call t 46, errortext(47), ''
+call t 47, errortext(50), ''
+call t 48, errortext(90), ''
+/* the ends of the range 0-99 (rexx370 stops here today) */
+call t 49, errortext(0), ''
+call t 50, errortext(99), ''
+/* n given with blanks is still the number 16 */
+call t 51, errortext(' 16 '), 'Label not found'
+say 'ERRORTXT done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'ERRORTXT' right(n,3) 'PASS'
+else do
+  say 'ERRORTXT' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'ERRORTXT' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

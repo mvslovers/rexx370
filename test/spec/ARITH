@@ -1,0 +1,97 @@
+/* REXX -- ARITH conformance, SC28-1883-0 p.141-145                 */
+/* Cases: examples and rules of SC28-1883-0, expectations           */
+/* derived from the 1988 manual only.                               */
+/* See docs/spec-tests/numeric.md.                                  */
+fails = 0
+numeric digits 5
+v.1 = 12+7.00;  v.2 = 1.3-1.07;  v.3 = 1.3-2.07
+v.4 = 1.20*3;   v.5 = 7*3;       v.6 = 0.9*0.8
+v.7 = 1/3;      v.8 = 2/3;       v.9 = 5/2
+v.10 = 1/10;    v.11 = 12/12;    v.12 = 8.0/2
+v.13 = 2**3;    v.15 = 1.7**8
+v.16 = 2%3;     v.17 = 2.1//3;   v.18 = 10%3
+v.19 = 10//3;   v.20 = -10//3;   v.21 = 10.2//1
+v.22 = 10//0.3
+numeric digits 9
+call t 1, v.1, '19.00'
+call t 2, v.2, '0.23'
+call t 3, v.3, '-0.77'
+call t 4, v.4, '3.60'
+call t 5, v.5, '21'
+call t 6, v.6, '0.72'
+call t 7, v.7, '0.33333'
+call t 8, v.8, '0.66667'
+call t 9, v.9, '2.5'
+call t 10, v.10, '0.1'
+call t 11, v.11, '1'
+call t 12, v.12, '4'
+call t 13, v.13, '8'
+call t 14, v.15, '69.758'
+call t 15, v.16, '0'
+call t 16, v.17, '2.1'
+call t 17, v.18, '3'
+call t 18, v.19, '1'
+call t 19, v.20, '-1'
+call t 20, v.21, '0.2'
+call t 21, v.22, '0.1'
+/* FUZZ example, p.145 */
+numeric digits 5
+numeric fuzz 0
+c1 = (4.9999 = 5); c2 = (4.9999 < 5)
+numeric fuzz 1
+c3 = (4.9999 = 5); c4 = (4.9999 < 5)
+numeric fuzz 0
+numeric digits 9
+call t 22, c1, '0'
+call t 23, c2, '1'
+call t 24, c3, '1'
+call t 25, c4, '0'
+/* power, p.143 */
+call t 26, 0**0, '1'
+call t 27, 7.5**0, '1'
+call t 28, (-2)**3, '-8'
+call t 29, (-2)**2, '4'
+call t 30, 0**3, '0'
+call t 31, 2**1.0, '2'
+/* integer divide and remainder, p.144 */
+call t 32, -10%3, '-3'
+call t 33, 10//-3, '1'
+call t 34, -10//-3, '-1'
+call t 35, 7.5%2, '3'
+call t 36, 7.5//2, '1.5'
+/* prefix operators, p.142 */
+call t 37, -' 3 ', '-3'
+call t 38, +' 3.0 ', '3.0'
+/* numeric comparison, p.145 */
+call t 39, (1.0 = 1), '1'
+call t 40, (' 12 ' = 12), '1'
+call t 41, (1 == 1.0), '0'
+call t 42, ('1E1' = 10), '1'
+numeric digits 5
+c1 = (12345678 = 12345679)
+c2 = (2/3 = 0.66667)
+numeric digits 9
+call t 43, c1, '1'
+call t 44, c2, '1'
+say 'ARITH    done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'ARITH   ' right(n,3) 'PASS'
+else do
+  say 'ARITH   ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'ARITH   ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

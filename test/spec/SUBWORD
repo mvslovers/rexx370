@@ -1,0 +1,39 @@
+/* REXX -- SUBWORD conformance, SC28-1883-0 p.101                    */
+/* Cases: examples of SC28-1883-0 and brexx370 test/subword.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the      */
+/* 1988 manual. See docs/spec-tests/words.md.                        */
+fails = 0
+call t 1, subword('Now is the  time',2,2), 'is the'
+call t 2, subword('Now is the  time',3), 'the  time'
+call t 3, subword('Now is the  time',5), ''
+call t 4, subword('Now is the time',3), 'the time'
+call t 5, subword(' to be or not to be ',5), 'to be'
+call t 6, subword(' to be or not to be ',6), 'be'
+call t 7, subword(' to be or not to be ',7), ''
+call t 8, subword(' to be or not to be ',8,7), ''
+call t 9, subword(' to be or not to be ',3,2), 'or not'
+call t 10, subword(' to be or not to be ',1,2), 'to be'
+call t 11, subword(' to be or not to be ',4,2), 'not to'
+call t 12, subword('abc de f', 3), 'f'
+say 'SUBWORD  done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison             */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'SUBWORD ' right(n,3) 'PASS'
+else do
+  say 'SUBWORD ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                            */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'SUBWORD ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return
