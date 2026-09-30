@@ -1,0 +1,61 @@
+/* REXX -- VALUE conformance, SC28-1883-0 p.105                     */
+/* Cases: examples of SC28-1883-0 and brexx370 test/value.rexx      */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* examples of p.105 */
+drop A3; A33 = 7; J = 3; fred = 'J'
+call t 1, value('fred'), 'J'
+call t 2, value(fred), '3'
+call t 3, value('a'j), 'A3'
+call t 4, value('a'j||j), '7'
+call t 5, value('j'), j
+/* brexx value.rexx 1-4, 7 */
+drop A3; A33 = 7; K = 3; fred = 'K'; list.5 = '?'
+call t 6, value('a'k), 'A3'
+call t 7, value('a'k||k), '7'
+call t 8, value('fred'), 'K'
+call t 9, value(fred), '3'
+call t 10, value('LIST.'k), 'LIST.3'
+/* brexx value.rexx 8-17 */
+drop a b c; drop x.
+x.a = 'asdf'; x.b = 'foo'; x.c = 'A'; a = 'B'; b = 'C'; c = 'A'
+xyzzy = 'foo'
+call t 11, value('a'), 'B'
+call t 12, value(a), 'C'
+call t 13, value(c), 'B'
+call t 14, value('c'), 'A'
+call t 15, value('x.A'), 'foo'
+call t 16, value(x.B), 'B'
+call t 17, value('x.B'), 'A'
+call t 18, value('x.'||a), 'A'
+call t 19, value(value(x.b)), 'C'
+call t 20, value('xyzzy'), 'foo'
+/* an unassigned symbol has its own name as value, p.18 */
+drop never
+call t 21, value('never'), 'NEVER'
+call t 22, value('x.never'), 'X.NEVER'
+k = 5
+call t 23, value('LIST.'k), '?'
+say 'VALUE    done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'VALUE   ' right(n,3) 'PASS'
+else do
+  say 'VALUE   ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'VALUE   ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

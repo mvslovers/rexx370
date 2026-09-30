@@ -1,0 +1,59 @@
+/* REXX -- RANDOM conformance, SC28-1883-0 p.97                     */
+/* Cases: examples of SC28-1883-0 and brexx370 test/random.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+fails = 0
+v = random()
+call t 1, (v >= 0 & v <= 999), '1'
+call t 2, (v == trunc(v)), '1'
+v = random(5,8)
+call t 3, (v >= 5 & v <= 8), '1'
+v = random(2)
+call t 4, (v >= 0 & v <= 2), '1'
+call t 5, random(5,5), '5'
+v = random(0,100000)
+call t 6, (v >= 0 & v <= 100000), '1'
+r1 = random(,,1983)
+r2 = random(,,1983)
+call t 7, (r1 == r2), '1'
+call t 8, (r1 >= 0 & r1 <= 999), '1'
+s1 = random(1,6,12345)
+do 39
+  s1 = s1 random(1,6)
+end
+s2 = random(1,6,12345)
+do 39
+  s2 = s2 random(1,6)
+end
+call t 9, (s1 == s2), '1'
+call t 10, words(s1), '40'
+ok = 1
+do i = 1 to words(s1)
+  w = word(s1,i)
+  if w < 1 | w > 6 | w \== trunc(w) then ok = 0
+end
+call t 11, ok, '1'
+v = random(10,20,7)
+call t 12, (v >= 10 & v <= 20), '1'
+say 'RANDOM   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'RANDOM  ' right(n,3) 'PASS'
+else do
+  say 'RANDOM  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'RANDOM  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

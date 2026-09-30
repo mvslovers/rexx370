@@ -1,0 +1,45 @@
+/* REXX -- OVERLAY conformance, SC28-1883-0 p.96                      */
+/* Cases: examples of SC28-1883-0 and brexx370                        */
+/* test/overlay.rexx (CMS-370-BREXX, Unlicense), expectations         */
+/* checked against the 1988 manual.                                   */
+/* See docs/spec-tests/strings.md.                                    */
+fails = 0
+call t 1, overlay(' ','abcdef',3), 'ab def'
+call t 2, overlay('.','abcdef',3,2), 'ab. ef'
+call t 3, overlay('qq','abcd'), 'qqcd'
+call t 4, overlay('qq','abcd',4), 'abcqq'
+call t 5, overlay('123','abc',5,6,'+'), 'abc+123+++'
+call t 6, overlay('foo','abcdefghi',3,4,'*'), 'abfoo*ghi'
+call t 7, overlay('foo','abcdefghi',3,2,'*'), 'abfoefghi'
+call t 8, overlay('foo','abcdefghi',3,4,), 'abfoo ghi'
+call t 9, overlay('foo','abcdefghi',3), 'abfoofghi'
+call t 10, overlay('foo','abcdefghi',,4,'*'), 'foo*efghi'
+call t 11, overlay('foo','abcdefghi',9,4,'*'), 'abcdefghfoo*'
+call t 12, overlay('foo','abcdefghi',10,4,'*'), 'abcdefghifoo*'
+call t 13, overlay('foo','abcdefghi',11,4,'*'), 'abcdefghi*foo*'
+call t 14, overlay('','abcdefghi',3), 'abcdefghi'
+call t 15, overlay('foo','',3), '  foo'
+call t 16, overlay('','',3,4,'*'), '******'
+call t 17, overlay('',''), ''
+say 'OVERLAY  done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison              */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'OVERLAY ' right(n,3) 'PASS'
+else do
+  say 'OVERLAY ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                             */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'OVERLAY ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

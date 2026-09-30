@@ -1,0 +1,31 @@
+/* REXX -- XRANGE conformance, SC28-1883-0 p.108                      */
+/* Cases: examples of SC28-1883-0 and brexx370                        */
+/* test/xrange.rexx (CMS-370-BREXX, Unlicense), expectations          */
+/* checked against the 1988 manual.                                   */
+/* See docs/spec-tests/strings.md.                                    */
+fails = 0
+call t 1, xrange('a','f'), 'abcdef'
+call t 2, xrange('a','a'), 'a'
+call t 3, length(xrange()), '256'
+say 'XRANGE   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison              */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'XRANGE  ' right(n,3) 'PASS'
+else do
+  say 'XRANGE  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                             */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'XRANGE  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

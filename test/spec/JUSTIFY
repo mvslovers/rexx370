@@ -1,0 +1,35 @@
+/* REXX -- JUSTIFY conformance, SC28-1883-0 p.93                      */
+/* Cases: examples of SC28-1883-0 and values derived                  */
+/* from its rules (no brexx370 test exists).                          */
+/* See docs/spec-tests/strings.md.                                    */
+fails = 0
+call t 1, justify('The blue sky',14), 'The  blue  sky'
+call t 2, justify('The blue sky',8), 'The blue'
+call t 3, justify('The blue sky',9), 'The  blue'
+call t 4, justify('The blue sky',9,'+'), 'The++blue'
+call t 5, justify('The blue sky',13), 'The  blue sky'
+call t 6, justify('  The   blue  ',10), 'The   blue'
+call t 7, justify('The blue sky',12,'+'), 'The+blue+sky'
+call t 8, justify('The blue sky',0), ''
+say 'JUSTIFY  done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison              */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'JUSTIFY ' right(n,3) 'PASS'
+else do
+  say 'JUSTIFY ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                             */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'JUSTIFY ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

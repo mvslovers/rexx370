@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-09-27
+Last updated: 2026-09-30
 
 ---
 
@@ -378,6 +378,11 @@ Candidates to verify (not a committed work list until inventoried):
 
 ### Axis 5 — Infrastructure
 
+- **SC28-1883-0 conformance suite** (#261) — `test/spec/` + `TSTSPEC`, about
+  1,500 checks whose expected values are checked against the 1988 manual
+  (`docs/spec-tests/`). 33 of 81 execs pass; the other 48 are listed as known
+  failures with their defect issues (#262-#281), so a fix shows up as XPASS.
+  The spec-completeness work of Axis 3 can be driven from that list.
 - **MBT issue #33** — first-class test support in the build tool. The practical
   driver: test programs are re-uploaded on every MVS build, and the upload time
   is the main friction in the build→measure loop. Phase 1 ("tests out of

@@ -1,0 +1,49 @@
+/* REXX -- D2X conformance, SC28-1883-0 p.88-89                     */
+/* Cases: examples of SC28-1883-0 and brexx370 test/d2x.rexx        */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/conversion.md.                  */
+fails = 0
+call t 1, d2x(9), '9'
+call t 2, d2x(129), '81'
+call t 3, d2x(129,1), '1'
+call t 4, d2x(129,2), '81'
+call t 5, d2x(129,4), '0081'
+call t 6, d2x(257,2), '01'
+call t 7, d2x(-127,2), '81'
+call t 8, d2x(-127,4), 'FF81'
+call t 9, d2x(12,0), ''
+call t 10, d2x(127), '7F'
+call t 11, d2x(128), '80'
+call t 12, d2x(1), '1'
+call t 13, d2x(-1,2), 'FF'
+call t 14, d2x(-128,2), '80'
+call t 15, d2x(-129,2), '7F'
+call t 16, d2x(-1,3), 'FFF'
+call t 17, d2x(-127,3), 'F81'
+call t 18, d2x(-128,4), 'FF80'
+call t 19, d2x(-129,5), 'FFF7F'
+call t 20, d2x(129,0), ''
+call t 21, d2x(256+129,4), '0181'
+call t 22, d2x(256*256+256+129,6), '010181'
+say 'D2X      done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'D2X     ' right(n,3) 'PASS'
+else do
+  say 'D2X     ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'D2X     ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

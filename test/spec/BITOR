@@ -1,0 +1,37 @@
+/* REXX -- BITOR conformance, SC28-1883-0 p.80                      */
+/* Cases: examples of SC28-1883-0 and brexx370 test/bitor.rexx      */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/conversion.md.                  */
+fails = 0
+call t 1, c2x(bitor('15'x,'24'x)), '35'
+call t 2, c2x(bitor('15'x,'2456'x)), '3556'
+call t 3, c2x(bitor('15'x,'2456'x,'F0'x)), '35F6'
+call t 4, c2x(bitor('1111'x,,'4D'x)), '5D5D'
+call te 5, bitor('Fred',,'40'x), 'FRED'
+call t 6, c2x(bitor('123456'x,'3456'x)), '367656'
+call t 7, c2x(bitor('3456'x,'123456'x,'99'x)), '3676DF'
+call t 8, c2x(bitor('123456'x,,'55'x)), '577557'
+call t 9, bitor('foobar'), 'foobar'
+call te 10, bitor('foobar',,'40'x), 'FOOBAR'
+say 'BITOR    done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'BITOR   ' right(n,3) 'PASS'
+else do
+  say 'BITOR   ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'BITOR   ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

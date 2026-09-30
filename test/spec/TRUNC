@@ -1,0 +1,117 @@
+/* REXX -- TRUNC conformance, SC28-1883-0 p.104                     */
+/* Cases: examples of SC28-1883-0 and brexx370 test/trunc.rexx      */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+fails = 0
+call t 1, trunc(12.3), '12'
+call t 2, trunc(127.09782,3), '127.097'
+call t 3, trunc(127.1,3), '127.100'
+call t 4, trunc(127,2), '127.00'
+call t 5, trunc(1234.5678, 2), '1234.56'
+call t 6, trunc(-1234.5678), '-1234'
+call t 7, trunc(.5678), '0'
+call t 8, trunc(.00123), '0'
+call t 9, trunc(.00123,4), '0.0012'
+call t 10, trunc(.00127,4), '0.0012'
+call t 11, trunc(.1678), '0'
+call t 12, trunc(1234.5678), '1234'
+call t 13, trunc(4.5678, 7), '4.5678000'
+call t 14, trunc(10000005.0,2), '10000005.00'
+call t 15, trunc(10000000.5,2), '10000000.50'
+/* default NUMERIC DIGITS 9: the number is rounded first (p.104) */
+call t 16, trunc(10000000.05,2), '10000000.10'
+call t 17, trunc(10000000.005,2), '10000000.00'
+call t 18, trunc(10000005.5,2), '10000005.50'
+call t 19, trunc(10000000.55,2), '10000000.60'
+call t 20, trunc(10000000.055,2), '10000000.10'
+call t 21, trunc(10000000.0055,2), '10000000.00'
+call t 22, trunc(10000000.04,2), '10000000.00'
+call t 23, trunc(10000000.045,2), '10000000.00'
+call t 24, trunc(10000000.45,2), '10000000.50'
+call t 25, trunc(99999999.,2), '99999999.00'
+call t 26, trunc(99999999.9,2), '99999999.90'
+call t 27, trunc(99999999.99,2), '100000000.00'
+call t 28, trunc(1E2,0), '100'
+call t 29, trunc(12E1,0), '120'
+call t 30, trunc(123.,0), '123'
+call t 31, trunc(123.1,0), '123'
+call t 32, trunc(123.12,0), '123'
+call t 33, trunc(123.123,0), '123'
+call t 34, trunc(123.1234,0), '123'
+call t 35, trunc(123.12345,0), '123'
+call t 36, trunc(1E2,1), '100.0'
+call t 37, trunc(12E1,1), '120.0'
+call t 38, trunc(123.,1), '123.0'
+call t 39, trunc(123.1,1), '123.1'
+call t 40, trunc(123.12,1), '123.1'
+call t 41, trunc(123.123,1), '123.1'
+call t 42, trunc(123.1234,1), '123.1'
+call t 43, trunc(123.12345,1), '123.1'
+call t 44, trunc(1E2,2), '100.00'
+call t 45, trunc(12E1,2), '120.00'
+call t 46, trunc(123.,2), '123.00'
+call t 47, trunc(123.1,2), '123.10'
+call t 48, trunc(123.12,2), '123.12'
+call t 49, trunc(123.123,2), '123.12'
+call t 50, trunc(123.1234,2), '123.12'
+call t 51, trunc(123.12345,2), '123.12'
+call t 52, trunc(1E2,3), '100.000'
+call t 53, trunc(12E1,3), '120.000'
+call t 54, trunc(123.,3), '123.000'
+call t 55, trunc(123.1,3), '123.100'
+call t 56, trunc(123.12,3), '123.120'
+call t 57, trunc(123.123,3), '123.123'
+call t 58, trunc(123.1234,3), '123.123'
+call t 59, trunc(123.12345,3), '123.123'
+call t 60, trunc(1E2,4), '100.0000'
+call t 61, trunc(12E1,4), '120.0000'
+call t 62, trunc(123.,4), '123.0000'
+call t 63, trunc(123.1,4), '123.1000'
+call t 64, trunc(123.12,4), '123.1200'
+call t 65, trunc(123.123,4), '123.1230'
+call t 66, trunc(123.1234,4), '123.1234'
+call t 67, trunc(123.12345,4), '123.1234'
+call t 68, trunc(1E2,5), '100.00000'
+call t 69, trunc(12E1,5), '120.00000'
+call t 70, trunc(123.,5), '123.00000'
+call t 71, trunc(123.1,5), '123.10000'
+call t 72, trunc(123.12,5), '123.12000'
+call t 73, trunc(123.123,5), '123.12300'
+call t 74, trunc(123.1234,5), '123.12340'
+call t 75, trunc(123.12345,5), '123.12345'
+call t 76, trunc(127.96), '127'
+call t 77, trunc(1.9999,2), '1.99'
+call t 78, trunc(-1.9999,2), '-1.99'
+call t 79, trunc(0.999999,0), '0'
+call t 80, trunc(9.95,1), '9.9'
+call t 81, trunc(1e50,2), '1' || copies('0',50) || '.00'
+call t 82, trunc(1e-30,2), '0.00'
+call t 83, trunc(0.1+0.2,3), '0.300'
+call t 84, trunc(1/3,5), '0.33333'
+call t 85, trunc(2/3,5), '0.66666'
+call t 86, trunc(5*3,2), '15.00'
+y = '1.10'; z = trunc(y,1)
+call t 87, y, '1.10'
+call t 88, z, '1.1'
+say 'TRUNC    done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'TRUNC   ' right(n,3) 'PASS'
+else do
+  say 'TRUNC   ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'TRUNC   ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

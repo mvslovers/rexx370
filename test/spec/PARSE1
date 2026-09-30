@@ -1,0 +1,85 @@
+/* REXX -- PARSE words conformance, SC28-1883-0 p.50-52, 131-136    */
+/* Cases: examples of SC28-1883-0 and brexx370 test/parse.rexx      */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* parsing into words, p.131 */
+parse value 'This is a sentence.' with v1 v2 v3
+call t 1, v1, 'This'
+call t 2, v2, 'is'
+call t 3, v3, 'a sentence.'
+/* the last variable keeps its blanks, p.131 */
+parse value 'This is   a sentence.' with v1 v2 v3
+call t 4, v1, 'This'
+call t 5, v2, 'is'
+call t 6, v3, '  a sentence.'
+parse value 'a b  ' with v1 v2
+call t 7, v2, 'b  '
+parse value '  a  b' with v1 v2
+call t 8, v1, 'a'
+call t 9, v2, ' b'
+/* one variable gets the whole string, p.133 */
+parse value '  x  ' with v1
+call t 10, v1, '  x  '
+/* fewer words than variables: the rest are null, p.131 */
+v2 = 'old'; v3 = 'old'
+parse value 'a' with v1 v2 v3
+call t 11, v1, 'a'
+call t 12, v2, ''
+call t 13, v3, ''
+/* the example string of p.134 split into words */
+s = 'This is  the data which, I think,  is scanned.'
+parse var s w1 w2 w3 rest
+call t 14, w1, 'This'
+call t 15, w2, 'is'
+call t 16, w3, 'the'
+call t 17, rest, 'data which, I think,  is scanned.'
+/* the period as a placeholder, p.136 */
+parse var s . . . word4 .
+call t 18, word4, 'data'
+/* UPPER, p.50 */
+parse upper value 'To be, or not' with u
+call t 19, u, 'TO BE, OR NOT'
+/* PARSE VAR with the variable in the template, p.52 */
+string = 'one two three'
+parse var string word1 string
+call t 20, word1, 'one'
+call t 21, string, 'two three'
+parse upper var string word1 string
+call t 22, word1, 'TWO'
+call t 23, string, 'THREE'
+/* a stem in a template sets the whole collection, p.21 */
+parse value 'x' with st.
+call t 24, st.abc, 'x'
+call t 25, st.7, 'x'
+/* brexx parse.rexx B2H 2: all targets of a null string are null */
+parse value '' with ?centertag ?outputl83 ?outputp83,
+  Abbrev. abstract
+call t 26, ?centertag, ''
+call t 27, ?outputl83, ''
+call t 28, ?outputp83, ''
+call t 29, Abbrev.A, ''
+call t 30, Abbrev.42, ''
+call t 31, abstract, ''
+say 'PARSE1   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'PARSE1  ' right(n,3) 'PASS'
+else do
+  say 'PARSE1  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'PARSE1  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

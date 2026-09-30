@@ -1,0 +1,75 @@
+/* REXX -- concatenation conformance, SC28-1883-0 p.9-13, 17        */
+/* Cases: examples of SC28-1883-0 and brexx370 test/dotlit.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* abuttal, p.13-14 */
+fred = 37.4
+call t 1, Fred"%", '37.4%'
+/* examples of p.17, DAY has the value 'Monday' */
+drop today is it xxx
+day = 'Monday'
+call t 2, Today is Day, 'TODAY IS Monday'
+call t 3, 'If it is' day, 'If it is Monday'
+/* example of p.11: one blank between REPEAT and B remains */
+b = 2
+call t 4, 'REPEAT'   B + 3, 'REPEAT 5'
+/* several blanks between terms are one blank, p.9 */
+call t 5, 'a'     'b', 'a b'
+call t 6, 'a' || 'b', 'ab'
+call t 7, 'a'||'b', 'ab'
+/* blanks next to parentheses, p.11 */
+call t 8, ('a') 'b', 'a b'
+call t 9, ('a')('b'), 'ab'
+call t 10, ('a') ('b'), 'a b'
+call t 11, 'a' ('b'), 'a b'
+call t 12, (('a')), 'a'
+/* the continuation comma becomes a blank, p.12 */
+x = 'You can use a comma',
+    'to continue this clause.'
+call t 13, x, 'You can use a comma to continue this clause.'
+/* a symbol and a string abut, p.13 */
+v = 'x'
+call t 14, v'y', 'xy'
+call t 15, 'y'v, 'yx'
+call t 16, v||v v, 'xx x'
+/* constant symbols keep their characters, p.19 */
+call t 17, 1.50 'x', '1.50 x'
+call t 18, 007 || '', '007'
+/* null strings */
+call t 19, '' '', ' '
+call t 20, '' || '', ''
+call t 21, length('' 'a' ''), '3'
+/* '.' alone is a constant symbol and a term (brexx dotlit.rexx) */
+x = 'blah'.
+call t 22, x, 'blah.'
+x = 'a' .
+call t 23, x, 'a .'
+x = .
+call t 24, x, '.'
+x = . 'b'
+call t 25, x, '. b'
+x = 'a'||.
+call t 26, x, 'a.'
+say 'CONCAT   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'CONCAT  ' right(n,3) 'PASS'
+else do
+  say 'CONCAT  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'CONCAT  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

@@ -1,0 +1,148 @@
+/* REXX -- FORMAT conformance, SC28-1883-0 p.90-91                  */
+/* Cases: examples of SC28-1883-0 and brexx370 test/format.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+fails = 0
+call t 1, format('3',4), '   3'
+call t 2, format('1.73',4,0), '   2'
+call t 3, format('1.73',4,3), '   1.730'
+call t 4, format('-.76',4,1), '  -0.8'
+call t 5, format('3.03',4), '   3.03'
+call t 6, format('0.000'), '0'
+call t 7, format('12345.73',,,2,2), '1.234573E+04'
+call t 8, format('12345.73',,3,,0), '1.235E+4'
+call t 9, format('1.234573',,3,,0), '1.235'
+call t 10, format('12345.73',,,3,6), '12345.73'
+call t 11, format('1234567e5',,3,0), '123456700000.000'
+call t 12, format('123.45',,3,2,0), '1.235E+02'
+call t 13, format('1.2345',,3,2,0), '1.235    '
+call t 14, format(12.34), '12.34'
+call t 15, format(12.34,4), '  12.34'
+call t 16, format(12.34,4,4), '  12.3400'
+call t 17, format(12.34,4,1), '  12.3'
+call t 18, format(12.35,4,1), '  12.4'
+call t 19, format(12.34,,4), '12.3400'
+call t 20, format(12.34,4,0), '  12'
+call t 21, format(99.995,3,2), '100.00'
+call t 22, format(0.111,,4), '0.1110'
+call t 23, format(0.0111,,4), '0.0111'
+call t 24, format(0.00111,,4), '0.0011'
+call t 25, format(0.000111,,4), '0.0001'
+call t 26, format(0.0000111,,4), '0.0000'
+call t 27, format(0.00000111,,4), '0.0000'
+call t 28, format(0.555,,4), '0.5550'
+call t 29, format(0.0555,,4), '0.0555'
+call t 30, format(0.00555,,4), '0.0056'
+call t 31, format(0.000555,,4), '0.0006'
+call t 32, format(0.0000555,,4), '0.0001'
+call t 33, format(0.00000555,,4), '0.0000'
+call t 34, format(0.999,,4), '0.9990'
+call t 35, format(0.0999,,4), '0.0999'
+call t 36, format(0.00999,,4), '0.0100'
+call t 37, format(0.000999,,4), '0.0010'
+call t 38, format(0.0000999,,4), '0.0001'
+call t 39, format(0.00000999,,4), '0.0000'
+call t 40, format(0.455,,4), '0.4550'
+call t 41, format(0.0455,,4), '0.0455'
+call t 42, format(0.00455,,4), '0.0046'
+call t 43, format(0.000455,,4), '0.0005'
+call t 44, format(0.0000455,,4), '0.0000'
+call t 45, format(0.00000455,,4), '0.0000'
+call t 46, format(1.00000045,,6), '1.000000'
+call t 47, format(1.0000000045,,8), '1.00000000'
+call t 48, format(12.34,,,,0), '1.234E+1'
+call t 49, format(12.34,,,3,0), '1.234E+001'
+call t 50, format(12.34,,,3,), '12.34'
+call t 51, format(1.234,,,3,0), '1.234     '
+call t 52, format(12.34,3,,,0), '  1.234E+1'
+call t 53, format(12.34,,2,,0), '1.23E+1'
+call t 54, format(12.34,,3,,0), '1.234E+1'
+call t 55, format(12.34,,4,,0), '1.2340E+1'
+call t 56, format(12.345,,3,,0), '1.235E+1'
+call t 57, format(99.999,,,,), '99.999'
+call t 58, format(99.999,,2,,), '100.00'
+call t 59, format(.999999,,5,2,2), '9.99999E-01'
+call t 60, format(.999999,,6,2,2), '9.999990E-01'
+call t 61, format(90.999,,0), '91'
+call t 62, format(0099.999,5,3,,), '   99.999'
+call t 63, format(0.0000001,4,,,3), '   1E-7'
+call t 64, format(0.0000001,4,4,,3), '   1.0000E-7'
+call t 65, format(0.000001,4,4,,3), '   0.0000'
+call t 66, format(0.0000001,4,5,,2), '   1.00000E-7'
+call t 67, format(0.0000001,4,4,4,3), '   1.0000E-0007'
+call t 68, format(1000,4,4,,3), '   1.0000E+3'
+call t 69, format(0.0000001,,,0,3), '0.0000001'
+call t 70, format('.00001',,,2,9), '0.00001'
+call t 71, format('.000001',,,2,9), '0.000001'
+call t 72, format('.0000001',,,2,9), '0.0000001'
+call t 73, format('.00000001',,,2,9), '0.00000001'
+call t 74, format(9.9999999,1,10,1,1), '9.9999999000   '
+call t 75, format(9.9999999,1,10,1,2), '9.9999999000   '
+call t 76, format(9.9999999,1,10,2,1), '9.9999999000    '
+call t 77, format(9.9999999,1,10,2,2), '9.9999999000    '
+call t 78, format(9.9999999,1,10,2,3), '9.9999999000    '
+call t 79, format(9.9999999,1,10,4,3), '9.9999999000      '
+call t 80, format(9.9999999,1,8,1,1), '9.99999990   '
+call t 81, format(9.9999999,1,8,1,2), '9.99999990   '
+call t 82, format(9.99999999,1,10,1,1), '9.9999999900   '
+call t 83, format(9.99999999,1,10,1,2), '9.9999999900   '
+call t 84, format(9.99999999,1,10,1,3), '9.9999999900   '
+call t 85, format(9.99999999,1,10,2,1), '9.9999999900    '
+call t 86, format(9.99999999,1,10,2,2), '9.9999999900    '
+call t 87, format(9.99999999,1,10,2,3), '9.9999999900    '
+call t 88, format(9.99999999,1,10,3,1), '9.9999999900     '
+call t 89, format(9.99999999,1,10,3,2), '9.9999999900     '
+call t 90, format(9.99999999,1,10,3,3), '9.9999999900     '
+call t 91, format(9.99999999,1,10,4,3), '9.9999999900      '
+call t 92, format(9.99999999,1,10,5,3), '9.9999999900       '
+call t 93, format(9.99999999,1,8,1,1), '9.99999999   '
+call t 94, format(9.99999999,1,8,1,2), '9.99999999   '
+call t 95, format(9.99999999,1,8,2,1), '9.99999999    '
+n22 = '0.0000000000000000000001'
+call t 96, format(n22,,,0,), n22
+call t 97, format(0.0000000000000000001,4), '   1E-19'
+call t 98, format(0.0000000000000000001,4,4), '   1.0000E-19'
+call t 99, format(0.0000000000000000000001), '1E-22'
+numeric form engineering
+v1 = format('12345.73',,,2,2)
+v2 = format('12345.73',,3,,0)
+v3 = format('123.45',,3,2,0)
+v4 = format(12.34,,,,0)
+numeric form scientific
+call t 100, v1, '12.34573E+03'
+call t 101, v2, '12.346E+3'
+call t 102, v3, '123.450    '
+call t 103, v4, '12.34'
+call t 104, length(format(1,60)), '60'
+call t 105, strip(format(1,60)), '1'
+call t 106, length(format(1,2,60)), '63'
+/* inferred from p.47: FORMAT rounds its number to NUMERIC DIGITS */
+call t 107, format(1.000000045,,7), '1.0000001'
+numeric digits 3
+v1 = format('12345.73',,,2,2)
+v2 = format('12345.73',,3,,0)
+numeric digits 9
+call t 108, v1, '1.23E+04'
+call t 109, v2, '1.230E+4'
+say 'FORMAT   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'FORMAT  ' right(n,3) 'PASS'
+else do
+  say 'FORMAT  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'FORMAT  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

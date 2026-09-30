@@ -1,0 +1,87 @@
+/* REXX -- NUMFMT conformance, SC28-1883-0 p.139-147                */
+/* Cases: examples of SC28-1883-0 and brexx370 test/numfmt.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+fails = 0
+call t 1, 2.40 + 1, '3.40'
+call t 2, 2.40 - 2, '0.40'
+call t 3, 2.5 * 2, '5.0'
+call t 4, 2 / 3, '0.666666667'
+call t 5, 1e6 * 1e6, '1E+12'
+call t 6, 1 / 3E10, '3.33333333E-11'
+numeric digits 5
+v = 54321*54321
+numeric digits 9
+call t 7, v, '2.9508E+9'
+call t 8, 123.45 * 1e11, '1.2345E+13'
+numeric form engineering
+v = 123.45 * 1e11
+numeric form scientific
+call t 9, v, '12.345E+12'
+call t 10, 10000000000 * 10000000000, '1.00000000E+20'
+call t 11, .00000000001 * .00000000001, '1E-22'
+numeric digits 5
+v = 99999 + 1
+numeric digits 9
+call t 12, v, '1.0000E+5'
+call t 13, 2.40 - 2.40, '0'
+call t 14, 0 * 1.5, '0'
+call t 15, 1e20 * 1, '1E+20'
+call t 16, 0.1 + 0.2, '0.3'
+call t 17, 1 / 3, '0.333333333'
+call t 18, -1 / 3, '-0.333333333'
+call t 19, 2.5 * 1.1, '2.75'
+call t 20, 1 / 4, '0.25'
+call t 21, 123.456 * 1, '123.456'
+call t 22, 1e-5 * 1, '0.00001'
+call t 23, 2**60, '1.1529215E+18'
+call t 24, 5000 * 2**0, '5000'
+f = 1
+do i = 1 to 25; f = f * i; end
+call t 25, f, '1.55112100E+25'
+call t 26, 7.7 + 0, '7.7'
+numeric digits 20
+g = 1
+do i = 1 to 20; g = g * i; end
+v = f * 1
+numeric digits 9
+call t 27, g, '2432902008176640000'
+call t 28, v, '1.55112100E+25'
+call t 29, 1e9 * 1, '1E+9'
+call t 30, 123456.789 * 1000, '123456789'
+call t 31, 123456.789 * 10000, '1.23456789E+9'
+call t 32, 0.5**20, '0.000000953674316'
+numeric digits 1
+v1 = 2.5 * 0.1
+v2 = 2.5
+numeric digits 9
+call t 33, v1, '0.3'
+call t 34, v2, '2.5'
+call t 35, 10000000.55, '10000000.55'
+call t 36, 3.14159265358979, '3.14159265358979'
+call t 37, 10000000.45 || '', '10000000.45'
+call t 38, 'a' 10000000.45, 'a 10000000.45'
+v = 10000000.45
+call t 39, v, '10000000.45'
+say 'NUMFMT   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'NUMFMT  ' right(n,3) 'PASS'
+else do
+  say 'NUMFMT  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'NUMFMT  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

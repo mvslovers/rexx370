@@ -1,0 +1,123 @@
+/* REXX -- PARSE positional conformance, SC28-1883-0 p.132, 136-138 */
+/* Cases: examples of SC28-1883-0 and brexx370 test/parse.rexx      */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/language.md.                    */
+fails = 0
+/* numeric patterns, p.132 */
+f = 'Flying pigs have wings'
+parse var f x1 5 x2
+call t 1, x1, 'Flyi'
+call t 2, x2, 'ng pigs have wings'
+parse var f x1 5 x2 10 x3
+call t 3, x1, 'Flyi'
+call t 4, x2, 'ng pi'
+call t 5, x3, 'gs have wings'
+parse var f x1 5 x2 +5 x3
+call t 6, x1, 'Flyi'
+call t 7, x2, 'ng pi'
+call t 8, x3, 'gs have wings'
+/* unsigned numbers, p.136 */
+s = 'This is  the data which, I think,  is scanned.'
+parse var s s1 10 s2 20 s3
+call t 9, s1, 'This is  '
+call t 10, s2, 'the data w'
+call t 11, s3, 'hich, I think,  is scanned.'
+/* signed numbers, p.136-137 */
+a = '123456789'
+parse var a 3 w1 +3 w2 3 w3
+call t 12, w1, '345'
+call t 13, w2, '6789'
+call t 14, w3, '3456789'
+parse var a 3 w1 +3 w2 -3 w3
+call t 15, w1, '345'
+call t 16, w2, '6789'
+call t 17, w3, '3456789'
+x = 'hi mom!'
+parse var x 1 w1 1 w2 1 w3
+call t 18, w1, 'hi mom!'
+call t 19, w2, 'hi mom!'
+call t 20, w3, 'hi mom!'
+/* columns beyond either end of the data, p.137 */
+parse value 'abc' with p1 10 p2
+call t 21, p1, 'abc'
+call t 22, p2, ''
+parse value 'abcdef' with 3 p1 -5 p2
+call t 23, p1, 'cdef'
+call t 24, p2, 'abcdef'
+/* a literal sets the last position to its first character, p.137 */
+parse value 'ab,cd' with ',' -1 c1 +1
+call t 25, c1, 'b'
+parse value 'abcd' with ',' -1 c1 +1
+call t 26, c1, 'd'
+opts = 'word1 prword2 word3'
+parse upper value ' 'opts with ' PR' +1 prword ' '
+call t 27, prword, 'PRWORD2'
+opts = 'word1 word3'
+parse upper value ' 'opts with ' PR' +1 prword ' '
+call t 28, prword, ''
+/* brexx parse.rexx 29 */
+opts = 'word1 prword2 word3'
+parse upper value ' 'opts with ' PR' +1 prword .
+call t 29, prword, 'PRWORD2'
+/* a literal followed by a signed pattern stays in the data, p.138 */
+a = 'This is the data which, I think, is scanned.'
+parse var a 'which' +5 y
+call t 30, y, ', I think, is scanned.'
+parse var a 'which' x +5 y
+call t 31, x, 'which'
+call t 32, y, ', I think, is scanned.'
+/* brexx parse.rexx 8, 10: relative patterns from the start */
+parse value '19760601' with Year +4 Month +2 Day
+call t 33, Year Month Day, '1976 06 01'
+parse value '12345' with Part1 +3 Part2
+call t 34, Part1 Part2, '123 45'
+/* brexx parse.rexx 13, 14: backing up to column 1 */
+parse value 1 with true 1 ?b2hreq 1 ?config. 1 ?cs.
+call t 35, true ?b2hreq, '1 1'
+key = 'FOO'
+call t 36, ?config.azerTy ?config.key ?cs.RaP ?cs.666, '1 1 1 1'
+parse value 0 with false,
+  1 ?!!gml,
+  1 ?addressflag 1 ?annot
+call t 37, false ?!!gml ?addressflag ?annot, '0 0 0 0'
+/* brexx parse.rexx 11, with fixed data instead of DATE/TIME */
+input = '20260930 16:54:22'
+parse var input ,
+  ymd hms,
+  1 yyyy 5 mm 7 dd .,
+  1 . hh ':' mi ':' ss .
+call t 38, ymd '/' hms, '20260930 / 16:54:22'
+call t 39, yyyy mm dd, '2026 09 30'
+call t 40, hh mi ss, '16 54 22'
+/* brexx parse.rexx 20 */
+parse value '/middle1 middle2/after',
+  with delimiter +1 middle1 middle2 middle3 (delimiter) after
+call t 41, delimiter, '/'
+call t 42, middle1 middle2, 'middle1 middle2'
+call t 43, middle3, ''
+call t 44, after, 'after'
+/* brexx parse.rexx 7: DATE('S') starts with the century */
+parse value date('S') with century +2 .
+call t 45, century, left(date('S'),2)
+say 'PARSE3   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'PARSE3  ' right(n,3) 'PASS'
+else do
+  say 'PARSE3  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'PARSE3  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

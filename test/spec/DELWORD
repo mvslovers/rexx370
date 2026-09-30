@@ -1,0 +1,45 @@
+/* REXX -- DELWORD conformance, SC28-1883-0 p.87                     */
+/* Cases: examples of SC28-1883-0 and brexx370 test/delword.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the      */
+/* 1988 manual. See docs/spec-tests/words.md.                        */
+fails = 0
+call t 1, delword('Now is the  time',2,2), 'Now time'
+call t 2, delword('Now is the time ',3), 'Now is '
+call t 3, delword('Now is the  time',5), 'Now is the  time'
+call t 4, delword('Now time',5), 'Now time'
+s = 'Med lov skal land bygges'
+call t 5, delword(s, 3), 'Med lov '
+call t 6, delword(s, 1), ''
+call t 7, delword(s, 1,1), 'lov skal land bygges'
+call t 8, delword(s, 2,3), 'Med bygges'
+call t 9, delword(s, 2,10), 'Med '
+call t 10, delword(s, 3,2), 'Med lov bygges'
+call t 11, delword(' Med lov skal', 1,0), ' Med lov skal'
+call t 12, delword(' Med lov skal ', 4), ' Med lov skal '
+call t 13, delword('', 1), ''
+call t 14, delword(s, 3,0), 'Med lov skal land bygges'
+call t 15, delword(s, 10), 'Med lov skal land bygges'
+call t 16, delword(s, 9,9), 'Med lov skal land bygges'
+call t 17, delword(s, 1,0), 'Med lov skal land bygges'
+say 'DELWORD  done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison             */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'DELWORD ' right(n,3) 'PASS'
+else do
+  say 'DELWORD ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                            */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'DELWORD ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

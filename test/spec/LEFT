@@ -1,0 +1,37 @@
+/* REXX -- LEFT conformance, SC28-1883-0 p.94                         */
+/* Cases: examples of SC28-1883-0 and brexx370                        */
+/* test/left.rexx (CMS-370-BREXX, Unlicense), expectations            */
+/* checked against the 1988 manual.                                   */
+/* See docs/spec-tests/strings.md.                                    */
+fails = 0
+call t 1, left('abc d',8), 'abc d   '
+call t 2, left('abc d',8,'.'), 'abc d...'
+call t 3, left('abc  def',7), 'abc  de'
+call t 4, left('foobar',1), 'f'
+call t 5, left('foobar',0), ''
+call t 6, left('foobar',6), 'foobar'
+call t 7, left('foobar',8), 'foobar  '
+call t 8, left('foobar',8,'*'), 'foobar**'
+call t 9, left('foobar',1,'*'), 'f'
+say 'LEFT     done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison              */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'LEFT    ' right(n,3) 'PASS'
+else do
+  say 'LEFT    ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                             */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'LEFT    ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

@@ -1,0 +1,40 @@
+/* REXX -- TRANSLATE conformance, SC28-1883-0 p.104                   */
+/* Cases: examples of SC28-1883-0 and brexx370                        */
+/* test/transla.rexx (CMS-370-BREXX, Unlicense), expectations         */
+/* checked against the 1988 manual.                                   */
+/* See docs/spec-tests/strings.md.                                    */
+fails = 0
+call t 1, translate('abcdef'), 'ABCDEF'
+call t 2, translate('abbc','&','b'), 'a&&c'
+call t 3, translate('abcdef','12','ec'), 'ab2d1f'
+call t 4, translate('abcdef','12','abcd','.'), '12..ef'
+call t 5, translate('4123','abcd','1234'), 'dabc'
+call t 6, translate('Foo Bar'), 'FOO BAR'
+call t 7, translate('Foo Bar',,''), 'Foo Bar'
+call t 8, translate('Foo Bar','',), '       '
+call t 9, translate('Foo Bar','',,'*'), '*******'
+call t 10, translate('','klasjdf','woieruw'), ''
+call t 11, translate('foobar','abcdef','fedcba'), 'aooefr'
+call t 12, translate('aba','xyz','aab'), 'xzx'
+say 'TRANSLAT done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison              */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'TRANSLAT' right(n,3) 'PASS'
+else do
+  say 'TRANSLAT' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                             */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'TRANSLAT' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

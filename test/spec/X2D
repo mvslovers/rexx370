@@ -1,0 +1,101 @@
+/* REXX -- X2D conformance, SC28-1883-0 p.109                       */
+/* Cases: examples of SC28-1883-0 and brexx370 test/x2d.rexx        */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the     */
+/* 1988 manual. See docs/spec-tests/conversion.md.                  */
+fails = 0
+call t 1, x2d('0E'), '14'
+call t 2, x2d('81'), '129'
+call t 3, x2d('F81'), '3969'
+call t 4, x2d('FF81'), '65409'
+call t 5, x2d('81',2), '-127'
+call t 6, x2d('81',4), '129'
+call t 7, x2d('F081',4), '-3967'
+call t 8, x2d('F081',3), '129'
+call t 9, x2d('F081',2), '-127'
+call t 10, x2d('F081',1), '1'
+call t 11, x2d('0031',0), '0'
+call t 12, x2d('F0'), '240'
+call t 13, x2d('ff80',2), '-128'
+call t 14, x2d('ff80',1), '0'
+call t 15, x2d('ff 80',1), '0'
+call t 16, x2d(''), '0'
+call t 17, x2d('101'), '257'
+call t 18, x2d('ff'), '255'
+call t 19, x2d('ffff'), '65535'
+call t 20, x2d('ffff',2), '-1'
+call t 21, x2d('ffff',1), '-1'
+call t 22, x2d('fffe',2), '-2'
+call t 23, x2d('fffe',1), '-2'
+call t 24, x2d('ffff',4), '-1'
+call t 25, x2d('fffe',4), '-2'
+call t 26, x2d('ffff',3), '-1'
+call t 27, x2d('0fff'), '4095'
+call t 28, x2d('0fff',4), '4095'
+call t 29, x2d('0fff',3), '-1'
+call t 30, x2d('07ff'), '2047'
+call t 31, x2d('07ff',4), '2047'
+call t 32, x2d('07ff',3), '2047'
+call t 33, x2d('ff7f',1), '-1'
+call t 34, x2d('ff7f',2), '127'
+call t 35, x2d('ff7f',3), '-129'
+call t 36, x2d('ff7f',4), '-129'
+call t 37, x2d('ff7f',5), '65407'
+call t 38, x2d('ff80',3), '-128'
+call t 39, x2d('ff80',4), '-128'
+call t 40, x2d('ff80',5), '65408'
+call t 41, x2d('ff81',1), '1'
+call t 42, x2d('ff81',2), '-127'
+call t 43, x2d('ff81',3), '-127'
+call t 44, x2d('ff81',4), '-127'
+call t 45, x2d('ff81',5), '65409'
+call t 46, x2d('ffffffffffff',12), '-1'
+call t 47, x2d('a'), '10'
+call t 48, x2d('0f'), '15'
+call t 49, x2d('80'), '128'
+call t 50, x2d('765'), '1893'
+call t 51, x2d(01234), '4660'
+call t 52, x2d(1E2), '482'
+call t 53, x2d(baba), '47802'
+call t 54, x2d('',0), '0'
+call t 55, x2d('',12), '0'
+call t 56, x2d('abc',0), '0'
+call t 57, x2d('abc',1), '-4'
+call t 58, x2d('abc',3), '-1348'
+call t 59, x2d('abc',5), '2748'
+call t 60, x2d('abc',12345), '2748'
+call t 61, x2d(1+3,1+3), '4'
+call t 62, x2d(256+12,10+2), '616'
+call t 63, d2x(x2d('12345')), '12345'
+call t 64, x2d(copies(0,249)||1), '1'
+call t 65, x2d(1 + 1E+2), '257'
+hx = copies('e',25)
+numeric digits 31
+call t 66, x2d(hx), '1183140560213014108063589658350'
+numeric digits 9
+call te 67, x2d('c6 f0'X), '240'
+call t 68, x2d(''X), '0'
+call t 69, x2d('12',987654321), '18'
+call t 70, x2d(+1E+2), '256'
+call t 71, x2d(+.1E2), '16'
+say 'X2D      done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison            */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'X2D     ' right(n,3) 'PASS'
+else do
+  say 'X2D     ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                           */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'X2D     ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

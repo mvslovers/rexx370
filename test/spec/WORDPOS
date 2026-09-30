@@ -1,0 +1,56 @@
+/* REXX -- WORDPOS conformance, SC28-1883-0 p.107                    */
+/* Cases: examples of SC28-1883-0 and brexx370 test/wordpos.rexx     */
+/* (CMS-370-BREXX, Unlicense), expectations checked against the      */
+/* 1988 manual. See docs/spec-tests/words.md.                        */
+fails = 0
+call t 1, wordpos('the','now is the time'), '3'
+call t 2, wordpos('The','now is the time'), '0'
+call t 3, wordpos('is the','now is the time'), '2'
+call t 4, wordpos('is   the','now is the time'), '2'
+call t 5, wordpos('is   time ','now is   the time'), '0'
+call t 6, wordpos('be','To be or not to be'), '2'
+call t 7, wordpos('be','To be or not to be',3), '6'
+call t 8, wordpos('This','This is a small test'), '1'
+call t 9, wordpos('test','This is a small test'), '5'
+call t 10, wordpos('foo','This is a small test'), '0'
+call t 11, wordpos(' This ','This is a small test'), '1'
+call t 12, wordpos('This',' This is a small test'), '1'
+call t 13, wordpos('This','this is a small This'), '5'
+call t 14, wordpos('This','This is a small This'), '1'
+call t 15, wordpos('This','This is a small This', 2), '5'
+call t 16, wordpos('is a ','This is a small test'), '2'
+call t 17, wordpos(' is a ','This is a small test'), '2'
+call t 18, wordpos('is a ','This is a small test', 2), '2'
+call t 19, wordpos('is a ','This is a small test',3), '0'
+call t 20, wordpos('is a ','This is a small test',4), '0'
+call t 21, wordpos('test ','This is a small test'), '5'
+call t 22, wordpos('test ','This is a small test',5), '5'
+call t 23, wordpos('test ','This is a small test',6), '0'
+call t 24, wordpos('test ','This is a small test '), '5'
+call t 25, wordpos(' test','This is a small test ',6), '0'
+call t 26, wordpos('test ','This is a small test ',5), '5'
+call t 27, wordpos('test ',''), '0'
+call t 28, wordpos(' a ',''), '0'
+call t 29, wordpos(' a ','a'), '1'
+say 'WORDPOS  done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison             */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'WORDPOS ' right(n,3) 'PASS'
+else do
+  say 'WORDPOS ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                            */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'WORDPOS ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return
