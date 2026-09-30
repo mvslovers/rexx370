@@ -233,6 +233,29 @@ int irx_ld_add_line(struct irx_ld_acc *acc, const char *text, int len)
 /*  trim8 — strip trailing spaces from an 8-char padded field         */
 /*  Writes a NUL-terminated copy to out (caller supplies >= 9 bytes). */
 /* ------------------------------------------------------------------ */
+static void trim8(const unsigned char *src, char *out);
+
+void irx_load_loaddd(const struct envblock *envblk,
+                     char out[IRXLOAD_DDNAME_BUFLEN])
+{
+    const struct parmblock *pb =
+        envblk != NULL ? (const struct parmblock *)envblk->envblock_parmblock
+                       : NULL;
+    const struct modnamet *mn =
+        pb != NULL ? (const struct modnamet *)pb->parmblock_modnamet : NULL;
+
+    strcpy(out, "SYSEXEC");
+    if (mn != NULL)
+    {
+        char named[CL8_BUFLEN];
+        trim8(mn->modnamet_loaddd, named);
+        if (named[0] != '\0')
+        {
+            strcpy(out, named);
+        }
+    }
+}
+
 static void trim8(const unsigned char *src, char *out)
 {
     int len = CL8_LEN;
@@ -412,20 +435,8 @@ static int irx_load_load(struct execblk *execblk,
             envblk != NULL
                 ? (const struct parmblock *)envblk->envblock_parmblock
                 : NULL;
-        const struct modnamet *mn =
-            pb != NULL ? (const struct modnamet *)pb->parmblock_modnamet
-                       : NULL;
 
-        strcpy(loaddd, "SYSEXEC");
-        if (mn != NULL)
-        {
-            char named[CL8_BUFLEN];
-            trim8(mn->modnamet_loaddd, named);
-            if (named[0] != '\0')
-            {
-                strcpy(loaddd, named);
-            }
-        }
+        irx_load_loaddd(envblk, loaddd);
         if (pb == NULL || !pb->noloaddd)
         {
             try_dds[nd++] = loaddd;

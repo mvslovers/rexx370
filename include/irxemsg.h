@@ -41,4 +41,13 @@ struct irx_emsg_clause
 void irx_emsg_syntax(struct envblock *env, int errnum, int line,
                      const struct irx_emsg_clause *tb, int n_tb) asm("IRXEMSG");
 
+/* Write a message that is not about a clause -- IRXJCL's load failure
+ * (IRX0406E, IRX0110I, IRX0112I).  text is the whole line after the
+ * "IRX" prefix, e.g. "0110I The REXX exec cannot be interpreted.".
+ * Channel as measured on z/OS (#258): outside TSO/E by WTO only,
+ * nothing in SYSTSPRT -- unless NOMSGWTO routes it to the I/O routine;
+ * under TSO/E through the I/O routine.  On the host, where there is
+ * no WTO, the I/O routine stands in for it. */
+void irx_emsg_system(struct envblock *env, const char *text) asm("IRXEMSGS");
+
 #endif /* IRXEMSG_H */

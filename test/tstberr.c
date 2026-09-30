@@ -207,6 +207,22 @@ static void test_token_walk(struct envblock *env)
     {
         printf("    got:\n%s", g_cap);
     }
+
+    /* A BIF that fails in the token walk does not go through the
+     * parser's fail(), so no error line was recorded: the message
+     * must still name the line, not fall back to the no-line form. */
+    const char *src2 = "say 'b'\n"
+                       "x = substr('abc', 0)\n";
+    wk->wkbi_use_bytecode = 0;
+    cap_reset();
+    rc = irx_exec_run(src2, (int)strlen(src2), NULL, 0, &exit_rc, env);
+    wk->wkbi_use_bytecode = 1;
+    CHECK(strstr(g_cap, "IRX0040I Error running TW, line 2: ") != NULL,
+          "token-walk BIF error: message names the line");
+    if (strstr(g_cap, "IRX0040I Error running TW, line 2: ") == NULL)
+    {
+        printf("    got:\n%s", g_cap);
+    }
     set_name(env, "");
 }
 
