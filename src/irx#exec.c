@@ -14,7 +14,9 @@
 #include "irx_init.h"
 #include "irxbops.h"
 #include "irxbvm.h"
+#include "irxcond.h"
 #include "irxctrl.h"
+#include "irxemsg.h"
 #include "irxexbl.h"
 #include "irxexec.h"
 #include "irxfunc.h"
@@ -225,6 +227,7 @@ int irx_exec_dispatch(struct execblk *execblk,
         void *sb = NULL;
         if (irxstor(RXSMGET, total_src > 0 ? total_src : 1, &sb, env) != 0)
         {
+            irx_emsg_syntax(env, SYNTAX_STORAGE, 0, NULL, 0);
             return IRXEXEC_ERROR;
         }
         src_buf = (char *)sb;
@@ -252,8 +255,34 @@ int irx_exec_dispatch(struct execblk *execblk,
     /* EXECBLK DSNPTR/DSNLEN (PARSE SOURCE token4/5): the current
      * irx_exec_run does not accept DSN parameters — known gap,
      * does not block this WP. */
+    /* "Error running <name>" names the INSTBLK member (#281); the
+     * previous name comes back afterwards for a nested exec. */
+    char saved_name[sizeof(((struct irx_wkblk_int *)0)->wkbi_exec_name)];
+    struct irx_wkblk_int *wkn =
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    if (!WKBI_HAS(wkn, wkbi_exec_name))
+    {
+        wkn = NULL; /* environment from an older IRXINIT */
+    }
+    if (wkn != NULL)
+    {
+        int nl = (int)sizeof(instblk->instblk_member);
+        memcpy(saved_name, wkn->wkbi_exec_name, sizeof(saved_name));
+        while (nl > 0 && instblk->instblk_member[nl - 1] == ' ')
+        {
+            nl--;
+        }
+        memcpy(wkn->wkbi_exec_name, instblk->instblk_member, (size_t)nl);
+        wkn->wkbi_exec_name[nl] = '\0';
+    }
+
     rc = irx_exec_run(src_buf, src_len, first_arg, first_arg_len,
                       &exit_rc, env);
+
+    if (wkn != NULL)
+    {
+        memcpy(wkn->wkbi_exec_name, saved_name, sizeof(saved_name));
+    }
 
     /* ---- 8. EVALBLOCK write (NORESULT marker) ---- */
     /* Signals to the caller that no result string is available in
@@ -304,6 +333,115 @@ static int bc_err_is_fallback(int rc)
            rc == IRXBC_ERR_CAPACITY;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Error reporting outside the VM (#281)                             */
+/* ------------------------------------------------------------------ */
+
+/* Tokenizer error -> SYNTAX number (Appendix A). */
+static int tokn_errnum(int code)
+{
+    switch (code)
+    {
+        case TOKERR_STORAGE:
+            return SYNTAX_STORAGE;
+        case TOKERR_UNTERMINATED_STR:
+        case TOKERR_UNTERMINATED_CMT:
+            return 6; /* unmatched comment or quote */
+        case TOKERR_INVALID_HEX:
+        case TOKERR_ODD_HEX_GROUP:
+        case TOKERR_INVALID_BIN:
+        case TOKERR_BAD_BIN_GROUP:
+            return 15; /* invalid hex constant */
+        case TOKERR_BAD_CHAR:
+            return 13; /* invalid character in data */
+        default:
+            return SYNTAX_INTERNAL;
+    }
+}
+
+/* A compile failure that is not a fallback -> SYNTAX number. */
+static int bc_compile_errnum(int rc)
+{
+    switch (rc)
+    {
+        case IRXBC_ERR_STOR:
+            return SYNTAX_STORAGE;
+        case IRXBC_ERR_LOOP:
+            return SYNTAX_CTL_STACK;
+        default:
+            return SYNTAX_INTERNAL;
+    }
+}
+
+/* Token-walk interpreter error -> SYNTAX number: what the failing
+ * operation raised since `base`, else a default for the parser code. */
+static int pars_errnum(int code, struct envblock *env, unsigned int base)
+{
+    const struct irx_wkblk_int *wk =
+        (const struct irx_wkblk_int *)env->envblock_workblok_ext;
+    if (wk != NULL &&
+        !(WKBI_HAS(wk, wkbi_cond_seq) && wk->wkbi_cond_seq == base) &&
+        wk->wkbi_last_condition != NULL && wk->wkbi_last_condition->valid &&
+        wk->wkbi_last_condition->code >= SYNTAX_MIN &&
+        wk->wkbi_last_condition->code <= SYNTAX_MAX)
+    {
+        return wk->wkbi_last_condition->code;
+    }
+    switch (code)
+    {
+        case IRXPARS_NOMEM:
+            return SYNTAX_STORAGE;
+        case IRXPARS_DIVZERO:
+        case IRXPARS_OVERFLOW:
+            return SYNTAX_OVERFLOW;
+        case IRXPARS_BADFUNC:
+            return SYNTAX_NO_ROUTINE;
+        case IRXPARS_BADARG:
+            return SYNTAX_BAD_CALL;
+        default:
+            return SYNTAX_INTERNAL;
+    }
+}
+
+/* Report with the whole source line as the one +++ entry.  The
+ * token-walk path knows the line of an error but not its clause, and
+ * keeps no call stack for a full traceback (it is frozen, CON-18). */
+static void report_line(struct envblock *env, int errnum, int line,
+                        const char *source, int source_len)
+{
+    struct irx_emsg_clause c;
+    int cur = 1;
+    int i = 0;
+
+    if (line <= 0 || source == NULL)
+    {
+        irx_emsg_syntax(env, errnum, line, NULL, 0);
+        return;
+    }
+    while (i < source_len && cur < line)
+    {
+        if (source[i++] == '\n')
+        {
+            cur++;
+        }
+    }
+    int end = i;
+    while (end < source_len && source[end] != '\n')
+    {
+        end++;
+    }
+    int start = i;
+    while (start < end && source[start] == ' ')
+    {
+        start++;
+    }
+    c.line = line;
+    c.level = 1;
+    c.text = source + start;
+    c.text_len = end - start;
+    irx_emsg_syntax(env, errnum, line, &c, 1);
+}
+
 int irx_exec_run(const char *source, int source_len,
                  const char *args, int args_len,
                  int *rc_out, struct envblock *envblock)
@@ -325,6 +463,7 @@ int irx_exec_run(const char *source, int source_len,
     void *saved_source = NULL;
     int saved_source_len = 0;
     int retention_saved = 0;
+    unsigned int cond_base = 0; /* #281: conditions after this are ours */
 
     memset(&parser, 0, sizeof(parser));
     memset(&tok_err, 0, sizeof(tok_err));
@@ -363,6 +502,10 @@ int irx_exec_run(const char *source, int source_len,
             retention_saved = 1;
             wk->wkbi_source = (void *)source;
             wk->wkbi_source_len = source_len;
+            if (WKBI_HAS(wk, wkbi_cond_seq))
+            {
+                cond_base = wk->wkbi_cond_seq;
+            }
         }
     }
 
@@ -400,11 +543,25 @@ int irx_exec_run(const char *source, int source_len,
                     wk->wkbi_bc_unsup_line = unsup_line;
                 }
             }
+            else if (rc == IRXBC_ERR_TOKN)
+            {
+                /* The source does not scan.  Nothing ran; the token-walk
+                 * path below tokenizes again and reports the error with
+                 * its line (#281).  Not a fallback: nothing is counted. */
+            }
             else
             {
+                if (rc != IRXBC_OK)
+                {
+                    /* Compile failed outright (storage, nesting): before
+                     * any clause, so the message carries no line. */
+                    irx_emsg_syntax(envblock, bc_compile_errnum(rc), 0, NULL,
+                                    0);
+                }
                 if (rc == IRXBC_OK)
                 {
-                    rc = irx_bc_execute(envblock, bc, args, args_len, &bc_rc);
+                    rc = irx_bc_execute(envblock, bc, source, source_len, args,
+                                        args_len, &bc_rc);
                     wk->wkbi_bc_exec_count++;
                 }
                 if (rc_out != NULL)
@@ -426,6 +583,8 @@ int irx_exec_run(const char *source, int source_len,
                       &tokens, &tok_count, &tok_err);
     if (rc != 0)
     {
+        report_line(envblock, tokn_errnum(tok_err.error_code),
+                    tok_err.error_line, source, source_len);
         goto cleanup;
     }
 
@@ -497,6 +656,11 @@ int irx_exec_run(const char *source, int source_len,
 
     /* 7. Execute ----------------------------------------------------- */
     rc = irx_pars_run(&parser);
+    if (rc != 0)
+    {
+        report_line(envblock, pars_errnum(parser.error_code, envblock, cond_base),
+                    parser.error_line, source, source_len);
+    }
 
     if (rc_out != NULL)
     {

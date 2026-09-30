@@ -617,7 +617,7 @@ static void test_bif_dispatch_cache(struct envblock *env)
           "unknown BIF compiles (compiler is BIF-agnostic)");
     if (rc == IRXBC_OK && bc != NULL)
     {
-        rc = irx_bc_execute(env, bc, NULL, 0, &bc_rc);
+        rc = irx_bc_execute(env, bc, NULL, 0, NULL, 0, &bc_rc);
         CHECK(rc == IRXBC_ERR_UNSUP,
               "unknown BIF -> not-found error (not swallowed)");
         void *p = bc;

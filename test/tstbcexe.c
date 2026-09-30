@@ -105,7 +105,7 @@ static void test_execute_empty(struct envblock *env)
         return;
     }
 
-    rc = irx_bc_execute(env, bc, NULL, 0, &bc_rc);
+    rc = irx_bc_execute(env, bc, NULL, 0, NULL, 0, &bc_rc);
     CHECK(rc == IRXBC_OK, "execute returns IRXBC_OK");
     CHECK(bc_rc == 0, "program RC == 0");
 
@@ -130,7 +130,7 @@ static void test_execute_exit(struct envblock *env)
         return;
     }
 
-    rc = irx_bc_execute(env, bc, NULL, 0, &bc_rc);
+    rc = irx_bc_execute(env, bc, NULL, 0, NULL, 0, &bc_rc);
     CHECK(rc == IRXBC_OK, "execute returns IRXBC_OK");
     CHECK(bc_rc == 0, "program RC == 0");
 
@@ -147,7 +147,7 @@ static void test_execute_null(struct envblock *env)
 
     printf("  [execute: NULL container]\n");
 
-    rc = irx_bc_execute(env, NULL, NULL, 0, &bc_rc);
+    rc = irx_bc_execute(env, NULL, NULL, 0, NULL, 0, &bc_rc);
     CHECK(rc != IRXBC_OK, "execute rejects NULL container");
 }
 

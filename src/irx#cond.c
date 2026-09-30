@@ -44,6 +44,10 @@ void irx_cond_raise(struct envblock *env, int code, int subcode,
         wk->wkbi_last_condition = ci;
     }
 
+    if (WKBI_HAS(wk, wkbi_cond_seq))
+    {
+        wk->wkbi_cond_seq++;
+    }
     ci->valid = 1;
     ci->code = code;
     ci->subcode = subcode;

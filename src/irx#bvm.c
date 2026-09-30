@@ -27,6 +27,8 @@
 #include "irxbifs.h"
 #include "irxbops.h"
 #include "irxbvm.h"
+#include "irxcond.h"
+#include "irxemsg.h"
 #include "irxexbl.h"
 #include "irxfunc.h"
 #include "irxlstr.h"
@@ -876,16 +878,191 @@ const struct irx_bc_line_ent *irx_bc_line_at(
 }
 
 /* ================================================================== */
+/*  Error reporting (#281)                                            */
+/* ================================================================== */
+
+/* The condition raised since `base` (the cond sequence number when the
+ * run started or last took a trap), if it carries a SYNTAX number. */
+static const struct irx_condition_info *vm_fresh_syntax(
+    const struct irx_wkblk_int *wk, unsigned int base)
+{
+    if (wk == NULL || wk->wkbi_last_condition == NULL)
+    {
+        return NULL;
+    }
+    /* A work block from an older IRXINIT has no sequence number; its
+     * condition is then taken as it is. */
+    if (WKBI_HAS(wk, wkbi_cond_seq) && wk->wkbi_cond_seq == base)
+    {
+        return NULL;
+    }
+    const struct irx_condition_info *ci = wk->wkbi_last_condition;
+    if (!ci->valid || ci->code < SYNTAX_MIN || ci->code > SYNTAX_MAX)
+    {
+        return NULL;
+    }
+    return ci;
+}
+
+/* Name the error as a SYNTAX number unless the failing operation
+ * already did (a BIF or the arithmetic engine raising 40.x / 42). */
+static void vm_raise_if_none(struct envblock *envblock,
+                             const struct irx_wkblk_int *wk,
+                             unsigned int base, int num, const char *desc)
+{
+    if (vm_fresh_syntax(wk, base) == NULL)
+    {
+        irx_cond_raise(envblock, num, 0, desc);
+    }
+}
+
+/* irx_arith_op() result -> SYNTAX number (Appendix A). */
+static int vm_arith_errnum(int arc)
+{
+    switch (arc)
+    {
+        case IRXPARS_DIVZERO:
+        case IRXPARS_OVERFLOW:
+            return SYNTAX_OVERFLOW;
+        case IRXPARS_NOMEM:
+            return SYNTAX_STORAGE;
+        default:
+            return SYNTAX_BAD_ARITH;
+    }
+}
+
+/* The SYNTAX number an error exit reports: what the failing operation
+ * raised, else a default for its class.  Internal failures (unknown
+ * opcode, stack underflow) have no number of their own; error 49 is the
+ * one Appendix A gives for a failed self-consistency check. */
+static int vm_errnum(int vm_rc, const struct irx_wkblk_int *wk,
+                     unsigned int base)
+{
+    const struct irx_condition_info *ci = vm_fresh_syntax(wk, base);
+    if (ci != NULL)
+    {
+        return ci->code;
+    }
+    switch (vm_rc)
+    {
+        case IRXBC_ERR_STOR:
+            return SYNTAX_STORAGE;
+        case IRXBC_ERR_ARITH:
+            return SYNTAX_BAD_ARITH;
+        case IRXBC_ERR_BOOL:
+            return SYNTAX_BAD_BOOL;
+        case IRXBC_ERR_CALL:
+        case IRXBC_ERR_LOOP:
+            return SYNTAX_CTL_STACK;
+        case IRXBC_ERR_IO:
+            return SYNTAX_SYSTEM;
+        default:
+            return SYNTAX_INTERNAL;
+    }
+}
+
+/* One traceback entry from the trace map; 0 if pc maps to no clause. */
+static int vm_tb_clause(const struct irx_bc_execblk *bc, uint32_t pc,
+                        const char *source, int source_len,
+                        struct irx_emsg_clause *out, int *depth_out)
+{
+    const struct irx_bc_line_ent *e = irx_bc_line_at(bc, pc);
+    if (e == NULL)
+    {
+        return 0;
+    }
+    out->line = (int)e->line;
+    out->text = NULL;
+    out->text_len = 0;
+    if (source != NULL && (long)e->src_off + e->src_len <= (long)source_len)
+    {
+        out->text = source + e->src_off;
+        out->text_len = e->src_len;
+    }
+    *depth_out = (int)e->depth;
+    return 1;
+}
+
+/* Report an error that ends the run: the +++ traceback -- the failing
+ * clause, then every active call site, innermost first -- and the
+ * IRX00nnI message.  Indentation is cumulative (z/OS ERRTEST, #281): a
+ * clause in frame k sits at 1 + k + its own DO/SELECT depth + the depth
+ * of every call site on the way down to it. */
+static void vm_report(struct envblock *envblock,
+                      const struct irx_bc_execblk *bc,
+                      const char *source, int source_len,
+                      const unsigned char *code_base,
+                      const unsigned char *pc,
+                      const struct bc_call_frame *frames, int call_sp,
+                      int errnum)
+{
+    struct irx_emsg_clause tb[IRXBC_CALL_DEPTH + 1];
+    int site_depth[IRXBC_CALL_DEPTH];
+    int site_ok[IRXBC_CALL_DEPTH];
+    int n = 0;
+    int sum = 0;
+
+    for (int j = 0; j < call_sp && j < IRXBC_CALL_DEPTH; j++)
+    {
+        /* return_pc is past the call instruction, still inside the
+         * calling clause; -1 keeps it off the next clause's first byte. */
+        uint32_t off = (uint32_t)(frames[j].return_pc - code_base) - 1U;
+        struct irx_emsg_clause c;
+        site_ok[j] = vm_tb_clause(bc, off, source, source_len, &c,
+                                  &site_depth[j]);
+        if (!site_ok[j])
+        {
+            site_depth[j] = 0;
+        }
+    }
+
+    /* The failing clause: pc has moved past the failing opcode, never
+     * past its clause, so pc - 1 lies inside it. */
+    int d0 = 0;
+    for (int j = 0; j < call_sp && j < IRXBC_CALL_DEPTH; j++)
+    {
+        sum += site_depth[j];
+    }
+    if (pc > code_base &&
+        vm_tb_clause(bc, (uint32_t)(pc - code_base) - 1U, source, source_len,
+                     &tb[n], &d0))
+    {
+        tb[n].level = 1 + call_sp + d0 + sum;
+        n++;
+    }
+    int line = (n > 0) ? tb[0].line : 0;
+
+    for (int j = call_sp - 1; j >= 0; j--)
+    {
+        if (j >= IRXBC_CALL_DEPTH || !site_ok[j])
+        {
+            continue;
+        }
+        uint32_t off = (uint32_t)(frames[j].return_pc - code_base) - 1U;
+        int d = 0;
+        vm_tb_clause(bc, off, source, source_len, &tb[n], &d);
+        sum -= site_depth[j];
+        tb[n].level = 1 + j + d + sum;
+        n++;
+    }
+
+    irx_emsg_syntax(envblock, errnum, line, tb, n);
+}
+
+/* ================================================================== */
 /*  irx_bc_execute                                                    */
 /* ================================================================== */
 
 int irx_bc_execute(struct envblock *envblock,
                    struct irx_bc_execblk *bc,
+                   const char *source, int source_len,
                    const char *args, int args_len,
                    int *rc_out)
 {
-    const unsigned char *pc;
-    const unsigned char *code_base;
+    /* NULL until the dispatch loop starts: done: tells a failure while
+     * setting up (reported without a clause) from one while running. */
+    const unsigned char *pc = NULL;
+    const unsigned char *code_base = NULL;
     unsigned char op;
     struct lstr_alloc *alloc = NULL;
     struct irx_vpool *vpool = NULL;
@@ -928,6 +1105,15 @@ int irx_bc_execute(struct envblock *envblock,
     int cond_lsi[COND_COUNT];       /* handler sym_idx per cond; -1 = none */
     int trap_target = -1;           /* target pc offset; set before goto trap_jump */
     int fired_cond = 0;             /* COND_* bit of the firing condition */
+    /* #281: conditions raised after this sequence number belong to the
+     * current run; moved on after every trap, so an error that ends the
+     * run is never named after one that was already handled. */
+    struct irx_wkblk_int *wk_run =
+        (envblock != NULL)
+            ? (struct irx_wkblk_int *)envblock->envblock_workblok_ext
+            : NULL;
+    unsigned int cond_base =
+        WKBI_HAS(wk_run, wkbi_cond_seq) ? wk_run->wkbi_cond_seq : 0U;
 
     memset(&pframe, 0, sizeof(pframe));
     pframe.cur_sym = -1;
@@ -941,6 +1127,7 @@ int irx_bc_execute(struct envblock *envblock,
     alloc = irx_lstr_init(envblock);
     if (alloc == NULL)
     {
+        irx_emsg_syntax(envblock, SYNTAX_STORAGE, 0, NULL, 0);
         return IRXBC_ERR_STOR;
     }
 
@@ -1774,6 +1961,8 @@ int irx_bc_execute(struct envblock *envblock,
                     sp--;
                     if (arc != IRXPARS_OK)
                     {
+                        vm_raise_if_none(envblock, wk_run, cond_base,
+                                         vm_arith_errnum(arc), "arithmetic error");
                         vm_rc = IRXBC_ERR_ARITH;
                         goto check_syntax_trap;
                     }
@@ -1796,6 +1985,8 @@ int irx_bc_execute(struct envblock *envblock,
                                        stack[sp - 1].str);
                     if (arc != IRXPARS_OK)
                     {
+                        vm_raise_if_none(envblock, wk_run, cond_base,
+                                         vm_arith_errnum(arc), "arithmetic error");
                         vm_rc = IRXBC_ERR_ARITH;
                         goto check_syntax_trap;
                     }
@@ -2367,6 +2558,11 @@ int irx_bc_execute(struct envblock *envblock,
                                                bif_cache, sym_idx, &bad_idx);
                         if (bife == NULL)
                         {
+                            if (!bad_idx)
+                            {
+                                irx_cond_raise(envblock, SYNTAX_NO_ROUTINE,
+                                               0, "routine not found");
+                            }
                             vm_rc = bad_idx ? IRXBC_ERR_OPCODE
                                             : IRXBC_ERR_UNSUP;
                             goto done;
@@ -2374,6 +2570,11 @@ int irx_bc_execute(struct envblock *envblock,
                         if (nargs < bife->min_args ||
                             nargs > bife->max_args)
                         {
+                            irx_cond_raise(envblock, SYNTAX_BAD_CALL,
+                                           nargs < bife->min_args
+                                               ? ERR40_TOO_FEW_ARGS
+                                               : ERR40_TOO_MANY_ARGS,
+                                           "incorrect call to routine");
                             vm_rc = IRXBC_ERR_UNSUP;
                             goto done;
                         }
@@ -2387,6 +2588,13 @@ int irx_bc_execute(struct envblock *envblock,
                         sp -= nargs;
                         if (brc != IRXPARS_OK)
                         {
+                            /* A BIF rejecting its arguments is error 40
+                             * unless it named its error itself (#281). */
+                            vm_raise_if_none(envblock, wk_run, cond_base,
+                                             brc == IRXPARS_NOMEM
+                                                 ? SYNTAX_STORAGE
+                                                 : SYNTAX_BAD_CALL,
+                                             "incorrect call to routine");
                             vm_rc = IRXBC_ERR_ARITH;
                             goto check_syntax_trap;
                         }
@@ -2489,6 +2697,11 @@ int irx_bc_execute(struct envblock *envblock,
                                                bif_cache, sym_idx, &bad_idx);
                         if (bife == NULL)
                         {
+                            if (!bad_idx)
+                            {
+                                irx_cond_raise(envblock, SYNTAX_NO_ROUTINE,
+                                               0, "routine not found");
+                            }
                             vm_rc = bad_idx ? IRXBC_ERR_OPCODE
                                             : IRXBC_ERR_UNSUP;
                             goto done;
@@ -2496,6 +2709,11 @@ int irx_bc_execute(struct envblock *envblock,
                         if (nargs < bife->min_args ||
                             nargs > bife->max_args)
                         {
+                            irx_cond_raise(envblock, SYNTAX_BAD_CALL,
+                                           nargs < bife->min_args
+                                               ? ERR40_TOO_FEW_ARGS
+                                               : ERR40_TOO_MANY_ARGS,
+                                           "incorrect call to routine");
                             vm_rc = IRXBC_ERR_UNSUP;
                             goto done;
                         }
@@ -2509,6 +2727,13 @@ int irx_bc_execute(struct envblock *envblock,
                         sp -= nargs;
                         if (brc != IRXPARS_OK)
                         {
+                            /* A BIF rejecting its arguments is error 40
+                             * unless it named its error itself (#281). */
+                            vm_raise_if_none(envblock, wk_run, cond_base,
+                                             brc == IRXPARS_NOMEM
+                                                 ? SYNTAX_STORAGE
+                                                 : SYNTAX_BAD_CALL,
+                                             "incorrect call to routine");
                             vm_rc = IRXBC_ERR_ARITH;
                             goto check_syntax_trap;
                         }
@@ -2696,6 +2921,8 @@ int irx_bc_execute(struct envblock *envblock,
                     if (label_pc == NULL || lsi < 0 || lsi >= n_syms ||
                         label_pc[lsi] < 0)
                     {
+                        irx_cond_raise(envblock, SYNTAX_NO_LABEL, 0,
+                                       "label not found");
                         vm_rc = IRXBC_ERR_UNSUP;
                         goto done;
                     }
@@ -2791,6 +3018,8 @@ int irx_bc_execute(struct envblock *envblock,
 
                     if (lsi < 0 || label_pc == NULL || label_pc[lsi] < 0)
                     {
+                        irx_cond_raise(envblock, SYNTAX_NO_LABEL, 0,
+                                       "label not found");
                         vm_rc = IRXBC_ERR_UNSUP;
                         goto done;
                     }
@@ -3050,6 +3279,8 @@ int irx_bc_execute(struct envblock *envblock,
                     sp--;
                     if (!vm_lstr_to_long(stack[sp].str, &n))
                     {
+                        vm_raise_if_none(envblock, wk_run, cond_base,
+                                         SYNTAX_WHOLE_NUMBER, "invalid whole number");
                         vm_rc = IRXBC_ERR_ARITH;
                         goto check_syntax_trap;
                     }
@@ -3057,6 +3288,8 @@ int irx_bc_execute(struct envblock *envblock,
                     {
                         if (n < 1 || n > NUMERIC_DIGITS_MAX)
                         {
+                            vm_raise_if_none(envblock, wk_run, cond_base,
+                                             SYNTAX_BAD_RESULT, "NUMERIC DIGITS out of range");
                             vm_rc = IRXBC_ERR_ARITH;
                             goto check_syntax_trap;
                         }
@@ -3071,6 +3304,8 @@ int irx_bc_execute(struct envblock *envblock,
                                                       : NUMERIC_DIGITS_DEFAULT;
                         if (n < 0 || n >= cur_digits)
                         {
+                            vm_raise_if_none(envblock, wk_run, cond_base,
+                                             SYNTAX_BAD_RESULT, "NUMERIC FUZZ out of range");
                             vm_rc = IRXBC_ERR_ARITH;
                             goto check_syntax_trap;
                         }
@@ -3683,12 +3918,15 @@ int irx_bc_execute(struct envblock *envblock,
                     label_pc != NULL &&
                     label_pc[cond_lsi[ci_sx]] >= 0)
                 {
+                    /* Keep the number the failing operation raised
+                     * (#281); fall back to the class otherwise. */
                     if (vm_rc == IRXBC_ERR_BOOL)
                     {
-                        irx_cond_raise(envblock, SYNTAX_BAD_BOOL, 0,
-                                       "logical value not 0 or 1");
+                        vm_raise_if_none(envblock, wk_run, cond_base,
+                                         SYNTAX_BAD_BOOL,
+                                         "logical value not 0 or 1");
                     }
-                    else
+                    else if (vm_fresh_syntax(wk_run, cond_base) == NULL)
                     {
                         irx_cond_raise(envblock, SYNTAX_BAD_ARITH,
                                        ERR41_NONNUMERIC,
@@ -3782,6 +4020,10 @@ int irx_bc_execute(struct envblock *envblock,
                 }
             }
             fired_cond = 0;
+            if (WKBI_HAS(wk_run, wkbi_cond_seq))
+            {
+                cond_base = wk_run->wkbi_cond_seq;
+            }
             pc = code_base + trap_target;
             trap_target = -1;
         }
@@ -3791,6 +4033,24 @@ int irx_bc_execute(struct envblock *envblock,
     }
 
 done:
+    /* An error that ends the run: traceback and IRX00nnI (#281).  Here,
+     * before the call frames below are released. */
+    if (vm_rc != IRXBC_OK)
+    {
+        int errnum = vm_errnum(vm_rc, wk_run, cond_base);
+        if (pc != NULL && code_base != NULL)
+        {
+            vm_report(envblock, bc, source, source_len, code_base, pc,
+                      call_frames, call_sp, errnum);
+        }
+        else
+        {
+            /* Before the first clause: "initial requirements for storage
+             * could not be met" is IRX0005I without a line (p.395). */
+            irx_emsg_syntax(envblock, errnum, 0, NULL, 0);
+        }
+    }
+
     /* Free parse frame source if active */
     if (pframe.active)
     {
