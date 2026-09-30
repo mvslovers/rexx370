@@ -23,5 +23,5 @@ the option lists on 2026-09-30.
 
 The extension execs run under `TSTSPEC` together with the conformance suite
 (`test/spec/`, see `docs/spec-tests/README.md`), with the same helper rules.
-Their expected values follow z/OS. The z/OS confirmation of the individual
-values is recorded in each exec's header comment.
+Their expected values follow z/OS and were confirmed there by a maintainer
+run on 2026-09-30; every value matched.

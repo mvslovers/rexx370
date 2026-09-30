@@ -1,6 +1,6 @@
 /* REXX -- X2B, extension (not in SC28-1883-0)                      */
 /* Expected values follow TSO/E REXX on z/OS; see                   */
-/* docs/extensions.md. z/OS confirmation: pending.                  */
+/* docs/extensions.md. Confirmed on z/OS 2026-09-30.               */
 fails = 0
 call t 1, x2b('C3'), '11000011'
 call t 2, x2b('7'), '0111'

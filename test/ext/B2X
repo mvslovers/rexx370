@@ -1,6 +1,6 @@
 /* REXX -- B2X, extension (not in SC28-1883-0)                      */
 /* Expected values follow TSO/E REXX on z/OS; see                   */
-/* docs/extensions.md. z/OS confirmation: pending.                  */
+/* docs/extensions.md. Confirmed on z/OS 2026-09-30.               */
 fails = 0
 call t 1, b2x('11000011'), 'C3'
 call t 2, b2x('10111'), '17'
