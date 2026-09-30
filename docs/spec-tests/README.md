@@ -74,6 +74,9 @@ behaviour of TSO/E REXX on z/OS decides (maintainer run of the disputed cases,
   changes to the NUMERIC settings, except where stated". z/OS applies DIGITS
   and FORM to FORMAT (`numeric digits 3; format('12345.73',,,2,2)` gives
   `1.23E+04`): FORMAT 100-103, 107-109, FORMATBL 4.
+  The later z/OS manual states it (SA32-0972-00 p.105: the exponent part
+  "is formatted according to the current NUMERIC settings of DIGITS and
+  FORM"); the 1988 FORMAT page has no such sentence.
 - **Blanks in DATATYPE(,'X').** p.85 says "only between pairs", p.10 allows
   an odd leading group in hex strings. z/OS: `datatype('A BC DF','X')` is 1
   (DATATYPE 89, 90).
