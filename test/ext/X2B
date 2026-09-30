@@ -1,0 +1,32 @@
+/* REXX -- X2B, extension (not in SC28-1883-0)                      */
+/* Expected values follow TSO/E REXX on z/OS; see                   */
+/* docs/extensions.md. Confirmed on z/OS 2026-09-30.               */
+fails = 0
+call t 1, x2b('C3'), '11000011'
+call t 2, x2b('7'), '0111'
+call t 3, x2b('1 C1'), '000111000001'
+call t 4, x2b(d2x('129')), '10000001'
+call t 5, x2b(d2x('12')), '1100'
+call t 6, x2b(''), ''
+say 'X2B      done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison             */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'X2B     ' right(n,3) 'PASS'
+else do
+  say 'X2B     ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                            */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'X2B     ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return

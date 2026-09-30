@@ -1537,6 +1537,7 @@ static int bif_x2c(struct irx_parser *p, int argc, PLstr *argv,
     return IRXPARS_OK;
 }
 
+/* B2X -- extension: not in SC28-1883-0 (docs/extensions.md). */
 static int bif_b2x(struct irx_parser *p, int argc, PLstr *argv,
                    PLstr result)
 {
@@ -1591,6 +1592,7 @@ static int bif_b2x(struct irx_parser *p, int argc, PLstr *argv,
     return IRXPARS_OK;
 }
 
+/* X2B -- extension: not in SC28-1883-0 (docs/extensions.md). */
 static int bif_x2b(struct irx_parser *p, int argc, PLstr *argv,
                    PLstr result)
 {
@@ -3624,6 +3626,7 @@ static const struct irx_bif_entry g_bifstr_table[] = {
     /* Conversion (WP-21b) */
     {"C2X", 1, 1, bif_c2x},
     {"X2C", 1, 1, bif_x2c},
+    /* B2X, X2B: extensions, not in SC28-1883-0 (docs/extensions.md) */
     {"B2X", 1, 1, bif_b2x},
     {"X2B", 1, 1, bif_x2b},
     {"C2D", 1, 2, bif_c2d},

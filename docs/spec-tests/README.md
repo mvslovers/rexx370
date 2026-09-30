@@ -88,4 +88,6 @@ settle and that were not run on z/OS (for example WORDPOS with an empty
 phrase, TRACE after `trace('F')`).
 
 rexx370 also implements binary strings, B2X and X2B, which are not in the
-1988 manual; the suite has no cases for them.
+1988 manual. They are listed in [../extensions.md](../extensions.md) and
+tested by the execs in `test/ext/`, which TSTSPEC runs together with this
+suite.

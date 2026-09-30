@@ -2412,4 +2412,7 @@ members = [
   "test/spec/X2D",
   "test/spec/XRANGE",
   "test/spec/XRANGEHX",
+  "test/ext/B2X",
+  "test/ext/BINSTR",
+  "test/ext/X2B",
 ]

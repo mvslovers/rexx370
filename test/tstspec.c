@@ -1,7 +1,8 @@
 /* ------------------------------------------------------------------ */
 /*  tstspec.c - SC28-1883-0 conformance suite driver (#261)           */
 /*                                                                    */
-/*  Runs every exec under test/spec/ through the IRXJCL core          */
+/*  Runs every exec under test/spec/ (conformance) and test/ext/      */
+/*  (extensions, docs/extensions.md) through the IRXJCL core          */
 /*  (irx_jcl_dispatch_main: IRXLOAD from SYSEXEC + IRXEXEC) and       */
 /*  gates on its return code: each exec exits with the number of      */
 /*  failed cases, 0 = all passed.                                     */
@@ -13,11 +14,12 @@
 /*                                                                    */
 /*  MVS: the execs are pre-loaded into the SYSEXEC fixture PDS        */
 /*       (project.toml [[test.fixture]]).                             */
-/*  Host: they are copied from test/spec/ (relative to the repo root, */
-/*       where make test-host runs) into a temporary directory named  */
-/*       by $SYSEXEC as <MEMBER>.rex, the host IRXLOAD convention.    */
-/*       The host run also checks that every file in test/spec/ is    */
-/*       listed here, so a new exec cannot be silently left out.      */
+/*  Host: they are copied from test/spec/ and test/ext/ (relative to  */
+/*       the repo root, where make test-host runs) into a temporary   */
+/*       directory named by $SYSEXEC as <MEMBER>.rex, the host        */
+/*       IRXLOAD convention.  The host run also checks that every     */
+/*       file in both directories is listed here, so a new exec       */
+/*       cannot be silently left out.                                 */
 /*                                                                    */
 /*  Expected values and their spec references: docs/spec-tests/.      */
 /*                                                                    */
@@ -59,6 +61,8 @@ static const struct spec_member spec_members[] = {
     {"ARGOPT", 262, 1},
     {"ARITH", 267, 0},
     {"ARITHNEG", 268, 0},
+    {"B2X", 0, 0},
+    {"BINSTR", 264, 0},
     {"BITAND", 270, 0},
     {"BITOR", 270, 0},
     {"BITXOR", 270, 0},
@@ -129,6 +133,7 @@ static const struct spec_member spec_members[] = {
     {"WORDLEN", 0, 0},
     {"WORDPOS", 0, 0},
     {"WORDS", 0, 0},
+    {"X2B", 0, 0},
     {"X2C", 0, 0},
     {"X2D", 267, 0},
     {"XRANGE", 0, 0},
@@ -143,7 +148,14 @@ enum
 
 #ifndef __MVS__
 
-#define SPEC_SRC_DIR "test/spec"
+/* Conformance execs, and the execs for rexx370's extensions beyond
+ * SC28-1883-0 (docs/extensions.md). Member names are unique across both. */
+static const char *const spec_src_dirs[] = {"test/spec", "test/ext"};
+
+enum
+{
+    SRC_DIR_COUNT = (int)(sizeof(spec_src_dirs) / sizeof(spec_src_dirs[0]))
+};
 
 static char sysexec_dir[] = "/tmp/tstspecXXXXXX";
 
@@ -163,14 +175,17 @@ static int copy_member(const char *name)
 {
     char src[256];
     char dst[256];
-    snprintf(src, sizeof(src), "%s/%s", SPEC_SRC_DIR, name);
-    snprintf(dst, sizeof(dst), "%s/%s.rex", sysexec_dir, name);
-
-    FILE *in = fopen(src, "r");
+    FILE *in = NULL;
+    for (int d = 0; d < SRC_DIR_COUNT && in == NULL; d++)
+    {
+        snprintf(src, sizeof(src), "%s/%s", spec_src_dirs[d], name);
+        in = fopen(src, "r");
+    }
     if (in == NULL)
     {
         return -1;
     }
+    snprintf(dst, sizeof(dst), "%s/%s.rex", sysexec_dir, name);
     FILE *out = fopen(dst, "w");
     if (out == NULL)
     {
@@ -200,30 +215,34 @@ static int host_setup(void)
     for (int i = 0; i < SPEC_COUNT; i++)
     {
         char msg[MSG_LEN];
-        snprintf(msg, sizeof(msg), "%s present in %s", spec_members[i].name,
-                 SPEC_SRC_DIR);
+        snprintf(msg, sizeof(msg), "%s present in test/spec or test/ext",
+                 spec_members[i].name);
         CHECK(copy_member(spec_members[i].name) == 0, msg);
     }
 
-    DIR *d = opendir(SPEC_SRC_DIR);
-    if (d == NULL)
+    for (int di = 0; di < SRC_DIR_COUNT; di++)
     {
-        printf("FATAL: cannot open %s (run from the repo root)\n",
-               SPEC_SRC_DIR);
-        return -1;
-    }
-    struct dirent *e;
-    while ((e = readdir(d)) != NULL)
-    {
-        if (e->d_name[0] == '.')
+        DIR *d = opendir(spec_src_dirs[di]);
+        if (d == NULL)
         {
-            continue;
+            printf("FATAL: cannot open %s (run from the repo root)\n",
+                   spec_src_dirs[di]);
+            return -1;
         }
-        char msg[MSG_LEN];
-        snprintf(msg, sizeof(msg), "%s listed in spec_members[]", e->d_name);
-        CHECK(is_listed(e->d_name), msg);
+        struct dirent *e;
+        while ((e = readdir(d)) != NULL)
+        {
+            if (e->d_name[0] == '.')
+            {
+                continue;
+            }
+            char msg[MSG_LEN];
+            snprintf(msg, sizeof(msg), "%s listed in spec_members[]",
+                     e->d_name);
+            CHECK(is_listed(e->d_name), msg);
+        }
+        closedir(d);
     }
-    closedir(d);
 
     setenv("SYSEXEC", sysexec_dir, 1);
     unsetenv("SYSPROC");
