@@ -1191,6 +1191,40 @@ sources = [
 ]
 
 # ---------------------------------------------------------------
+# TSTBCLM - bytecode trace map (#281): one entry per clause with
+# line, source text and static DO/SELECT depth, and the lookup
+# irx_bc_line_at() the VM uses on the error path.
+#
+# Expected: CC=0
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTBCLM"
+startup = "crt1"
+sources = [
+  "test/tstbclm.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
 # TSTBPSE - WP-BC-05 PR A: PARSE sub-VM tests.
 # Verifies PARSE [UPPER] ARG/VAR/VALUE/SOURCE/VERSION/NUMERIC,
 # literal/absolute/relative triggers, compound-target rejection.

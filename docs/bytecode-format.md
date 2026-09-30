@@ -21,8 +21,10 @@ struct irx_bc_execblk {
     uint32_t      code_length;      /* bytecode length in bytes     */
     uint32_t      entry_offset;     /* offset of entry point in     */
                                     /* bytecode (usually 0)         */
-    uint32_t      trace_map_offset; /* offset to trace map; 0=none  */
-    /* followed by: Constants Table, Symbol Table, Bytecode */
+    uint32_t      trace_map_offset; /* container-relative, 4-aligned */
+                                    /* offset of the trace map;     */
+                                    /* 0 = none                     */
+    /* followed by: Constants Table, Symbol Table, Bytecode, Trace Map */
 };
 ```
 
@@ -42,7 +44,10 @@ Immediately after the header:
 | Bytecode                         |  code_length bytes
 |  ...                             |
 +----------------------------------+
-| Trace Map (if present)           |  currently unused
+| pad to a 4-byte boundary         |
+| Trace Map (if present)           |  4 + count × 16 bytes
+|  uint32 count                    |
+|  entry[0..count-1]               |
 +----------------------------------+
 ```
 
@@ -60,8 +65,46 @@ IRXBC_CONST_TBL(bc)   /* char *    — start of Constants Table */
 IRXBC_SYM_TBL(bc)     /* char *    — start of Symbol Table    */
 IRXBC_CODE(bc)         /* unsigned char * — start of bytecode  */
 IRXBC_ENTRY(bc)        /* unsigned char * — entry point        */
-IRXBC_TOTAL(nc,ns,cl)  /* size_t   — total allocation size     */
+IRXBC_TRACE_COUNT(bc)  /* uint32_t — trace map entries (0 = none) */
+IRXBC_TRACE_MAP(bc)    /* const struct irx_bc_line_ent *        */
+IRXBC_TOTAL(bc)        /* int      — total size, incl. the map  */
 ```
+
+### Trace map (#281)
+
+One 16-byte entry per clause, in ascending `pc` order:
+
+```c
+struct irx_bc_line_ent {
+    uint32_t pc;      /* bytecode offset of the clause's first byte */
+    uint32_t line;    /* 1-based source line of its first token     */
+    uint32_t src_off; /* offset of its first token in the source    */
+    uint16_t src_len; /* bytes up to the end of its last token      */
+    uint16_t depth;   /* static DO/SELECT nesting                   */
+};
+```
+
+- **Which clause a pc belongs to:** the last entry with `entry.pc <= pc`.
+  `irx_bc_line_at(bc, pc)` does the binary search. The VM reads the map only
+  when it reports an error, never per clause, so a program that runs without
+  error pays nothing at run time.
+- **Clauses that emit no code** (labels, null clauses) share a pc with the
+  next clause; the later one is kept.
+- **Code emitted away from its clause** belongs to that clause again: the
+  iterate section of a DO (increment and loop test, emitted after the body)
+  gets a second entry for the DO clause.
+- **Clause text** is `src_len` bytes at `src_off` in the source the compiler
+  was given, from the first token through the last, quotes included. An IF or
+  WHEN clause ends before THEN, which starts a clause of its own. A continued
+  clause (`,` at the end of a line) spans the physical lines, line breaks
+  included. The container holds offsets, never pointers, so the reader needs
+  the same source buffer.
+- **`depth`** counts the DO and SELECT groups around the clause. The `+++`
+  traceback indents by this plus the active calls and INTERPRETs (z/OS:
+  `ERRTEST` in #281).
+- **Where it is built:** `bcom_ctx` keeps the map in a table grown through
+  `irxstor`, not in a fixed array, because the context is already 87 K on MVS
+  (#258).
 
 ---
 

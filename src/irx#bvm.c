@@ -841,6 +841,41 @@ static int pframe_assign(struct bc_parse_frame *pframe,
 }
 
 /* ================================================================== */
+/*  irx_bc_line_at (#281)                                             */
+/* ================================================================== */
+
+const struct irx_bc_line_ent *irx_bc_line_at(
+    const struct irx_bc_execblk *bc, uint32_t pc)
+{
+    uint32_t n = (bc != NULL) ? IRXBC_TRACE_COUNT(bc) : 0U;
+    if (n == 0)
+    {
+        return NULL;
+    }
+    const struct irx_bc_line_ent *map = IRXBC_TRACE_MAP(bc);
+    if (pc < map[0].pc)
+    {
+        return NULL;
+    }
+    /* Last entry with map[i].pc <= pc. */
+    uint32_t lo = 0;
+    uint32_t hi = n - 1;
+    while (lo < hi)
+    {
+        uint32_t mid = lo + (hi - lo + 1) / 2;
+        if (map[mid].pc <= pc)
+        {
+            lo = mid;
+        }
+        else
+        {
+            hi = mid - 1;
+        }
+    }
+    return &map[lo];
+}
+
+/* ================================================================== */
 /*  irx_bc_execute                                                    */
 /* ================================================================== */
 
