@@ -206,6 +206,20 @@ static void test_do_loop(struct envblock *env)
     check_ent(bc, 2, 1, 0, "do i = 1 to 3", "iterate section is the DO");
     check_ent(bc, 3, 4, 0, "say 'done'", "after the loop");
     release(env, bc);
+
+    /* No body: the iterate section follows the loop test directly and
+     * still gets its own entry for the DO clause. */
+    bc = compile(env, "do 3\nend\nsay 'x'\n");
+    if (bc == NULL)
+    {
+        CHECK(0, "compile empty DO");
+        return;
+    }
+    CHECK(IRXBC_TRACE_COUNT(bc) == 3, "empty DO: 3 entries");
+    check_ent(bc, 0, 1, 0, "do 3", "empty DO: the DO clause");
+    check_ent(bc, 1, 1, 0, "do 3", "empty DO: iterate section");
+    check_ent(bc, 2, 3, 0, "say 'x'", "empty DO: after the loop");
+    release(env, bc);
 }
 
 static void test_continuation(struct envblock *env)
