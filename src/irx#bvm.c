@@ -875,6 +875,12 @@ int irx_bc_execute(struct envblock *envblock,
     void *const_cache_mem = NULL;
     int sp = 0; /* next free slot */
     int call_sp = 0;
+    /* The exec's own arguments.  proxy_parser->call_args points into
+     * call_frames while a routine is active, so these keep the block
+     * that is restored at depth 0 and freed at done: (#262). */
+    Lstr *top_args = NULL;
+    int *top_arg_exists = NULL;
+    int top_argc = 0;
     int n_consts;
     int n_syms;
     const char *const_base;
@@ -1126,9 +1132,12 @@ int irx_bc_execute(struct envblock *envblock,
         la[0].len = (size_t)args_len;
         la[0].type = LSTRING_TY;
         le[0] = 1;
-        proxy_parser->call_args = la;
-        proxy_parser->call_arg_exists = le;
-        proxy_parser->call_argc = 1;
+        top_args = la;
+        top_arg_exists = le;
+        top_argc = 1;
+        proxy_parser->call_args = top_args;
+        proxy_parser->call_arg_exists = top_arg_exists;
+        proxy_parser->call_argc = top_argc;
     }
 
     /* --- Init condition-trap handler table (WP-BC-07 PR B) ------------ */
@@ -2529,9 +2538,9 @@ int irx_bc_execute(struct envblock *envblock,
                         }
                         else
                         {
-                            proxy_parser->call_args = NULL;
-                            proxy_parser->call_arg_exists = NULL;
-                            proxy_parser->call_argc = 0;
+                            proxy_parser->call_args = top_args;
+                            proxy_parser->call_arg_exists = top_arg_exists;
+                            proxy_parser->call_argc = top_argc;
                         }
                     }
                     else
@@ -2607,9 +2616,9 @@ int irx_bc_execute(struct envblock *envblock,
                         }
                         else
                         {
-                            proxy_parser->call_args = NULL;
-                            proxy_parser->call_arg_exists = NULL;
-                            proxy_parser->call_argc = 0;
+                            proxy_parser->call_args = top_args;
+                            proxy_parser->call_arg_exists = top_arg_exists;
+                            proxy_parser->call_argc = top_argc;
                         }
                         if (push_r)
                         {
@@ -2682,9 +2691,9 @@ int irx_bc_execute(struct envblock *envblock,
                         }
                     }
                     call_sp = 0;
-                    proxy_parser->call_args = NULL;
-                    proxy_parser->call_arg_exists = NULL;
-                    proxy_parser->call_argc = 0;
+                    proxy_parser->call_args = top_args;
+                    proxy_parser->call_arg_exists = top_arg_exists;
+                    proxy_parser->call_argc = top_argc;
 
                     /* Clear eval stack */
                     sp = 0;
@@ -2777,9 +2786,9 @@ int irx_bc_execute(struct envblock *envblock,
                         }
                     }
                     call_sp = 0;
-                    proxy_parser->call_args = NULL;
-                    proxy_parser->call_arg_exists = NULL;
-                    proxy_parser->call_argc = 0;
+                    proxy_parser->call_args = top_args;
+                    proxy_parser->call_arg_exists = top_arg_exists;
+                    proxy_parser->call_argc = top_argc;
 
                     /* Clear eval stack */
                     sp = 0;
@@ -3688,9 +3697,9 @@ int irx_bc_execute(struct envblock *envblock,
                 }
             }
             call_sp = 0;
-            proxy_parser->call_args = NULL;
-            proxy_parser->call_arg_exists = NULL;
-            proxy_parser->call_argc = 0;
+            proxy_parser->call_args = top_args;
+            proxy_parser->call_arg_exists = top_arg_exists;
+            proxy_parser->call_argc = top_argc;
             sp = 0;
 
             wk_t = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
@@ -3766,27 +3775,29 @@ done:
         }
     }
 
-    /* Free proxy parser result Lstr and any top-level call_args */
+    /* Free proxy parser result Lstr */
     if (proxy_parser != NULL)
     {
         Lfree(alloc, &proxy_parser->result);
-        if (proxy_parser->call_args != NULL)
+    }
+
+    /* Free the top-level arguments.  Not via proxy_parser->call_args:
+     * after an EXIT or error inside a routine that points into
+     * call_frames, which the loop above has already released (#262). */
+    if (top_args != NULL)
+    {
+        int ci;
+        for (ci = 0; ci < top_argc; ci++)
         {
-            int ci;
-            for (ci = 0; ci < proxy_parser->call_argc; ci++)
-            {
-                Lfree(alloc, &proxy_parser->call_args[ci]);
-            }
-            alloc->dealloc(proxy_parser->call_args,
-                           (size_t)IRX_MAX_ARGS * sizeof(Lstr),
-                           alloc->ctx);
+            Lfree(alloc, &top_args[ci]);
         }
-        if (proxy_parser->call_arg_exists != NULL)
-        {
-            alloc->dealloc(proxy_parser->call_arg_exists,
-                           (size_t)IRX_MAX_ARGS * sizeof(int),
-                           alloc->ctx);
-        }
+        alloc->dealloc(top_args, (size_t)IRX_MAX_ARGS * sizeof(Lstr),
+                       alloc->ctx);
+    }
+    if (top_arg_exists != NULL)
+    {
+        alloc->dealloc(top_arg_exists, (size_t)IRX_MAX_ARGS * sizeof(int),
+                       alloc->ctx);
     }
 
     /* Free Lstr buffers */

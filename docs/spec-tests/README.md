@@ -42,8 +42,6 @@ and the cases whose specified outcome is an error.
 - **Helpers read `arg(n)`, never `parse arg`.** rexx370 currently strips the
   leading blank of the last PARSE variable (#273); `parse arg` would make
   leading-blank cases pass falsely.
-- **Helpers only `RETURN`.** `EXIT` inside a called routine crashes rexx370
-  today (#262).
 - **No line ends in `,,`**: that passes an extra empty argument (#274). The
   one exception is ARG case 32, which tests exactly that.
 - **Lines of at most 72 columns, ASCII only**: the execs are FB 80 members on
@@ -60,8 +58,8 @@ and the cases whose specified outcome is an error.
 `spec_members[]` in `test/tstspec.c` carries, per exec, the issue whose defect
 makes it fail today. Those execs are reported as XFAIL. An exec that starts to
 pass is reported as XPASS and fails the run, so the entry is removed together
-with the fix. `ARGOPT` is not run at all (`norun`) because #262 takes the
-whole address space down.
+with the fix. `norun` marks an exec whose defect takes the whole address
+space down; none does today (ARGOPT was one until #262 was fixed).
 
 ## Where the manual is unclear
 

@@ -58,7 +58,7 @@ static const struct spec_member spec_members[] = {
     {"ABS", 267, 0},
     {"ADDRESS", 278, 0},
     {"ARG", 274, 0},
-    {"ARGOPT", 262, 1},
+    {"ARGOPT", 280, 0},
     {"ARITH", 267, 0},
     {"ARITHNEG", 268, 0},
     {"B2X", 0, 0},
