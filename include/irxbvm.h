@@ -93,6 +93,10 @@ const char *irx_bc_unsup_text(int reason) asm("IRXBCUTX");
 /*  Parameters:                                                       */
 /*    envblock — owning environment                                  */
 /*    bc       — container produced by irx_bc_compile               */
+/*    source   — the source bc was compiled from; the trace map      */
+/*               holds offsets into it (#281).  May be NULL: an      */
+/*               error is then reported without the clause text.     */
+/*    source_len — its length in bytes                               */
 /*    args     — top-level argument string (may be NULL)             */
 /*    args_len — length of args in bytes (0 if args is NULL)         */
 /*    rc_out   — receives the program RC on success; may be NULL     */
@@ -102,6 +106,7 @@ const char *irx_bc_unsup_text(int reason) asm("IRXBCUTX");
 
 int irx_bc_execute(struct envblock *envblock,
                    struct irx_bc_execblk *bc,
+                   const char *source, int source_len,
                    const char *args, int args_len,
                    int *rc_out) asm("IRXBEXEC");
 

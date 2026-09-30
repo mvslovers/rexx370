@@ -348,7 +348,7 @@ static void test_signal_sigl(struct envblock *env)
     rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
     if (rc == IRXBC_OK && bc != NULL)
     {
-        rc = irx_bc_execute(env, bc, NULL, 0, &exit_rc);
+        rc = irx_bc_execute(env, bc, NULL, 0, NULL, 0, &exit_rc);
         {
             void *p = bc;
             irxstor(RXSMFRE, 0, &p, env);

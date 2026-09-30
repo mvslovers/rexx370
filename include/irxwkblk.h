@@ -17,6 +17,8 @@
 #ifndef IRXWKBLK_H
 #define IRXWKBLK_H
 
+#include <stddef.h>
+
 #include "irx.h"
 #include "irxcond.h"
 
@@ -247,7 +249,31 @@ struct irx_wkblk_int
      * fallback.                                                        */
     int wkbi_bc_unsup_reason;
     int wkbi_bc_unsup_line;
+
+    /* ================================================================ */
+    /*  Fields below were added after an IRXINIT that may still be      */
+    /*  installed.  Under TSO/E the TMP builds the environment with the */
+    /*  installed IRXINIT, whose work block ends before them, so read   */
+    /*  or write them only when WKBI_HAS() says the block has them.     */
+    /*  New fields go at the end, never in between (#281).              */
+    /* ================================================================ */
+
+    /* Bumped by every irx_cond_raise(): lets a caller tell a condition
+     * raised by the failing operation from one left over from before
+     * (#281).  Wraps harmlessly -- only equality is tested. */
+    unsigned int wkbi_cond_seq;
+
+    /* Name of the running exec for "Error running <name>" (#281):
+     * the INSTBLK member, blank-stripped, NUL-terminated; empty when
+     * the exec came in without one (irx_exec_run called directly). */
+    char wkbi_exec_name[9];
 };
+
+/* True if work block wk is long enough to hold field (see above). */
+#define WKBI_HAS(wk, field)                                             \
+    ((wk) != NULL &&                                                    \
+     (wk)->wkbi_length >= (int)(offsetof(struct irx_wkblk_int, field) + \
+                                sizeof((wk)->field)))
 
 #define WKBLK_INT_ID "WKBI"
 
