@@ -2020,6 +2020,8 @@ members = [
   "test/fixtures/tstjcl/HELLO",
   "test/fixtures/tstjcl/WITHARG",
   "test/fixtures/tstjcl/ENVTEST",
+  "test/fixtures/tstjcl/ERR42",
+  "test/fixtures/tstjcl/EXIT7",
 ]
 
 [[test]]

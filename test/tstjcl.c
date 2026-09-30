@@ -7,16 +7,18 @@
 /*  real IRXLOAD + IRXEXEC path.                                      */
 /*                                                                    */
 /*  Test cases:                                                        */
-/*  T1:  NULL member              -> IRXJCL_BADPARM (24)             */
-/*  T2:  empty member string      -> IRXJCL_BADPARM (24)             */
-/*  T3:  sequential-mode marker   -> IRXJCL_BADPARM (24)             */
-/*  T4:  member name > 8 chars    -> IRXJCL_BADPARM (24)             */
-/*  T5:  leading space (no name)  -> IRXJCL_BADPARM (24)             */
+/*  T1:  NULL member              -> IRXJCL_BADPARM (20021)             */
+/*  T2:  empty member string      -> IRXJCL_BADPARM (20021)             */
+/*  T3:  sequential-mode marker   -> IRXJCL_BADPARM (20021)             */
+/*  T4:  member name > 8 chars    -> IRXJCL_BADPARM (20021)             */
+/*  T5:  leading space (no name)  -> IRXJCL_BADPARM (20021)             */
 /*  T6:  valid member, no args    -> IRXJCL_OK (0)                   */
 /*  T7:  valid member, arg string -> IRXJCL_OK (0)                   */
 /*  T8:  member not found         -> IRXJCL_ERROR (20)               */
 /*  T9:  lowercase member name    -> uppercased, found, IRXJCL_OK    */
 /*  T10: pre-existing env via FINDENVB -> IRXJCL_OK                  */
+/*  T11: exec ends in error 42  -> 20000 + 42 (z/OS CC 3658, #281)    */
+/*  T12: exec EXITs with 7      -> 7, not converted                   */
 /*                                                                    */
 /*  Host cross-compile (from repo root):                              */
 /*    LSTR=contrib/lstring370-0.1.0-dev                               */
@@ -118,6 +120,17 @@ static int setup_test_dirs(void)
     write_test_file(s_sysexec_dir, "ENVTEST",
                     "/* envtest */\n"
                     "exit 0\n");
+
+    /* T11: member ERR42 -- ends in error 42 */
+    write_test_file(s_sysexec_dir, "ERR42",
+                    "/* err42 */\n"
+                    "x = 1/0\n"
+                    "exit 0\n");
+
+    /* T12: member EXIT7 -- a plain EXIT value */
+    write_test_file(s_sysexec_dir, "EXIT7",
+                    "/* exit7 */\n"
+                    "exit 7\n");
 
     setenv("SYSEXEC", s_sysexec_dir, 1);
     unsetenv("SYSPROC");
@@ -229,6 +242,17 @@ static void test_findenvb_env(void)
     irxterm(env);
 }
 
+static void test_error_rc(void)
+{
+    printf("T11: exec ends in error 42 -> 20042\n");
+    int rc = irx_jcl_dispatch_main("ERR42", NULL, 0);
+    CHECK(rc == IRXJCL_SYNTAX_BASE + 42, "error 42 returns 20042");
+
+    printf("T12: EXIT 7 -> 7\n");
+    rc = irx_jcl_dispatch_main("EXIT7", NULL, 0);
+    CHECK(rc == 7, "EXIT value returned unchanged");
+}
+
 /* ================================================================== */
 /*  main                                                              */
 /* ================================================================== */
@@ -255,6 +279,7 @@ int main(void)
     test_member_not_found();
     test_lowercase_member();
     test_findenvb_env();
+    test_error_rc();
 
     printf("\n=== Results: %d/%d passed", tests_passed, tests_run);
     if (tests_failed > 0)

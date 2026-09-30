@@ -41,11 +41,16 @@
 #include "irx.h"
 #include "irx_init.h"
 #include "irxbvm.h"
+#include "irxcond.h"
+#include "irxemsg.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxjcl.h"
 #include "irxload.h"
 #include "irxwkblk.h"
+
+/* One load-failure message line (IRX0406E with DD and member). */
+#define JCL_MSG_MAX 128
 
 /* MVS PDS member names are 1–8 characters (blank-padded to CL8). */
 #define MVS_MEMBER_LEN 8
@@ -187,6 +192,26 @@ int irx_jcl_dispatch_main(const char *member,
         irx_load_dispatch(IRXLOAD_FC_LOAD, &eb, &instblk, env, &load_retv);
     if (load_rc != IRXLOAD_OK)
     {
+        /* z/OS for a missing member (#258): three WTOs, CC 20,
+         * nothing in SYSTSPRT.  Storage is reported as error 5; the
+         * follow-up lines for that case are not measured on z/OS. */
+        if (load_rc == IRXLOAD_NOTFOUND)
+        {
+            char dd[IRXLOAD_DDNAME_BUFLEN];
+            char line[JCL_MSG_MAX];
+            irx_load_loaddd(env, dd);
+            snprintf(line, sizeof(line),
+                     "0406E REXX exec load file %s does not contain exec "
+                     "member %.*s.",
+                     dd, member_len, (const char *)member8);
+            irx_emsg_system(env, line);
+        }
+        else if (load_rc == IRXLOAD_NOMEM)
+        {
+            irx_emsg_syntax(env, SYNTAX_STORAGE, 0, NULL, 0);
+        }
+        irx_emsg_system(env, "0110I The REXX exec cannot be interpreted.");
+        irx_emsg_system(env, "0112I The REXX exec cannot be loaded.");
         rc_final = IRXJCL_ERROR;
         goto cleanup_env;
     }
@@ -210,6 +235,15 @@ int irx_jcl_dispatch_main(const char *member,
     memset(evalblk_buf, 0, sizeof(evalblk_buf));
     evalblk->evalblock_evsize = EVALBLK_DWORDS;
 
+    /* An error that ended the exec is recorded by the message it
+     * printed; clear the slot so an earlier run cannot answer. */
+    struct irx_wkblk_int *wke =
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    if (wke != NULL)
+    {
+        wke->wkbi_error_number = 0;
+    }
+
     /* flags = IRXEXEC_COMMAND (0x00000000) — z/OS codebase value.
      * Spec ticket quoted 0x80000000 but include/irx.h defines
      * IRXEXEC_COMMAND as 0x00000000 (the correct z/OS value). */
@@ -231,6 +265,14 @@ int irx_jcl_dispatch_main(const char *member,
     }
 
     rc_final = exec_rc;
+    /* An exec that ended in an error returns 20000 + the error number,
+     * as IRXEXEC does in EVDATA (SC28-1883-0 p.226); z/OS IRXJCL gives
+     * CC 3658 for error 42 (#281).  An EXIT value is left alone. */
+    if (exec_rc != 0 && wke != NULL && wke->wkbi_error_number >= SYNTAX_MIN &&
+        wke->wkbi_error_number <= SYNTAX_MAX)
+    {
+        rc_final = IRXJCL_SYNTAX_BASE + wke->wkbi_error_number;
+    }
 
     /* ---- Step 8: conditional IRXTERM + return ---------------------- */
 cleanup_env:

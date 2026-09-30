@@ -31,13 +31,17 @@ int irx_jcl_dispatch_main(const char *member,
                            const char *arg_string,
                            int         arg_len);
 
-/* Return codes (process exit code / R15). */
+/* Return codes (process exit code / R15), SC28-1883-0 Figure 11. */
 enum irxjcl_rc
 {
-    IRXJCL_OK = 0,       /* exec ran; check exit RC via EVALBLOCK       */
-    IRXJCL_BADPARM = 24, /* member NULL/empty/sequential-mode/too-long  */
-    IRXJCL_NOENV = 28,   /* cannot locate/create a Language Env         */
-    IRXJCL_ERROR = 20,   /* internal error (load failure, alloc, etc.)  */
+    IRXJCL_OK = 0,              /* exec ran; check exit RC via EVALBLOCK */
+    IRXJCL_BADPARM = 20021,     /* member NULL/empty/sequential/too long; */
+                                /* the step CC shows it mod 4096         */
+    IRXJCL_NOENV = 28,          /* cannot locate/create a Language Env   */
+    IRXJCL_ERROR = 20,          /* the exec was not executed (load)      */
+    IRXJCL_SYNTAX_BASE = 20000, /* + REXX error number when the exec     */
+                                /* ended in an error (z/OS: 42 -> CC     */
+                                /* 3658 = 20042 mod 4096, #281)          */
 };
 
 #endif /* IRXJCL_H */

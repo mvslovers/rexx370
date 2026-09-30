@@ -55,4 +55,13 @@ int irx_load_dispatch(const char *funccode,
                       struct envblock *envblk,
                       int *retval) asm("IRXLDISP");
 
+/* Buffer size for a DD name: 8 characters plus the NUL. */
+#define IRXLOAD_DDNAME_BUFLEN 9
+
+/* The environment's exec load DD: the MODNAMET LOADDD field, SYSEXEC
+ * when that is blank or there is no environment.  Used by the loader's
+ * search and by IRXJCL's "does not contain exec member" message. */
+void irx_load_loaddd(const struct envblock *envblk,
+                     char out[IRXLOAD_DDNAME_BUFLEN]) asm("IRXLLDD");
+
 #endif /* IRXLOAD_H */

@@ -97,6 +97,42 @@ static int emsg_tb_line(char *buf, const struct irx_emsg_clause *c)
     return n;
 }
 
+void irx_emsg_system(struct envblock *env, const char *text)
+{
+    char buf[EMSG_LINE_MAX];
+
+    if (env == NULL || text == NULL)
+    {
+        return;
+    }
+    char prefix[EMSG_PREFIX_LEN + 1] = "IRX";
+    irxmsgid(0, prefix, env);
+    prefix[EMSG_PREFIX_LEN] = '\0';
+    int n = snprintf(buf, EMSG_LINE_MAX, "%s%s", prefix, text);
+    if (n < 0)
+    {
+        return;
+    }
+    if (n >= EMSG_LINE_MAX)
+    {
+        n = EMSG_LINE_MAX - 1;
+    }
+
+    struct parmblock *pb = (struct parmblock *)env->envblock_parmblock;
+    int tso = (pb != NULL && pb->tsofl);
+#ifdef __MVS__
+    if (!tso && (pb == NULL || !pb->nomsgwto))
+    {
+        buf[n] = '\0';
+        wtof("%s", buf);
+        return;
+    }
+#else
+    (void)tso;
+#endif
+    emsg_io(env, RXFWRITERR, buf, n);
+}
+
 void irx_emsg_syntax(struct envblock *env, int errnum, int line,
                      const struct irx_emsg_clause *tb, int n_tb)
 {

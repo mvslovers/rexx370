@@ -658,8 +658,29 @@ int irx_exec_run(const char *source, int source_len,
     rc = irx_pars_run(&parser);
     if (rc != 0)
     {
-        report_line(envblock, pars_errnum(parser.error_code, envblock, cond_base),
-                    parser.error_line, source, source_len);
+        /* A BIF failing in the token walk returns without the parser's
+         * fail(), so no error line is recorded; the token the parser
+         * stopped at still names it (#281). */
+        int line = parser.error_line;
+        if (line <= 0 && parser.tokens != NULL && parser.tok_count > 0)
+        {
+            int tp = parser.tok_pos;
+            if (tp >= parser.tok_count)
+            {
+                tp = parser.tok_count - 1;
+            }
+            if (tp > 0 && parser.tokens[tp].tok_type == TOK_EOF)
+            {
+                tp--;
+            }
+            if (tp >= 0)
+            {
+                line = parser.tokens[tp].tok_line;
+            }
+        }
+        report_line(envblock,
+                    pars_errnum(parser.error_code, envblock, cond_base), line,
+                    source, source_len);
     }
 
     if (rc_out != NULL)
