@@ -2588,6 +2588,13 @@ int irx_bc_execute(struct envblock *envblock,
                         sp -= nargs;
                         if (brc != IRXPARS_OK)
                         {
+                            /* A BIF rejecting its arguments is error 40
+                             * unless it named its error itself (#281). */
+                            vm_raise_if_none(envblock, wk_run, cond_base,
+                                             brc == IRXPARS_NOMEM
+                                                 ? SYNTAX_STORAGE
+                                                 : SYNTAX_BAD_CALL,
+                                             "incorrect call to routine");
                             vm_rc = IRXBC_ERR_ARITH;
                             goto check_syntax_trap;
                         }
@@ -2720,6 +2727,13 @@ int irx_bc_execute(struct envblock *envblock,
                         sp -= nargs;
                         if (brc != IRXPARS_OK)
                         {
+                            /* A BIF rejecting its arguments is error 40
+                             * unless it named its error itself (#281). */
+                            vm_raise_if_none(envblock, wk_run, cond_base,
+                                             brc == IRXPARS_NOMEM
+                                                 ? SYNTAX_STORAGE
+                                                 : SYNTAX_BAD_CALL,
+                                             "incorrect call to routine");
                             vm_rc = IRXBC_ERR_ARITH;
                             goto check_syntax_trap;
                         }
