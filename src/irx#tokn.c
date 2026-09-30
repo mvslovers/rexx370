@@ -562,6 +562,8 @@ static int scan_string(struct tok_ctx *ctx)
     }
     else if (suffix == 'b' || suffix == 'B')
     {
+        /* Binary strings are an extension: SC28-1883-0 has none
+         * (docs/extensions.md). */
         int bits = 0;
         int i;
         for (i = 0; i < body_len; i++)

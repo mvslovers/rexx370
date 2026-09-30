@@ -1,0 +1,31 @@
+/* REXX -- binary strings, extension (not in SC28-1883-0)           */
+/* Expected values follow TSO/E REXX on z/OS; see                   */
+/* docs/extensions.md. z/OS confirmation: pending.                  */
+fails = 0
+call t 1, c2x('11110000'b), 'F0'
+call t 2, c2x('101 1101'b), '5D'
+call t 3, c2x('1'b), '01'
+call t 4, c2x('10000 10101010'b), '10AA'
+call t 5, length(''b), '0'
+say 'BINSTR   done, failed:' fails
+exit fails
+
+/* t: case number, result, expected -- strict comparison             */
+t: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if got == want then say 'BINSTR  ' right(n,3) 'PASS'
+else do
+  say 'BINSTR  ' right(n,3) 'FAIL got <'got'> want <'want'>'
+  fails = fails + 1
+end
+return
+
+/* te: as t, but only on an EBCDIC system                            */
+te: procedure expose fails
+n = arg(1); got = arg(2); want = arg(3)
+if c2x(' ') \== '40' then do
+  say 'BINSTR  ' right(n,3) 'SKIP (EBCDIC only)'
+  return
+end
+call t n, got, want
+return
