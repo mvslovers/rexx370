@@ -272,6 +272,18 @@ Parses EXEC PARM, initializes non-TSO environment via IRXINIT, calls IRXEXEC, cl
 //SYSTSIN  DD   DUMMY
 ```
 
+**Minimum REGION** (measured on MVSCE-LAB with `tso/lab/region_ladder.py`,
+JOB01424/JOB01426, one-line exec):
+
+| Path | Runs from | Below that |
+|---|---|---|
+| `PGM=IRXJCL` | **896K** | 768K: CC 20 (the bytecode compiler's 87 K context, `struct bcom_ctx`, cannot be obtained; WTO in the job log only). 640K: CC 12 from the C runtime's startup, before IRXJCL runs (libc370#254). 512K: ABEND U0801, no storage for the C stack |
+| `PGM=IKJEFT01`, `%exec` | **640K** | 512K: ABEND 878-01 inside EXEC (`IKJ56641I`). 384K and less: IRXEXEC cannot be loaded (`IEA703I 106-C`), reported as `IKJ56500I COMMAND … NOT FOUND` |
+
+Larger execs need more. Code a REGION with headroom (the examples use
+`REGION=4096K`); the class default of 512K is not enough for IRXJCL.
+Tracked in #258.
+
 ## 4.2 IRXEXEC — execute an exec
 
 Main interface. Parameters: EXECBLK_PTR, ARGLIST_PTR, FLAGS, INSTBLK_PTR, CPPL_PTR, EVALBLK_PTR, WKAREA_PTR, USERFIELD_PTR, ENVBLOCK_PTR.
