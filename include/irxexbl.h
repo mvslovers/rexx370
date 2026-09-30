@@ -11,7 +11,7 @@
 /*    [ Constants Table  (const_count items) ]                       */
 /*    [ Symbol Table     (symbol_count items)]                       */
 /*    [ Bytecode         (code_length bytes) ]                       */
-/*    [ Trace Map        (optional)          ]                       */
+/*    [ pad to 4 bytes, then Trace Map (optional, see below)        ] */
 /*                                                                    */
 /*  Table entry format (IRXBC_ENTRY_SIZE == 64 bytes):              */
 /*    byte[0]     = string length (0..IRXBC_STR_MAX)                */
@@ -55,7 +55,8 @@ struct irx_bc_execblk
     uint32_t symbol_count;     /* number of entries in symbol table   */
     uint32_t code_length;      /* bytecode length in bytes            */
     uint32_t entry_offset;     /* offset into bytecode of entry point */
-    uint32_t trace_map_offset; /* offset to trace map (0 = absent)    */
+    uint32_t trace_map_offset; /* container-relative offset of the    */
+                               /* trace map, 4-aligned (0 = absent)   */
     /* Variable-length payload follows immediately after this header. */
 };
 
@@ -93,13 +94,54 @@ struct irx_bc_execblk
 #define IRXBC_ENTRY(bc) \
     (IRXBC_CODE(bc) + (bc)->entry_offset)
 
-/* Total byte size of a container: header + tables + bytecode. */
+/* ================================================================== */
+/*  Trace map (#281)                                                  */
+/*                                                                    */
+/*  One entry per clause, sorted by pc: the bytecode offset where the */
+/*  clause's code starts, its first source line, and where its text   */
+/*  lies in the source the compiler was given.  The code for a pc     */
+/*  belongs to the last entry with entry.pc <= pc.  Clauses that emit */
+/*  no code (labels, null clauses) share a pc with the next clause;   */
+/*  the later one is kept.  depth is the clause's static nesting      */
+/*  (DO / SELECT) for the +++ traceback indentation; the dynamic      */
+/*  depth (active calls, INTERPRET) is added at run time.             */
+/*                                                                    */
+/*  Layout at trace_map_offset: uint32_t count, then count entries.   */
+/*  The VM reads it only when it reports an error, never per clause.  */
+/* ================================================================== */
+
+struct irx_bc_line_ent
+{
+    uint32_t pc;      /* bytecode offset of the clause's first byte */
+    uint32_t line;    /* 1-based source line of its first token     */
+    uint32_t src_off; /* offset of its first token in the source    */
+    uint16_t src_len; /* bytes up to the end of its last token      */
+    uint16_t depth;   /* static DO/SELECT nesting                   */
+};
+
+/* Number of entries in the trace map (0 when absent). */
+#define IRXBC_TRACE_COUNT(bc)    \
+    ((bc)->trace_map_offset == 0 \
+         ? 0U                    \
+         : *(const uint32_t *)((const char *)(bc) + (bc)->trace_map_offset))
+
+/* Pointer to the first trace map entry. */
+#define IRXBC_TRACE_MAP(bc)                                \
+    ((const struct irx_bc_line_ent *)((const char *)(bc) + \
+                                      (bc)->trace_map_offset + 4))
+
+/* Total byte size of a container: header + tables + bytecode, plus the
+ * trace map when present. */
 /* clang-format off */
 #define IRXBC_TOTAL(bc)                                               \
-    ((int)sizeof(struct irx_bc_execblk)                               \
-     + (int)(bc)->const_count  * IRXBC_ENTRY_SIZE                     \
-     + (int)(bc)->symbol_count * IRXBC_ENTRY_SIZE                     \
-     + (int)(bc)->code_length)
+    ((bc)->trace_map_offset != 0                                      \
+     ? (int)(bc)->trace_map_offset + 4                                \
+       + (int)IRXBC_TRACE_COUNT(bc)                                   \
+         * (int)sizeof(struct irx_bc_line_ent)                        \
+     : (int)sizeof(struct irx_bc_execblk)                             \
+       + (int)(bc)->const_count  * IRXBC_ENTRY_SIZE                   \
+       + (int)(bc)->symbol_count * IRXBC_ENTRY_SIZE                   \
+       + (int)(bc)->code_length)
 /* clang-format on */
 
 #endif /* IRXEXBL_H */

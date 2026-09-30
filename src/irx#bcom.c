@@ -121,6 +121,15 @@ struct bcom_ctx
      * UNSUP is hit. */
     int unsup_reason;
     int unsup_line;
+
+    /* Trace map (#281): one entry per clause, grown through irxstor
+     * rather than held as a fixed array here -- this context is already
+     * 87 K on MVS and is the allocation that fails first under a small
+     * REGION (#258). */
+    const char *src_base;
+    struct irx_bc_line_ent *lmap;
+    int lmap_count;
+    int lmap_cap;
 };
 
 /* ================================================================== */
@@ -340,6 +349,144 @@ static int tok_ends_clause(const struct bcom_ctx *ctx)
     const struct irx_token *t = tok_at(ctx, 0);
     return t == NULL || t->tok_type == TOK_EOC || t->tok_type == TOK_EOF ||
            tok_is_semi(t);
+}
+
+/* ================================================================== */
+/*  Trace map (#281)                                                   */
+/* ================================================================== */
+
+/* Initial number of trace map entries; the table doubles when full. */
+#define BCOM_LMAP_INIT 32
+
+/* Largest clause text a trace map entry records (src_len is 16 bits;
+ * SC28-1883-0 limits a clause to 500 characters, error 12). */
+#define BCOM_LMAP_MAX_SRC 0xFFFF
+
+static int tok_is_str(const struct irx_token *t)
+{
+    return t->tok_type == TOK_STRING || t->tok_type == TOK_HEXSTRING ||
+           t->tok_type == TOK_BINSTRING;
+}
+
+/* First source byte of a token.  A string token's text is its body, so
+ * step back over the opening quote. */
+static const char *tok_src_start(const struct irx_token *t)
+{
+    return tok_is_str(t) ? t->tok_text - 1 : t->tok_text;
+}
+
+/* One past the last source byte of a token: for a string, past the
+ * closing quote and an x/b suffix. */
+static const char *tok_src_end(const struct irx_token *t)
+{
+    const char *e = t->tok_text + t->tok_length;
+    if (tok_is_str(t))
+    {
+        e += (t->tok_type == TOK_STRING) ? 1 : 2;
+    }
+    return e;
+}
+
+static int lmap_grow(struct bcom_ctx *ctx)
+{
+    int cap = ctx->lmap_cap > 0 ? ctx->lmap_cap * 2 : BCOM_LMAP_INIT;
+    void *nb = NULL;
+
+    if (irxstor(RXSMGET, cap * (int)sizeof(struct irx_bc_line_ent), &nb,
+                ctx->env) != 0)
+    {
+        ctx->rc = IRXBC_ERR_STOR;
+        return -1;
+    }
+    if (ctx->lmap != NULL)
+    {
+        void *old = ctx->lmap;
+        memcpy(nb, ctx->lmap,
+               (size_t)ctx->lmap_count * sizeof(struct irx_bc_line_ent));
+        irxstor(RXSMFRE, 0, &old, ctx->env);
+    }
+    ctx->lmap = (struct irx_bc_line_ent *)nb;
+    ctx->lmap_cap = cap;
+    return 0;
+}
+
+/* Append ent at the current code offset.  A clause that emitted no code
+ * shares its pc with the next one; the later clause replaces it. */
+static int lmap_put(struct bcom_ctx *ctx, const struct irx_bc_line_ent *ent)
+{
+    struct irx_bc_line_ent *slot;
+
+    if (ctx->rc != IRXBC_OK)
+    {
+        return -1;
+    }
+    if (ctx->lmap_count > 0 &&
+        ctx->lmap[ctx->lmap_count - 1].pc == (uint32_t)ctx->code_len)
+    {
+        slot = &ctx->lmap[ctx->lmap_count - 1];
+    }
+    else
+    {
+        if (ctx->lmap_count >= ctx->lmap_cap && lmap_grow(ctx) != 0)
+        {
+            return -1;
+        }
+        slot = &ctx->lmap[ctx->lmap_count++];
+    }
+    *slot = *ent;
+    slot->pc = (uint32_t)ctx->code_len;
+    return (int)(slot - ctx->lmap);
+}
+
+/* Record the clause starting at the current token.  Its text runs to
+ * the clause end; for an IF or WHEN clause it stops before THEN, which
+ * starts a clause of its own.  Returns the entry index, or -1. */
+static int bc_mark_clause(struct bcom_ctx *ctx, int depth)
+{
+    const struct irx_token *t0 = tok_at(ctx, 0);
+    int stop_then = tok_kw(ctx, 0, "IF") || tok_kw(ctx, 0, "WHEN");
+    const struct irx_token *last = t0;
+    struct irx_bc_line_ent ent;
+
+    if (t0 == NULL || t0->tok_text == NULL || ctx->src_base == NULL)
+    {
+        return -1;
+    }
+    for (int i = ctx->pos + 1; i < ctx->tok_count; i++)
+    {
+        const struct irx_token *t = &ctx->tokens[i];
+        if (t->tok_type == TOK_EOC || t->tok_type == TOK_EOF ||
+            tok_is_semi(t) || t->tok_text == NULL)
+        {
+            break;
+        }
+        if (stop_then && t->tok_type == TOK_SYMBOL && t->tok_upper != NULL &&
+            strcmp(t->tok_upper, "THEN") == 0)
+        {
+            break;
+        }
+        last = t;
+    }
+
+    long len = (long)(tok_src_end(last) - tok_src_start(t0));
+    memset(&ent, 0, sizeof(ent));
+    ent.line = (uint32_t)t0->tok_line;
+    ent.src_off = (uint32_t)(tok_src_start(t0) - ctx->src_base);
+    ent.src_len = (uint16_t)(len > BCOM_LMAP_MAX_SRC ? BCOM_LMAP_MAX_SRC
+                                                     : len);
+    ent.depth = (uint16_t)depth;
+    return lmap_put(ctx, &ent);
+}
+
+/* Code emitted for a clause away from where it starts (the iterate
+ * section of a DO, after the body) belongs to that clause again. */
+static void bc_remark_clause(struct bcom_ctx *ctx, int idx)
+{
+    if (idx >= 0 && idx < ctx->lmap_count)
+    {
+        struct irx_bc_line_ent ent = ctx->lmap[idx];
+        lmap_put(ctx, &ent);
+    }
 }
 
 /* True if the token at offset is a continuation-comma: a TOK_COMMA the
@@ -2785,6 +2932,7 @@ static void C_select_bc(struct bcom_ctx *ctx)
         if (tok_kw(ctx, 0, "WHEN"))
         {
             int jmp;
+            bc_mark_clause(ctx, ctx->loop_depth);
             ctx->pos++; /* consume WHEN */
 
             bc_expr(ctx);
@@ -2895,6 +3043,8 @@ static int emit_do_to_cond(struct bcom_ctx *ctx, int si_var, int si_lim,
 
 static void C_do_bc(struct bcom_ctx *ctx)
 {
+    /* bc_stmt has just recorded the DO clause itself. */
+    int do_clause = ctx->lmap_count - 1;
     struct bc_loop_ctx *lf;
     int loop_top;
     int loop_type = BCTL_DO_FOREVER;
@@ -3136,6 +3286,8 @@ static void C_do_bc(struct bcom_ctx *ctx)
     }
 
     /* ---- Iterate section ----------------------------------------- */
+    /* Increment and loop test run as part of the DO clause (#281). */
+    bc_remark_clause(ctx, do_clause);
 
     if (loop_type == BCTL_DO_COUNT)
     {
@@ -3842,6 +3994,7 @@ static void bc_stmt(struct bcom_ctx *ctx)
         return;
     }
 
+    bc_mark_clause(ctx, ctx->loop_depth);
     emit_byte(ctx, OP_NEWCLAUSE);
     if (ctx->rc != IRXBC_OK)
     {
@@ -4307,6 +4460,7 @@ int irx_bc_compile(struct envblock *envblock,
     ctx->tokens = tokens;
     ctx->tok_count = tok_count;
     ctx->rc = IRXBC_OK;
+    ctx->src_base = source;
 
     bc_program(ctx);
     rc = ctx->rc;
@@ -4331,6 +4485,14 @@ int irx_bc_compile(struct envblock *envblock,
             ctx->const_count * IRXBC_ENTRY_SIZE +
             ctx->sym_count * IRXBC_ENTRY_SIZE +
             ctx->code_len;
+    /* Trace map behind the code, on a 4-byte boundary (#281). */
+    int map_off = 0;
+    if (ctx->lmap_count > 0)
+    {
+        map_off = (total + 3) & ~3;
+        total = map_off + 4 +
+                ctx->lmap_count * (int)sizeof(struct irx_bc_line_ent);
+    }
 
     if (irxstor(RXSMGET, total, &bc_mem, envblock) != 0)
     {
@@ -4347,7 +4509,7 @@ int irx_bc_compile(struct envblock *envblock,
     bc->symbol_count = (uint32_t)ctx->sym_count;
     bc->code_length = (uint32_t)ctx->code_len;
     bc->entry_offset = 0;
-    bc->trace_map_offset = 0;
+    bc->trace_map_offset = (uint32_t)map_off;
 
     dst = IRXBC_CONST_TBL(bc);
     for (i = 0; i < ctx->const_count; i++)
@@ -4362,6 +4524,13 @@ int irx_bc_compile(struct envblock *envblock,
         dst += IRXBC_ENTRY_SIZE;
     }
     memcpy(IRXBC_CODE(bc), ctx->code, (size_t)ctx->code_len);
+    if (map_off != 0)
+    {
+        uint32_t count = (uint32_t)ctx->lmap_count;
+        memcpy((char *)bc + map_off, &count, sizeof(count));
+        memcpy((char *)bc + map_off + 4, ctx->lmap,
+               (size_t)ctx->lmap_count * sizeof(struct irx_bc_line_ent));
+    }
 
     *bc_out = bc;
     bc_mem = NULL;
@@ -4370,6 +4539,11 @@ cleanup:
     if (tokens != NULL)
     {
         irx_tokn_free(envblock, tokens, tok_count);
+    }
+    if (ctx != NULL && ctx->lmap != NULL)
+    {
+        void *p = ctx->lmap;
+        irxstor(RXSMFRE, 0, &p, envblock);
     }
     if (ctx_mem != NULL)
     {

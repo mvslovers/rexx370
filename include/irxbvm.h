@@ -105,4 +105,16 @@ int irx_bc_execute(struct envblock *envblock,
                    const char *args, int args_len,
                    int *rc_out) asm("IRXBEXEC");
 
+/* ================================================================== */
+/*  irx_bc_line_at — the clause a bytecode offset belongs to (#281)  */
+/*                                                                    */
+/*  Returns the trace map entry of the clause whose code contains     */
+/*  offset pc (the last entry with entry.pc <= pc), or NULL when the */
+/*  container has no trace map or pc lies before its first clause.   */
+/*  A binary search; used on the error path, never per clause.       */
+/* ================================================================== */
+
+const struct irx_bc_line_ent *irx_bc_line_at(
+    const struct irx_bc_execblk *bc, uint32_t pc) asm("IRXBCLIN");
+
 #endif /* IRXBVM_H */
