@@ -23,9 +23,10 @@
 *  Before IRXLDTSO, step 3 was IRXLOAD, whose stdio reader ABENDs
 *  S0C4 without a C runtime (asm/irxload.asm header).
 *
-*  PARM '1' = TSO leg (load_routine must be there), anything else =
-*  batch leg (IRXPARMS leaves EXROUT blank, load_routine stays 0; the
-*  test then only checks that and terminates).
+*  PARM '1' = TSO leg, anything else = batch leg.  Both run every
+*  step: IRXPARMS names IRXLDTSO in EXROUT too since #299, because
+*  the thin IRXJCL has no C runtime for IRXLOAD's stdio reader.  In
+*  the batch leg the SAY goes through IRXINOUT instead.
 *
 *  WTO (50-char layout, see texecvl.asm):
 *    TLDTSO OK   ENV=xxxxxxxx XRC=xxxxxxxx LRC=xxxxxxxx
@@ -125,14 +126,6 @@ NOPARM   DS    0H
          BZ    FAILED
          L     R6,EXTELOAD(,R5)
          ST    R6,WLOADR
-         CLI   WTSO,1
-         BE    TSOLEG
-*  Batch leg: no EXROUT named, so nothing may have been loaded.
-         LTR   R6,R6
-         BNZ   FAILTERM
-         B     TERMOK
-*
-TSOLEG   DS    0H
          LTR   R6,R6
          BZ    FAILTERM           IRXLDTSO not wired
 *

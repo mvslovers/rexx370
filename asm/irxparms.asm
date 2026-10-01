@@ -37,8 +37,11 @@ IRXPARMS CSECT
 MODNAMET DC    CL8'SYSTSIN '       DD names (3 fields)
          DC    CL8'SYSTSPRT'
          DC    CL8'SYSEXEC '
-         DC    CL8'        '       replaceable routine slots
-         DC    CL8'        '
+         DC    CL8'        '       IORT: default IRXINOUT
+*  EXROUT -- the exec load routine.  IRXLOAD reads members through
+*  stdio, which needs a C runtime; IRXJCL has none since #299, so
+*  batch uses the BPAM reader as TSO does (IRXTSPRM, #230).
+         DC    CL8'IRXLDTSO'       EXROUT exec load routine
          DC    CL8'        '
          DC    CL8'        '
          DC    CL8'        '

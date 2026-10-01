@@ -4,13 +4,13 @@
 /*  Like TSTIOTSO this means two different things in mbt's two legs,  */
 /*  told apart by PARM (parm_batch = "0", parm_tso = "1"):            */
 /*                                                                    */
-/*    TSO leg    IRXTSPRM names IRXLDTSO in MODNAMET EXROUT, IRXINIT  */
-/*               LOADs it into IRXEXTE's load_routine.  The test      */
-/*               loads the fixture exec THROUGH that slot and         */
+/*    TSO leg    IRXTSPRM names IRXLDTSO in MODNAMET EXROUT,          */
+/*    batch leg  and so does IRXPARMS since #299 (IRXJCL has no C     */
+/*               runtime for IRXLOAD's stdio reader).  IRXINIT LOADs  */
+/*               it into IRXEXTE's load_routine.  In both legs the    */
+/*               test loads the fixture exec THROUGH that slot and    */
 /*               compares every line with what IRXLOAD's own reader   */
 /*               (stdio, linked into this program) makes of it.       */
-/*    batch leg  IRXPARMS leaves EXROUT blank: load_routine stays     */
-/*               NULL, IRXLOAD is used directly.                      */
 /*                                                                    */
 /*  The comparison is on the CONTENT -- line count, lengths, bytes --  */
 /*  not on return codes: a reader that drops the short last block of  */
@@ -326,50 +326,40 @@ int main(int argc, char **argv)
 
     if (exte != NULL && mnt != NULL && ref != NULL)
     {
-        if (expect_tso)
-        {
-            CHECK(memcmp(mnt->modnamet_exrout, "IRXLDTSO", 8) == 0,
-                  "TSO: MODNAMET still names IRXLDTSO (so the LOAD worked)");
-            CHECK(exte->load_routine != NULL,
-                  "TSO: load_routine is wired");
+        CHECK(memcmp(mnt->modnamet_exrout, "IRXLDTSO", 8) == 0,
+              "MODNAMET still names IRXLDTSO (so the LOAD worked)");
+        CHECK(exte->load_routine != NULL,
+              "load_routine is wired");
 
-            struct instblk *got = NULL;
-            int rc = (exte->load_routine != NULL)
-                         ? load_via(exte->load_routine, IRXLOAD_FC_LOAD, &eb,
-                                    &got, env)
-                         : -1;
-            CHECK(rc == IRXLOAD_OK && got != NULL,
-                  "TSO: LOAD through load_routine returns an INSTBLK");
-            if (got != NULL)
-            {
-                CHECK(n_lines(got) == FIXTURE_LINES,
-                      "TSO: BPAM reader delivers all 49 records");
-                CHECK(same_content(got, ref),
-                      "TSO: every line identical to the stdio reader's");
-                CHECK(memcmp(got->instblk_ddname, "SYSEXEC ", 8) == 0,
-                      "TSO: instblk_ddname names the DD that answered");
-                CHECK(load_via(exte->load_routine, IRXLOAD_FC_FREE, &eb, &got,
-                               env) == IRXLOAD_OK &&
-                          got == NULL,
-                      "TSO: FREE through load_routine clears the pointer");
-            }
-
-            struct execblk none;
-            make_execblk(&none, "NOSUCHEX", "        ");
-            struct instblk *nf = NULL;
-            CHECK(exte->load_routine != NULL &&
-                      load_via(exte->load_routine, IRXLOAD_FC_LOAD, &none,
-                               &nf, env) == IRXLOAD_NOTFOUND &&
-                      nf == NULL,
-                  "TSO: a missing member is NOTFOUND, not an error");
-        }
-        else
+        struct instblk *got = NULL;
+        int rc = (exte->load_routine != NULL)
+                     ? load_via(exte->load_routine, IRXLOAD_FC_LOAD, &eb,
+                                &got, env)
+                     : -1;
+        CHECK(rc == IRXLOAD_OK && got != NULL,
+              "LOAD through load_routine returns an INSTBLK");
+        if (got != NULL)
         {
-            CHECK(memcmp(mnt->modnamet_exrout, "        ", 8) == 0,
-                  "batch: MODNAMET EXROUT slot is blank");
-            CHECK(exte->load_routine == NULL,
-                  "batch: no load_routine loaded, IRXLOAD is used directly");
+            CHECK(n_lines(got) == FIXTURE_LINES,
+                  "BPAM reader delivers all 49 records");
+            CHECK(same_content(got, ref),
+                  "every line identical to the stdio reader's");
+            CHECK(memcmp(got->instblk_ddname, "SYSEXEC ", 8) == 0,
+                  "instblk_ddname names the DD that answered");
+            CHECK(load_via(exte->load_routine, IRXLOAD_FC_FREE, &eb, &got,
+                           env) == IRXLOAD_OK &&
+                      got == NULL,
+                  "FREE through load_routine clears the pointer");
         }
+
+        struct execblk none;
+        make_execblk(&none, "NOSUCHEX", "        ");
+        struct instblk *nf = NULL;
+        CHECK(exte->load_routine != NULL &&
+                  load_via(exte->load_routine, IRXLOAD_FC_LOAD, &none,
+                           &nf, env) == IRXLOAD_NOTFOUND &&
+                  nf == NULL,
+              "a missing member is NOTFOUND, not an error");
     }
 
     if (ref != NULL)
@@ -394,7 +384,7 @@ int main(int argc, char **argv)
     {
         CHECK(same_content(num, plain),
               "#231 stdio: numbered member reads as its unnumbered twin");
-        if (expect_tso && exte != NULL && exte->load_routine != NULL)
+        if (exte != NULL && exte->load_routine != NULL)
         {
             struct instblk *bnum = NULL;
             CHECK(load_via(exte->load_routine, IRXLOAD_FC_LOAD, &ebn, &bnum,

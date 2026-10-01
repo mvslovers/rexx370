@@ -822,6 +822,58 @@ static void test_argtable_multi(void)
 /* ================================================================== */
 /*  main                                                              */
 /* ================================================================== */
+/* ================================================================== */
+/*  T16 — an exec that ends in REXX error n returns 20000 + n (#299)  */
+/*  and the next run in the same environment is not answered by the  */
+/*  stale error number.                                              */
+/* ================================================================== */
+static void test_error_rc(void)
+{
+    const char *bad[] = {"x = 1/0", "exit 3"};
+    const char *good[] = {"exit 0"};
+    char *pool = NULL;
+    struct instblk *ib;
+    struct envblock *env;
+    int rc;
+
+    printf("T16: error 42 -> 20042, then a clean run -> 0\n");
+
+    env = make_env();
+    if (!env)
+    {
+        printf("  SKIP: irxinit failed\n");
+        return;
+    }
+
+    ib = build_mock_instblk(bad, 2, &pool);
+    if (!ib)
+    {
+        irxterm(env);
+        printf("  SKIP: build_mock_instblk failed\n");
+        return;
+    }
+    rc = irx_exec_dispatch(NULL, NULL, 0, ib, NULL, NULL, NULL, NULL, env,
+                           NULL);
+    CHECK(rc == IRXEXEC_SYNTAX_BASE + 42, "error 42 returns 20042");
+    free(pool);
+    free(ib);
+
+    pool = NULL;
+    ib = build_mock_instblk(good, 1, &pool);
+    if (!ib)
+    {
+        irxterm(env);
+        printf("  SKIP: build_mock_instblk failed\n");
+        return;
+    }
+    rc = irx_exec_dispatch(NULL, NULL, 0, ib, NULL, NULL, NULL, NULL, env,
+                           NULL);
+    CHECK(rc == 0, "the next exec in that environment returns 0");
+    free(pool);
+    free(ib);
+    irxterm(env);
+}
+
 int main(void)
 {
     printf("TSTEXEC: IRXEXEC Service-Layer tests (WP-CPS-06)\n");
@@ -842,6 +894,7 @@ int main(void)
     test_vl_on_p10_note();
     test_execblk_subcom();
     test_argtable_multi();
+    test_error_rc();
 
     printf("--------------------------------------------------\n");
     printf("Results: %d run, %d passed, %d failed\n",

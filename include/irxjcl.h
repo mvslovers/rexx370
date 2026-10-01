@@ -28,8 +28,8 @@
  * Returns one of the irxjcl_rc values below.
  */
 int irx_jcl_dispatch_main(const char *member,
-                           const char *arg_string,
-                           int         arg_len);
+                          const char *arg_string,
+                          int arg_len);
 
 /* Return codes (process exit code / R15), SC28-1883-0 Figure 11. */
 enum irxjcl_rc
@@ -41,7 +41,8 @@ enum irxjcl_rc
     IRXJCL_ERROR = 20,          /* the exec was not executed (load)      */
     IRXJCL_SYNTAX_BASE = 20000, /* + REXX error number when the exec     */
                                 /* ended in an error (z/OS: 42 -> CC     */
-                                /* 3658 = 20042 mod 4096, #281)          */
+                                /* 3658 = 20042 mod 4096, #281); IRXEXEC */
+                                /* returns it (IRXEXEC_SYNTAX_BASE)      */
 };
 
 #endif /* IRXJCL_H */

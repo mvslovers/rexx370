@@ -310,23 +310,35 @@ sources = [
 ]
 
 # ---------------------------------------------------------------
-# IRXJCL - Batch Entry Point (PGM=IRXJCL, WP-CPS-08 / TSK-220)
-# MVS loads this when a JCL step specifies EXEC PGM=IRXJCL.
-# Entry is @@CRT0 (crent370 bootstrap); main() in IRX#JCLM
-# reconstructs the single-arg-string from @@START-split argv
-# and delegates to irx_jcl_dispatch_main in IRX#JCL.
-#
-# REUS dropped: @@CRT0/main() setup is incompatible with REUS
-# (same as all other @@CRT0 test/service modules).
-# Programmatic CALL IRXJCL support: deferred to WP-CPS-08c.
-#
-# Invocation:
-#   Batch  :  EXEC PGM=IRXJCL,PARM='MYMEMBER args...'
-#
-# Reference: WP-CPS-08 / TSK-220 / GitHub mvslovers/rexx370#126
+# IRXJCL - Batch Entry Point (PGM=IRXJCL,PARM='member args...')
+# A thin assembler entry (#299): splits the PARM, finds or makes an
+# environment through IRXINIT, loads the exec through the
+# environment's load routine (IRXPARMS names IRXLDTSO), LOADs
+# IRXEXEC to run it, IRXTERMs its own environment and returns
+# IRXEXEC's RC.  The interpreter lives in IRXEXEC alone, and IRXJCL
+# needs no C runtime.  See asm/irxjcl.asm.
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXJCL"
+entry = "IRXJCL"
+startup = false
+sources = ["asm/irxjcl.asm"]
+
+# ---------------------------------------------------------------
+# IRXJCLD - the C-runtime IRXJCL, kept as a lab module (#299).
+# Links the whole interpreter and reads REXX370_BYTECODE and
+# REXX370_BCDEBUG (SYSENV DD) for the A/B comparisons and the
+# "[bc] exec=N fallback=M" line the cps measurements are gated on.
+# Not part of a product install.
+#
+# Entry is @@CRT0; main() in IRX#JCLM reconstructs the arg string
+# from @@START-split argv and calls irx_jcl_dispatch_main in IRX#JCL.
+#
+# Invocation:
+#   Batch  :  EXEC PGM=IRXJCLD,PARM='MYMEMBER args...'
+# ---------------------------------------------------------------
+[[module]]
+name = "IRXJCLD"
 startup = "crt1"
 sources = [
   "src/irx#jclm.c",
