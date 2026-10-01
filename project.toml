@@ -11,7 +11,11 @@ type = "application"
 libc370 = "1.0.8"
 
 [build]
-cflags = ["-std=gnu99", "-I", "include"]
+# -Os after mbt's -O1 (the last -O wins): about 8 % smaller code, which
+# counts for REGION and later for the LPA (#258, #300). cc370 calls -Os
+# experimental and leaves its validation to the project; rexx370's is in
+# #258 (full suite batch + TSO, REGION ladder, production modules -Os).
+cflags = ["-std=gnu99", "-I", "include", "-Os"]
 
 # Host build (`make test-host`): the dual test/*.c tests run natively for a
 # fast inner loop. lstring370 is linked from source on the host (the staged
