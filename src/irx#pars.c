@@ -3924,25 +3924,41 @@ static int parse_primary(struct irx_parser *p, PLstr out);
 /*  Expression nesting (#294)                                         */
 /*                                                                    */
 /*  Every nested level recurses on the C stack, which nothing else    */
-/*  bounds.  Past IRX_EXPR_NEST_MAX raise error 39, as z/OS does.     */
-/*  Each successful nest_enter() is paired with one nest_leave() on   */
+/*  bounds.  The count follows z/OS's evaluation stack (irxpars.h):   */
+/*  past IRX_EXPR_NEST_MAX raise error 39.  Each successful           */
+/*  nest_enter() is paired with a nest_leave() of the same cost on    */
 /*  every path out, so the count is back to 0 between clauses.        */
 /* ------------------------------------------------------------------ */
 
-static int nest_enter(struct irx_parser *p)
+static int nest_enter(struct irx_parser *p, int cost)
 {
-    if (p->expr_depth >= IRX_EXPR_NEST_MAX)
+    if (p->expr_depth + cost > IRX_EXPR_NEST_MAX)
     {
         irx_cond_raise(p->envblock, SYNTAX_EVAL_STACK, 0, NULL);
         return fail(p, IRXPARS_SYNTAX);
     }
-    p->expr_depth++;
+    p->expr_depth += cost;
     return IRXPARS_OK;
 }
 
-static void nest_leave(struct irx_parser *p)
+static void nest_leave(struct irx_parser *p, int cost)
 {
-    p->expr_depth--;
+    p->expr_depth -= cost;
+}
+
+/* The right operand of a binary operator: the operator stays pending
+ * on the evaluation stack while it is evaluated. */
+static int parse_operand(struct irx_parser *p,
+                         int (*level)(struct irx_parser *, PLstr), PLstr out)
+{
+    int rc = nest_enter(p, IRX_NEST_COST_OPERATOR);
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+    rc = level(p, out);
+    nest_leave(p, IRX_NEST_COST_OPERATOR);
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */
@@ -4129,7 +4145,7 @@ static int parse_function_call(struct irx_parser *p,
 {
     int argc = 0;
     int i;
-    int rc = nest_enter(p);
+    int rc = nest_enter(p, IRX_NEST_COST_GROUP);
     Lstr upname;
 
     if (rc != IRXPARS_OK)
@@ -4139,7 +4155,7 @@ static int parse_function_call(struct irx_parser *p,
     Lstr *argvals = (Lstr *)p->alloc->alloc(FCALL_ARGS_SIZE, p->alloc->ctx);
     if (argvals == NULL)
     {
-        nest_leave(p);
+        nest_leave(p, IRX_NEST_COST_GROUP);
         return fail(p, IRXPARS_NOMEM);
     }
     PLstr *argptrs = (PLstr *)(argvals + IRX_MAX_ARGS);
@@ -4221,7 +4237,7 @@ done:
         Lfree(p->alloc, &argvals[i]);
     }
     p->alloc->dealloc(argvals, FCALL_ARGS_SIZE, p->alloc->ctx);
-    nest_leave(p);
+    nest_leave(p, IRX_NEST_COST_GROUP);
     return rc;
 }
 
@@ -4259,14 +4275,14 @@ static int parse_primary(struct irx_parser *p, PLstr out)
 
     if (t->tok_type == TOK_LPAREN)
     {
-        rc = nest_enter(p);
+        rc = nest_enter(p, IRX_NEST_COST_GROUP);
         if (rc != IRXPARS_OK)
         {
             return rc;
         }
         advance_tok(p);
         rc = parse_or(p, out);
-        nest_leave(p);
+        nest_leave(p, IRX_NEST_COST_GROUP);
         if (rc != IRXPARS_OK)
         {
             return rc;
@@ -4356,6 +4372,7 @@ static int parse_prefix(struct irx_parser *p, PLstr out)
     const struct irx_token *t = cur_tok(p);
     int negate = 0;
     int logical_not = 0;
+    int n_prefix = 0;
 
     while (t != NULL)
     {
@@ -4377,10 +4394,18 @@ static int parse_prefix(struct irx_parser *p, PLstr out)
         {
             break;
         }
+        n_prefix++;
         t = cur_tok(p);
     }
 
-    int rc = parse_primary(p, out);
+    int cost = n_prefix * IRX_NEST_COST_PREFIX;
+    int rc = nest_enter(p, cost);
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+    rc = parse_primary(p, out);
+    nest_leave(p, cost);
     if (rc != IRXPARS_OK)
     {
         return rc;
@@ -4442,12 +4467,8 @@ static int parse_power(struct irx_parser *p, PLstr out)
         advance_tok(p); /* first  * */
         advance_tok(p); /* second * */
 
-        rc = nest_enter(p);
-        if (rc == IRXPARS_OK)
-        {
-            rc = parse_power(p, &rhs); /* recurse = right-associative */
-            nest_leave(p);
-        }
+        /* recurse = right-associative */
+        rc = parse_operand(p, parse_power, &rhs);
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);
@@ -4524,7 +4545,7 @@ static int parse_mul(struct irx_parser *p, PLstr out)
             int arc;
             enum irx_arith_opcode aop;
             Lzeroinit(&rhs2);
-            rc = parse_power(p, &rhs2);
+            rc = parse_operand(p, parse_power, &rhs2);
             if (rc != IRXPARS_OK)
             {
                 Lfree(p->alloc, &rhs2);
@@ -4595,7 +4616,7 @@ static int parse_add(struct irx_parser *p, PLstr out)
         advance_tok(p);
 
         Lzeroinit(&rhs);
-        rc = parse_mul(p, &rhs);
+        rc = parse_operand(p, parse_mul, &rhs);
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);
@@ -4710,7 +4731,7 @@ static int parse_concat(struct irx_parser *p, PLstr out)
         }
 
         Lzeroinit(&rhs);
-        rc = parse_add(p, &rhs);
+        rc = parse_operand(p, parse_add, &rhs);
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);
@@ -4859,7 +4880,7 @@ static int parse_comparison(struct irx_parser *p, PLstr out)
     }
 
     Lzeroinit(&rhs);
-    rc = parse_concat(p, &rhs);
+    rc = parse_operand(p, parse_concat, &rhs);
     if (rc != IRXPARS_OK)
     {
         Lfree(p->alloc, &rhs);
@@ -4963,7 +4984,7 @@ static int parse_and(struct irx_parser *p, PLstr out)
         advance_tok(p);
 
         Lzeroinit(&rhs);
-        rc = parse_comparison(p, &rhs);
+        rc = parse_operand(p, parse_comparison, &rhs);
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);
@@ -5029,7 +5050,7 @@ static int parse_or(struct irx_parser *p, PLstr out)
         (void)is_or;
 
         Lzeroinit(&rhs);
-        rc = parse_and(p, &rhs);
+        rc = parse_operand(p, parse_and, &rhs);
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);
@@ -5354,7 +5375,7 @@ int irx_pars_eval_expr(struct irx_parser *p, PLstr out)
             break;
         }
         Lzeroinit(&rhs);
-        rc = parse_or(p, &rhs);
+        rc = parse_operand(p, parse_or, &rhs);
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);

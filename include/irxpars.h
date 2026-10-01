@@ -34,13 +34,23 @@
 /* Maximum number of arguments in a CALL or function call. */
 #define IRX_MAX_ARGS 16
 
-/* Deepest expression nesting that still evaluates (#294).  Each
- * parenthesised sub-expression, function argument list and right-hand
- * ** operand is one level below the clause's own expression.  Measured
- * on z/OS: x = abs(abs(...1...)) runs 40 deep and fails with error 39
- * at 41, in TSO and IRXJCL alike.  Both expression paths recurse on the
- * C stack per level, so this also bounds the stack they need. */
-#define IRX_EXPR_NEST_MAX 40
+/* Expression nesting (#294), modelled on z/OS's evaluation stack: 40
+ * entries, error 39 beyond.  A parenthesised sub-expression or a
+ * function argument list takes one, so does a binary operator while
+ * its right operand is evaluated, a prefix operator takes two.
+ * Measured on z/OS (MIKE-TODO round 2, TSO and IRXJCL alike, and
+ * round 5, TSO):
+ *
+ *   abs(abs(...1...))     40 runs    (((1)))            40 runs
+ *   ((1+1)+1)...          39 runs    1+(1+(...1))       20 runs
+ *   - - ... - 1           20 runs
+ *
+ * Both expression paths recurse on the C stack per entry, so this also
+ * bounds the stack they need. */
+#define IRX_EXPR_NEST_MAX      40
+#define IRX_NEST_COST_GROUP    1 /* ( ... ) or name( ... )            */
+#define IRX_NEST_COST_OPERATOR 1 /* pending binary operator           */
+#define IRX_NEST_COST_PREFIX   2 /* prefix + - or \                    */
 
 /* ================================================================== */
 /*  Return codes                                                      */

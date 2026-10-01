@@ -647,64 +647,72 @@ static int bc_cur_line(const struct bcom_ctx *ctx)
         (ctx)->unsup_line = bc_cur_line(ctx); \
     } while (0)
 
-/* Nested expression levels (#294).  A parenthesised sub-expression, a
- * function argument list, a right-hand ** operand and a prefix operand
- * each recurse on the C stack.  bc_nest_enter() opens one level;
- * every successful enter is paired with bc_nest_leave(). */
-static int bc_nest_open(const struct bcom_ctx *ctx)
+/* Nested expression levels (#294), counted as z/OS counts its
+ * evaluation stack (irxpars.h).  Each entry recurses on the C stack.
+ * A successful bc_nest_enter() is paired with a bc_nest_leave() of the
+ * same cost.
+ *
+ * Past IRX_EXPR_NEST_MAX the rest of the innermost enclosing
+ * parenthesis is skipped, without recursing, and compiled as OP_RAISE
+ * 39: the error then comes when the clause runs, with its line, and
+ * SIGNAL ON SYNTAX traps it, as on z/OS.  Refusing the program here
+ * would fail it before its first clause.  The code the callers emit
+ * after it is never reached.  Outside any parenthesis (a run of prefix
+ * operators) there is no closing token to stop at: the program falls
+ * back to the token-walk path, which raises error 39 on the clause.
+ * Returns 0 when refused. */
+static int bc_nest_enter(struct bcom_ctx *ctx, int cost)
 {
-    return ctx->expr_depth < IRX_EXPR_NEST_MAX;
-}
-
-/* For ** and prefix operands: past the limit the program falls back to
- * the token-walk path, which raises error 39 when the clause runs.
- * z/OS gave no figures for these, and their operand has no closing
- * token to skip to (see bc_raise_nested).  Returns 0 when refused. */
-static int bc_nest_enter(struct bcom_ctx *ctx)
-{
-    if (!bc_nest_open(ctx))
+    if (ctx->expr_depth + cost <= IRX_EXPR_NEST_MAX)
     {
-        BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPR_DEPTH);
-        return 0;
+        ctx->expr_depth += cost;
+        return 1;
     }
-    ctx->expr_depth++;
-    return 1;
-}
 
-static void bc_nest_leave(struct bcom_ctx *ctx)
-{
-    ctx->expr_depth--;
-}
-
-/* A '(' or a function call past the limit: skip the operand up to its
- * matching ')' without recursing and compile it as OP_RAISE 39.  The
- * error then comes when the clause runs, with its line, and SIGNAL ON
- * SYNTAX traps it, as on z/OS (abs() 40 deep runs, 41 is error 39).
- * Refusing the program here would fail it before its first clause. */
-static void bc_raise_nested(struct bcom_ctx *ctx)
-{
     int balance = 0;
-
     for (;;)
     {
         if (tok_ends_clause(ctx))
         {
-            BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPR_PAREN);
-            return;
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPR_DEPTH);
+            return 0;
         }
         int type = tok_at(ctx, 0)->tok_type;
-        ctx->pos++;
+        if (type == TOK_RPAREN && balance == 0)
+        {
+            break; /* the enclosing ')' -- left to its owner */
+        }
         if (type == TOK_LPAREN)
         {
             balance++;
         }
-        else if (type == TOK_RPAREN && --balance == 0)
+        else if (type == TOK_RPAREN)
         {
-            break;
+            balance--;
         }
+        ctx->pos++;
     }
     emit_byte(ctx, OP_RAISE);
     emit_byte(ctx, SYNTAX_EVAL_STACK);
+    return 0;
+}
+
+static void bc_nest_leave(struct bcom_ctx *ctx, int cost)
+{
+    ctx->expr_depth -= cost;
+}
+
+/* The right operand of a binary operator: the operator stays pending
+ * on the evaluation stack while it is evaluated. */
+static void bc_operand(struct bcom_ctx *ctx,
+                       void (*level)(struct bcom_ctx *))
+{
+    if (!bc_nest_enter(ctx, IRX_NEST_COST_OPERATOR))
+    {
+        return;
+    }
+    level(ctx);
+    bc_nest_leave(ctx, IRX_NEST_COST_OPERATOR);
 }
 
 /* ================================================================== */
@@ -2280,15 +2288,13 @@ static void bc_exp8(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_LPAREN)
     {
-        if (!bc_nest_open(ctx))
+        if (!bc_nest_enter(ctx, IRX_NEST_COST_GROUP))
         {
-            bc_raise_nested(ctx);
             return;
         }
-        bc_nest_enter(ctx);
         ctx->pos++;
         bc_exp0(ctx);
-        bc_nest_leave(ctx);
+        bc_nest_leave(ctx, IRX_NEST_COST_GROUP);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2397,15 +2403,13 @@ static void bc_exp8(struct bcom_ctx *ctx)
                 {
                     return;
                 }
-                if (!bc_nest_open(ctx))
+                if (!bc_nest_enter(ctx, IRX_NEST_COST_GROUP))
                 {
-                    bc_raise_nested(ctx);
                     return;
                 }
-                bc_nest_enter(ctx);
                 ctx->pos += 2; /* consume symbol + '(' */
                 bc_funcall(ctx, si);
-                bc_nest_leave(ctx);
+                bc_nest_leave(ctx, IRX_NEST_COST_GROUP);
             }
             else
             {
@@ -2442,13 +2446,13 @@ static void bc_exp7(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_OPERATOR && tok_ch(ctx, 0) == '-')
     {
-        if (!bc_nest_enter(ctx))
+        if (!bc_nest_enter(ctx, IRX_NEST_COST_PREFIX))
         {
             return;
         }
         ctx->pos++;
         bc_exp7(ctx);
-        bc_nest_leave(ctx);
+        bc_nest_leave(ctx, IRX_NEST_COST_PREFIX);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2459,25 +2463,25 @@ static void bc_exp7(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_OPERATOR && tok_ch(ctx, 0) == '+')
     {
-        if (!bc_nest_enter(ctx))
+        if (!bc_nest_enter(ctx, IRX_NEST_COST_PREFIX))
         {
             return;
         }
         ctx->pos++;
         bc_exp7(ctx);
-        bc_nest_leave(ctx);
+        bc_nest_leave(ctx, IRX_NEST_COST_PREFIX);
         return;
     }
 
     if (t->tok_type == TOK_NOT)
     {
-        if (!bc_nest_enter(ctx))
+        if (!bc_nest_enter(ctx, IRX_NEST_COST_PREFIX))
         {
             return;
         }
         ctx->pos++;
         bc_exp7(ctx);
-        bc_nest_leave(ctx);
+        bc_nest_leave(ctx, IRX_NEST_COST_PREFIX);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2505,13 +2509,8 @@ static void bc_exp6(struct bcom_ctx *ctx)
     if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '*' &&
         tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '*')
     {
-        if (!bc_nest_enter(ctx))
-        {
-            return;
-        }
         ctx->pos += 2;
-        bc_exp6(ctx);
-        bc_nest_leave(ctx);
+        bc_operand(ctx, bc_exp6);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2539,7 +2538,7 @@ static void bc_exp5(struct bcom_ctx *ctx)
             tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '/')
         {
             ctx->pos += 2;
-            bc_exp6(ctx);
+            bc_operand(ctx, bc_exp6);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2552,7 +2551,7 @@ static void bc_exp5(struct bcom_ctx *ctx)
                    tok_ch(ctx, 1) == '*'))
         {
             ctx->pos++;
-            bc_exp6(ctx);
+            bc_operand(ctx, bc_exp6);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2565,7 +2564,7 @@ static void bc_exp5(struct bcom_ctx *ctx)
                    tok_ch(ctx, 1) == '/'))
         {
             ctx->pos++;
-            bc_exp6(ctx);
+            bc_operand(ctx, bc_exp6);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2575,7 +2574,7 @@ static void bc_exp5(struct bcom_ctx *ctx)
         else if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '%')
         {
             ctx->pos++;
-            bc_exp6(ctx);
+            bc_operand(ctx, bc_exp6);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2607,7 +2606,7 @@ static void bc_exp4(struct bcom_ctx *ctx)
         if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '+')
         {
             ctx->pos++;
-            bc_exp5(ctx);
+            bc_operand(ctx, bc_exp5);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2617,7 +2616,7 @@ static void bc_exp4(struct bcom_ctx *ctx)
         else if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '-')
         {
             ctx->pos++;
-            bc_exp5(ctx);
+            bc_operand(ctx, bc_exp5);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2694,7 +2693,7 @@ static void bc_exp3(struct bcom_ctx *ctx)
             tok_type_at(ctx, 1, TOK_LOGICAL) && tok_ch(ctx, 1) == '|')
         {
             ctx->pos += 2;
-            bc_exp4(ctx);
+            bc_operand(ctx, bc_exp4);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2715,7 +2714,7 @@ static void bc_exp3(struct bcom_ctx *ctx)
             const struct irx_token *lhs_last = tok_at(ctx, -1);
             const struct irx_token *rhs_first = tok_at(ctx, 0);
             int abuttal = toks_adjacent_bc(lhs_last, rhs_first);
-            bc_exp4(ctx);
+            bc_operand(ctx, bc_exp4);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2867,7 +2866,7 @@ static void bc_exp2(struct bcom_ctx *ctx)
 
     if (op != 0)
     {
-        bc_exp3(ctx);
+        bc_operand(ctx, bc_exp3);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2893,7 +2892,7 @@ static void bc_exp1(struct bcom_ctx *ctx)
            !(tok_type_at(ctx, 1, TOK_LOGICAL) && tok_ch(ctx, 1) == '&'))
     {
         ctx->pos++;
-        bc_exp2(ctx);
+        bc_operand(ctx, bc_exp2);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2921,7 +2920,7 @@ static void bc_exp0(struct bcom_ctx *ctx)
             tok_type_at(ctx, 1, TOK_LOGICAL) && tok_ch(ctx, 1) == '&')
         {
             ctx->pos += 2;
-            bc_exp1(ctx);
+            bc_operand(ctx, bc_exp1);
             if (ctx->rc != IRXBC_OK)
             {
                 return;
@@ -2934,7 +2933,7 @@ static void bc_exp0(struct bcom_ctx *ctx)
                    tok_ch(ctx, 1) == '|'))
         {
             ctx->pos++;
-            bc_exp1(ctx);
+            bc_operand(ctx, bc_exp1);
             if (ctx->rc != IRXBC_OK)
             {
                 return;

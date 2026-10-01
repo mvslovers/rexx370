@@ -294,23 +294,103 @@ static void test_forms(struct envblock *env)
 
 #define NEST_SRC_SIZE 1024
 
-/* Line 2 of the exec: x = <depth levels of kind> around 1. */
-static int nest_line(char *buf, int cap, char kind, int depth)
+/* The nesting forms, with the largest depth z/OS runs (MIKE-TODO
+ * rounds 2 and 5): a function call or parenthesis takes one entry of
+ * the evaluation stack, a pending binary operator one, a prefix
+ * operator two (irxpars.h). */
+enum nest_kind
+{
+    NEST_CALLS,  /* x = abs(abs(...1...))     */
+    NEST_BARE,   /* x = (((1)))               */
+    NEST_LEFT,   /* x = ((1+1)+1)...          */
+    NEST_RIGHT,  /* x = 1+(1+(...1))          */
+    NEST_PREFIX, /* x = - - ... - 1           */
+    NEST_POWER   /* x = 1**1**...**1          */
+};
+
+struct nest_form
+{
+    enum nest_kind kind;
+    const char *name;
+    int max;      /* deepest that runs */
+    int fallback; /* bytecode leaves the error to the token walk */
+};
+
+/* NEST_POWER: z/OS evaluates ** left to right and runs 2000 deep;
+ * both parsers here recurse on it, right-associative (#267), so a
+ * pending ** counts like any operator until that is fixed. */
+static const struct nest_form NEST_FORMS[] = {
+    {NEST_CALLS, "abs()", IRX_EXPR_NEST_MAX, 0},
+    {NEST_BARE, "(((1)))", IRX_EXPR_NEST_MAX, 0},
+    {NEST_LEFT, "((1+1)+1)", IRX_EXPR_NEST_MAX - 1, 0},
+    {NEST_RIGHT, "1+(1+(1))", IRX_EXPR_NEST_MAX / 2, 0},
+    {NEST_PREFIX, "- - 1", IRX_EXPR_NEST_MAX / 2, 1},
+    {NEST_POWER, "1**1**1", IRX_EXPR_NEST_MAX, 1},
+};
+
+static void nest_put(char *buf, int cap, int *off, const char *text,
+                     int times)
+{
+    for (int i = 0; i < times; i++)
+    {
+        *off += snprintf(buf + *off, (size_t)(cap - *off), "%s", text);
+    }
+}
+
+/* Line 2 of the exec: x = <depth levels of kind> around 1.  Writes
+ * the value it gives to result. */
+static void nest_line(char *buf, int cap, enum nest_kind kind, int depth,
+                      char *result, int rcap)
 {
     int off = snprintf(buf, (size_t)cap, "x = ");
-    for (int i = 0; i < depth && kind != '*'; i++)
+    int value = 1;
+    switch (kind)
     {
-        off += snprintf(buf + off, (size_t)(cap - off), "%s",
-                        kind == 'f' ? "abs(" : "(");
+        case NEST_CALLS:
+        {
+            nest_put(buf, cap, &off, "abs(", depth);
+            nest_put(buf, cap, &off, "1", 1);
+            nest_put(buf, cap, &off, ")", depth);
+            break;
+        }
+        case NEST_BARE:
+        {
+            nest_put(buf, cap, &off, "(", depth);
+            nest_put(buf, cap, &off, "1", 1);
+            nest_put(buf, cap, &off, ")", depth);
+            break;
+        }
+        case NEST_LEFT:
+        {
+            nest_put(buf, cap, &off, "(", depth);
+            nest_put(buf, cap, &off, "1", 1);
+            nest_put(buf, cap, &off, "+1)", depth);
+            value = depth + 1;
+            break;
+        }
+        case NEST_RIGHT:
+        {
+            nest_put(buf, cap, &off, "1+(", depth);
+            nest_put(buf, cap, &off, "1", 1);
+            nest_put(buf, cap, &off, ")", depth);
+            value = depth + 1;
+            break;
+        }
+        case NEST_PREFIX:
+        {
+            nest_put(buf, cap, &off, "- ", depth);
+            nest_put(buf, cap, &off, "1", 1);
+            value = depth % 2 ? -1 : 1;
+            break;
+        }
+        case NEST_POWER:
+        {
+            nest_put(buf, cap, &off, "1", 1);
+            nest_put(buf, cap, &off, "**1", depth);
+            break;
+        }
     }
-    off += snprintf(buf + off, (size_t)(cap - off), "1");
-    for (int i = 0; i < depth; i++)
-    {
-        off += snprintf(buf + off, (size_t)(cap - off), "%s",
-                        kind == 'f' ? ")" : kind == '(' ? "+1)"
-                                                        : "**1");
-    }
-    return off;
+    snprintf(result, (size_t)rcap, "%d", value);
 }
 
 /* Run src on one path; returns irx_exec_run's rc. */
@@ -328,14 +408,14 @@ static int nest_run(struct envblock *env, const char *src, int bytecode,
     return rc;
 }
 
-/* One kind at IRX_EXPR_NEST_MAX (runs) and one level deeper (error 39
+/* One form at its z/OS maximum (runs) and one level deeper (error 39
  * on the clause, with its line), on both paths. */
-static void nest_kind(struct envblock *env, char kind, const char *name,
-                      const char *result)
+static void nest_form(struct envblock *env, const struct nest_form *f)
 {
     char line[NEST_SRC_SIZE];
     char src[NEST_SRC_SIZE + 64];
     char expect[NEST_SRC_SIZE + 128];
+    char result[16];
     char label[96];
     int exit_rc = 0;
     int fallback = 0;
@@ -344,12 +424,13 @@ static void nest_kind(struct envblock *env, char kind, const char *name,
     {
         const char *path = bc ? "bytecode" : "token-walk";
 
-        nest_line(line, (int)sizeof(line), kind, IRX_EXPR_NEST_MAX);
+        nest_line(line, (int)sizeof(line), f->kind, f->max, result,
+                  (int)sizeof(result));
         snprintf(src, sizeof(src), "say 'a'\n%s\nsay x\n", line);
         int rc = nest_run(env, src, bc, &exit_rc, &fallback);
         snprintf(expect, sizeof(expect), "a\n%s\n", result);
-        snprintf(label, sizeof(label), "%s %d deep runs (%s)", name,
-                 IRX_EXPR_NEST_MAX, path);
+        snprintf(label, sizeof(label), "%s %d deep runs (%s)", f->name,
+                 f->max, path);
         CHECK(rc == 0 && strcmp(g_cap, expect) == 0 && fallback == 0,
               label);
         if (rc != 0 || strcmp(g_cap, expect) != 0 || fallback != 0)
@@ -357,7 +438,8 @@ static void nest_kind(struct envblock *env, char kind, const char *name,
             printf("    rc=%d fallback=%d got:\n%s", rc, fallback, g_cap);
         }
 
-        nest_line(line, (int)sizeof(line), kind, IRX_EXPR_NEST_MAX + 1);
+        nest_line(line, (int)sizeof(line), f->kind, f->max + 1, result,
+                  (int)sizeof(result));
         snprintf(src, sizeof(src), "say 'a'\n%s\nsay x\n", line);
         rc = nest_run(env, src, bc, &exit_rc, &fallback);
         snprintf(expect, sizeof(expect),
@@ -365,11 +447,9 @@ static void nest_kind(struct envblock *env, char kind, const char *name,
                  "IRX0039I Error running NEST, line 2: "
                  "Evaluation stack overflow\n",
                  line);
-        snprintf(label, sizeof(label), "%s %d deep: error 39 (%s)", name,
-                 IRX_EXPR_NEST_MAX + 1, path);
-        /* ** has no closing token to skip to: the bytecode compiler
-         * leaves it to the token-walk path. */
-        int want_fallback = bc && kind == '*';
+        snprintf(label, sizeof(label), "%s %d deep: error 39 (%s)",
+                 f->name, f->max + 1, path);
+        int want_fallback = bc && f->fallback;
         CHECK(rc != 0 && strcmp(g_cap, expect) == 0 &&
                   (!bc || fallback == want_fallback),
               label);
@@ -386,19 +466,20 @@ static void test_nesting(struct envblock *env)
     printf("\n[expression nesting: error 39 (#294)]\n");
     set_name(env, "NEST");
 
-    nest_kind(env, 'f', "abs()", "1");
-    char sum[16];
-    snprintf(sum, sizeof(sum), "%d", IRX_EXPR_NEST_MAX + 1);
-    nest_kind(env, '(', "parens", sum);
-    nest_kind(env, '*', "1**1", "1");
+    for (size_t i = 0; i < sizeof(NEST_FORMS) / sizeof(NEST_FORMS[0]); i++)
+    {
+        nest_form(env, &NEST_FORMS[i]);
+    }
 
     /* The count is back to 0 after each clause: two clauses at the
      * limit, one after the other, both run. */
     char line[NEST_SRC_SIZE];
     char src[2 * NEST_SRC_SIZE + 64];
+    char result[16];
     int exit_rc = 0;
     int fallback = 0;
-    nest_line(line, (int)sizeof(line), 'f', IRX_EXPR_NEST_MAX);
+    nest_line(line, (int)sizeof(line), NEST_CALLS, IRX_EXPR_NEST_MAX, result,
+              (int)sizeof(result));
     snprintf(src, sizeof(src), "%s\ny%s\nsay x + y\n", line, line + 1);
     for (int bc = 1; bc >= 0; bc--)
     {
@@ -413,7 +494,8 @@ static void test_nesting(struct envblock *env)
      * frozen token-walk path (CON-18).  The handler does not read RC:
      * the VM does not set it on a SYNTAX trap yet, so the number is
      * read from the condition the trap fired on. */
-    nest_line(line, (int)sizeof(line), 'f', IRX_EXPR_NEST_MAX + 1);
+    nest_line(line, (int)sizeof(line), NEST_CALLS, IRX_EXPR_NEST_MAX + 1,
+              result, (int)sizeof(result));
     snprintf(src, sizeof(src),
              "signal on syntax\nsay 'a'\n%s\nexit 1\nsyntax:\n"
              "say 'trapped'\nexit 3\n",
