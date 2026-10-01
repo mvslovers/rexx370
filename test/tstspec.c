@@ -89,7 +89,7 @@ static const struct spec_member spec_members[] = {
     {"DELWORD", 271, 0},
     {"DIGITS", 265, 0},
     {"ERRORTXT", 280, 0},
-    {"EVALORD", 267, 0},
+    {"EVALORD", 0, 0},
     {"FIND", 0, 0},
     {"FORM", 265, 0},
     {"FORMAT", 269, 0},

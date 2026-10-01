@@ -312,20 +312,24 @@ struct nest_form
 {
     enum nest_kind kind;
     const char *name;
-    int max;      /* deepest that runs */
-    int fallback; /* bytecode leaves the error to the token walk */
+    int max;       /* deepest that runs */
+    int fallback;  /* bytecode leaves the error to the token walk */
+    int unbounded; /* no error 39 at any depth: max is only a sample */
 };
 
-/* NEST_POWER: z/OS evaluates ** left to right and runs 2000 deep;
- * both parsers here recurse on it, right-associative (#267), so a
- * pending ** counts like any operator until that is fixed. */
+/* NEST_POWER: ** has one priority, so it is evaluated left to right
+ * (SC28-1883-0 p.15) and a chain holds no operator open; z/OS runs
+ * 1**1**... 2000 deep (MIKE-TODO round 5).  300 is what fits in the
+ * line buffer here (#267). */
+#define NEST_POWER_DEEP 300
+
 static const struct nest_form NEST_FORMS[] = {
-    {NEST_CALLS, "abs()", IRX_EXPR_NEST_MAX, 0},
-    {NEST_BARE, "(((1)))", IRX_EXPR_NEST_MAX, 0},
-    {NEST_LEFT, "((1+1)+1)", IRX_EXPR_NEST_MAX - 1, 0},
-    {NEST_RIGHT, "1+(1+(1))", IRX_EXPR_NEST_MAX / 2, 0},
-    {NEST_PREFIX, "- - 1", IRX_EXPR_NEST_MAX / 2, 1},
-    {NEST_POWER, "1**1**1", IRX_EXPR_NEST_MAX, 1},
+    {NEST_CALLS, "abs()", IRX_EXPR_NEST_MAX, 0, 0},
+    {NEST_BARE, "(((1)))", IRX_EXPR_NEST_MAX, 0, 0},
+    {NEST_LEFT, "((1+1)+1)", IRX_EXPR_NEST_MAX - 1, 0, 0},
+    {NEST_RIGHT, "1+(1+(1))", IRX_EXPR_NEST_MAX / 2, 0, 0},
+    {NEST_PREFIX, "- - 1", IRX_EXPR_NEST_MAX / 2, 1, 0},
+    {NEST_POWER, "1**1**1", NEST_POWER_DEEP, 0, 1},
 };
 
 static void nest_put(char *buf, int cap, int *off, const char *text,
@@ -436,6 +440,11 @@ static void nest_form(struct envblock *env, const struct nest_form *f)
         if (rc != 0 || strcmp(g_cap, expect) != 0 || fallback != 0)
         {
             printf("    rc=%d fallback=%d got:\n%s", rc, fallback, g_cap);
+        }
+
+        if (f->unbounded)
+        {
+            continue;
         }
 
         nest_line(line, (int)sizeof(line), f->kind, f->max + 1, result,
