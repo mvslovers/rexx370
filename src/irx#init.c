@@ -24,7 +24,6 @@
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */
 
-#include <ctype.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -39,11 +38,7 @@
 #include "irxwkblk.h"
 
 #ifdef __MVS__
-#include <clibary.h>  /* arraycount() — walk the PPA CLIBCRT array */
-#include <clibcrt.h>  /* CLIBCRT — per-TCB C-runtime work area */
-#include <cliblock.h> /* lock()/unlock() — shared PPA read latch */
-#include <clibos.h>   /* __load(), __delete() — crent370 */
-#include <clibppa.h>  /* __PPAGET(), CLIBPPA — C-runtime presence check */
+#include "irxsvc.h" /* irx_svc_load(), irx_svc_delete() */
 #endif
 
 /* Lock the CON-1 §3.1 ENVBLOCK size on MVS — the IBM-reserved tail
@@ -96,7 +91,7 @@ struct envblock **ectenvbk_slot(void);
 /*                                                                    */
 /*  ISPF detection (IRXISPRM) and caller-supplied PARMMOD overrides   */
 /*  are deferred. Storage for the loaded module is whatever subpool   */
-/*  __load() chose (subpool 0); we DELETE it immediately.             */
+/*  LOAD chose (subpool 0); we DELETE it immediately.                 */
 /* ================================================================== */
 
 #ifdef __MVS__
@@ -139,9 +134,7 @@ static int load_default_parmblock(int is_tso,
                                   int *mnt_valid)
 {
     const char *modname = is_tso ? "IRXTSPRM" : "IRXPARMS";
-    unsigned size = 0;
-    char ac = 0;
-    void *ep = __load(NULL, modname, &size, &ac);
+    void *ep = irx_svc_load(modname);
 
     if (ep == NULL)
     {
@@ -167,7 +160,7 @@ static int load_default_parmblock(int is_tso,
         *eff_subpool = modpb->parmblock_subpool;
 
         /* Capture MODNAMET while the module is still resident. It lives
-         * INSIDE the parm module, so after the __delete below the
+         * INSIDE the parm module, so after the DELETE below the
          * pointer dangles -- which is why parmblock_modnamet was never
          * carried over and every replaceable-routine name was lost.
          * IRXISPRM deliberately carries A(0) here (inherit from the
@@ -181,7 +174,7 @@ static int load_default_parmblock(int is_tso,
     }
 
     /* Always release the module: we only needed the byte values. */
-    (void)__delete(modname);
+    (void)irx_svc_delete(modname);
     return rc;
 }
 #endif /* __MVS__ */
@@ -246,103 +239,6 @@ cleanup:
 }
 
 /* ================================================================== */
-/*  Shared helper: env_eq_ci                                          */
-/* ================================================================== */
-
-/* Case-insensitive string equality without strcasecmp (not in crent370). */
-static int env_eq_ci(const char *a, const char *b)
-{
-    while (*a && *b)
-    {
-        if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
-        {
-            return 0;
-        }
-        a++;
-        b++;
-    }
-    return *a == *b;
-}
-
-/* ================================================================== */
-/*  Shared helper: env_get_safe                                       */
-/*                                                                    */
-/*  getenv() reaches the environment through @@GRTGET -> @@CRTGET,    */
-/*  which locate the C runtime by matching the *current TCB* against  */
-/*  the CLIBCRT array anchored in the PPA.  When no CLIBCRT matches — */
-/*  asm callers with no runtime of their own, or IRXINIT reached via  */
-/*  LOAD+BALR from a *foreign* C host whose PPA it inherits — @@CRTGET */
-/*  returns NULL and getenv() then dereferences the NULL GRT in low   */
-/*  core: an S0C4 (issue #204).  A non-NULL PPA is therefore not a    */
-/*  safe guard on its own: the PPA can be present but foreign.        */
-/*                                                                    */
-/*  crt_present_for_current_tcb() replays @@CRTGET's own lookup —     */
-/*  same PPA, same PSATOLD, same CLIBCRT-array scan — but silently    */
-/*  (no "__CRTGET ... not found" WTO) and as a bool.  getenv() runs   */
-/*  only when a CLIBCRT for the running TCB actually exists, i.e.     */
-/*  exactly when getenv() can resolve a live runtime instead of       */
-/*  faulting.  On the host (no __MVS__) getenv() is always safe.      */
-/* ================================================================== */
-#ifdef __MVS__
-/* PSATOLD lives at low-core offset 0x21C and holds the address of the
- * currently dispatched TCB — the same word @@CRTGET keys its CLIBCRT
- * lookup on.  This mirrors @@CRTGET's body verbatim (minus its
- * diagnostic WTO) so the "runtime present?" verdict is equivalent by
- * construction: same __PPAGET(), same shared read latch, same scan. */
-static int crt_present_for_current_tcb(void)
-{
-    int locked = 0;
-    unsigned *psa = 0;
-    void *tcb = (void *)psa[0x21c / 4];
-    CLIBPPA *ppa = __PPAGET();
-    CLIBCRT *crt = (CLIBCRT *)0;
-    unsigned count = 0;
-    unsigned n;
-
-    if (!ppa)
-    {
-        goto quit;
-    }
-
-    locked = lock(ppa, 1); /* 1 = read only (shared) */
-    if (locked != 0)
-    {
-        goto quit;
-    }
-
-    count = arraycount(&ppa->ppacrt);
-
-    for (n = 0; n < count; n++)
-    {
-        if (ppa->ppacrt[n]->crttcb == tcb)
-        {
-            crt = ppa->ppacrt[n];
-            break;
-        }
-    }
-
-    if (locked == 0)
-    {
-        unlock(ppa, 1);
-    }
-
-quit:
-    return crt != (CLIBCRT *)0;
-}
-#endif
-
-static const char *env_get_safe(const char *name)
-{
-#ifdef __MVS__
-    if (!crt_present_for_current_tcb())
-    {
-        return NULL;
-    }
-#endif
-    return getenv(name);
-}
-
-/* ================================================================== */
 /*  Shared helper: init_wkblk_int                                     */
 /* ================================================================== */
 
@@ -385,45 +281,13 @@ static int init_wkblk_int(struct irx_wkblk_int **wk_out,
         memcpy(wk->wkbi_prev_address, wk->wkbi_address, 8);
     }
 
-    /* Bytecode VM on by default. REXX370_BYTECODE env-var can override
-     * before any test helper sets the flag explicitly — explicit test
-     * setters (wk->wkbi_use_bytecode = 0/1) always win because they
-     * run after irxinit() returns. */
+    /* Bytecode VM on, diagnostic off.  IRXINIT reads no environment
+     * variables: getenv() needs the caller's C runtime and drags
+     * libc370's lock and printf code in (#298).  A C host that wants
+     * the REXX370_BYTECODE / REXX370_BCDEBUG switches calls
+     * irx_env_toggles() after IRXINIT, as IRXJCL does. */
     wk->wkbi_use_bytecode = 1;
-    {
-        const char *e = env_get_safe("REXX370_BYTECODE");
-        if (e != NULL)
-        {
-            if (e[0] == '0' || env_eq_ci(e, "false") ||
-                env_eq_ci(e, "no") || env_eq_ci(e, "off"))
-            {
-                wk->wkbi_use_bytecode = 0;
-            }
-            else if (e[0] == '1' || env_eq_ci(e, "true") ||
-                     env_eq_ci(e, "yes") || env_eq_ci(e, "on"))
-            {
-                wk->wkbi_use_bytecode = 1;
-            }
-            /* other values: ignored, default stays */
-        }
-    }
-
-    /* Bytecode path diagnostic. REXX370_BCDEBUG=1 (or true/yes/on)
-     * makes IRXJCL emit "[bc] exec=N fallback=M" to SYSTSPRT at the
-     * end of the run (irx_bc_debug_report).
-     * Default off; no output, no overhead when not set. */
     wk->wkbi_bc_debug = 0;
-    {
-        const char *e = env_get_safe("REXX370_BCDEBUG");
-        if (e != NULL)
-        {
-            if (e[0] == '1' || env_eq_ci(e, "true") ||
-                env_eq_ci(e, "yes") || env_eq_ci(e, "on"))
-            {
-                wk->wkbi_bc_debug = 1;
-            }
-        }
-    }
 
     *wk_out = wk;
     return 0;
@@ -463,6 +327,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     struct envblock *envblk = NULL;
     struct parmblock *pb_copy = NULL;
     struct modnamet *mnt_copy = NULL;
+    int mnt_loaded = 0; /* step 6 ran: the copy names what is LOADed */
     struct modnamet mnt_staged;
     int mnt_valid = 0;
     struct irxexte *exte = NULL;
@@ -627,7 +492,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * and are referenced briefly by envblk->envblock_parmblock between
      * step 4 and step 5; after step 5 we overwrite that slot with the
      * heap-allocated pb_copy. RXSMFRE does not read parmblock_subpool
-     * (freemain recovers it from getmain's prefix), so the stale
+     * (RXSMFRE recovers it from the block's prefix), so the stale
      * pointer in cleanup paths is harmless.
      * ---------------------------------------------------------------- */
     struct parmblock bootstrap_pb;
@@ -695,10 +560,17 @@ int irx_init_initenvb(struct envblock *prev_envblock,
 
     /* MODNAMET into storage the environment owns, so the pointer stays
      * valid for the life of the ENVBLOCK and IRXTERM can read back which
-     * replaceable routines were loaded. Without a captured MODNAMET the
-     * slot stays NULL, which is the pre-WP-33-TSO behaviour and means
-     * "no overrides, use the defaults". */
-    if (mnt_valid)
+     * replaceable routines were loaded.  Without a captured MODNAMET
+     * (a previous environment exists, or the parm module had none) the
+     * copy starts blank: blank names mean "no override", and a blank
+     * LOADDD means SYSEXEC.  Every environment gets one, because step 6
+     * records the default routines it LOADs in it (#255). */
+    if (!mnt_valid)
+    {
+        memset(&mnt_staged, ' ', sizeof(mnt_staged));
+        memset(mnt_staged.modnamet_ffff, 0xFF, sizeof(mnt_staged.modnamet_ffff));
+        mnt_valid = 1;
+    }
     {
         void *storage = NULL;
         int rc = irxstor(RXSMGET, (int)sizeof(struct modnamet),
@@ -719,9 +591,9 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * Step 6: IRXEXTE allocation + default routine pointers.
      *
      * Allocate sizeof(struct irxexte) bytes (zero-filled by GETMAIN /
-     * calloc), set the entry count, and install the rexx370 internal
-     * default routines for the slots that have a default implementation
-     * today: IRXUID, IRXMSGID, IRXINOUT (plus the active-routine peers).
+     * calloc), set the entry count, and install the replaceable routines
+     * that exist today: IRXUID, IRXMSGID, IRXINOUT and the MODNAMET
+     * overrides IORT, EXROUT, IDROUT, MSGIDRT (the rules are below).
      * Slots whose service is not yet implemented (IRXEXEC, IRXLOAD,
      * IRXJCL, IRXSTK, IRXSAY, IRXERS, IRXHST, IRXHLT, IRXTXT, IRXLIN,
      * IRXRTE, IRXEXCOM, IRXIC, IRXSUBCM, IRXTERMA, IRXRLT) stay NULL
@@ -729,27 +601,12 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * IRXINIT/IRXTERM self-references are installed by the compat
      * wrapper (Phase 6) which knows the wrapper symbol addresses.
      *
-     * Lifetime contract: the irxuid / irxmsgid / irxinout_host|mvs
-     * symbols resolve to CSECTs linked into the IRXINIT load module. The
-     * pointers installed here remain dereferencable for as long as
-     * that load module is resident in the calling task. Production
-     * callers (IRXTMPW under TSO logon — WP-I1c.6) hold IRXINIT
-     * resident for the entire session, so the pointers are valid for
-     * every subtask that finds the ENVBLOCK via IRXANCHR / ECTENVBK.
-     * Ad-hoc callers that DELETE IRXINIT (or end the task that
-     * LOADed it) before the ENVBLOCK is reused will invalidate these
-     * pointers. See follow-up TSK — Replaceable-Routine Load-Module
-     * Strategy: https://www.notion.so/3503d99387878124811ae0aae197277d
-     *
-     * MODNAMET non-blank entries (replaceable-routine module overrides
-     * via LOAD EP=) are intentionally ignored in this phase. The default
-     * routines are always installed; caller-supplied module names for
-     * IORT, EXROUT, GETFREER, EXECINIT, ATTNROUT, STACKRT, IRXEXECX,
-     * IDROUT, MSGIDRT, EXECTERM will be honoured in a future phase
-     * when an actual use-case appears. See follow-up TSK
-     * https://www.notion.so/3503d99387878124811ae0aae197277d
-     * (Replaceable-Routine Load-Module Strategy). MODNAMET DDNAME
-     * slots (INDD/OUTDD/LOADDD) are read by IRXEXEC (WP-I3) later.
+     * On MVS every routine is a load module of its own (#255), so no
+     * pointer installed here points into IRXINIT, and IRXINIT can be
+     * DELETEd while the environment lives (#256).  The other MODNAMET
+     * routines (GETFREER, EXECINIT, ATTNROUT, STACKRT, IRXEXECX,
+     * EXECTERM) are not honoured yet.  The DDNAME slots (INDD, OUTDD,
+     * LOADDD) are read by IRXLOAD.
      * ---------------------------------------------------------------- */
     {
         void *storage = NULL;
@@ -764,42 +621,33 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     }
 
     exte->irxexte_entry_count = IRXEXTE_ENTRY_COUNT;
-    exte->irxuid = (void *)irxuid;
-    exte->userid_routine = (void *)irxuid;
-    exte->irxmsgid = (void *)irxmsgid;
-    exte->msgid_routine = (void *)irxmsgid;
-    /* The I/O routine is per-ENVIRONMENT, not per-platform, and the
-     * environment names it: IRXTSPRM's MODNAMET carries IRXIOTSO (PUTLINE),
-     * IRXPARMS leaves the slot blank and keeps the stdio routine that
-     * IRXJCL redirects to DD:SYSTSPRT, and an ISPF variant later costs
-     * one DC in IRXISPRM rather than another branch here.
-     *
-     * Loading by name instead of linking both variants is also what
-     * keeps the load modules small: nothing carries a routine it will
-     * not use. See SC28-1883-0 Chapter 16. The defaults are wired here;
-     * the overrides follow below. */
-#ifdef __MVS__
-    exte->irxinout = (void *)irxinout;
-    exte->io_routine = (void *)irxinout;
-#else
-    exte->irxinout = (void *)irxinout_host;
-    exte->io_routine = (void *)irxinout_host;
-#endif
 
 #ifdef __MVS__
-    /* MODNAMET overrides.
+    /* Replaceable routines (SC28-1883-0 Chapter 16, #255).
      *
      * IRXEXTE carries every replaceable routine TWICE -- an "Active"
      * slot and a "Default" slot beside it (io_routine/irxinout,
-     * load_routine/irxload, ...). An override replaces the ACTIVE one
-     * only: the default must stay reachable, because a caller asking
-     * for the default explicitly is entitled to get it.
+     * userid_routine/irxuid, ...).
      *
-     * A named module that fails to LOAD is not fatal -- the default
-     * stays wired and the slot is BLANKED in our copy, so the copy
-     * always records what is actually active and IRXTERM never deletes
-     * something that was never loaded. */
-    if (mnt_copy != NULL)
+     * 1. Overrides: a module named in the MODNAMET is LOADed into the
+     *    ACTIVE slot.  One that fails to LOAD is not fatal: its name is
+     *    BLANKED in our copy, so the copy records what is actually
+     *    loaded and IRXTERM never deletes something that was never a
+     *    LOAD.
+     * 2. Defaults: where no override is active, the default routine,
+     *    a load module of its own (IRXUID, IRXMSGID, IRXINOUT), is
+     *    LOADed into both slots and its name written into the copy,
+     *    so IRXTERM DELETEs it like an override.  Nothing points into
+     *    IRXINIT afterwards, and IRXINIT carries no stdio (#298).
+     *    IRXINOUT is loaded only when it becomes the active I/O
+     *    routine: under TSO, IRXTSPRM names IRXIOTSO, and the stdio
+     *    routine could not run there anyway (no C runtime), so its
+     *    default slot stays NULL instead of costing region.
+     *
+     * A missing IRXINOUT where it would be the active I/O routine fails
+     * INITENVB with reason 21 (SC28-1883-0: a module could not be
+     * loaded); an environment that cannot write cannot report either.
+     * A missing IRXUID or IRXMSGID leaves its slots NULL. */
     {
         struct
         {
@@ -808,6 +656,8 @@ int irx_init_initenvb(struct envblock *prev_envblock,
         } overrides[] = {
             {mnt_copy->modnamet_iorout, &exte->io_routine},
             {mnt_copy->modnamet_exrout, &exte->load_routine},
+            {mnt_copy->modnamet_idrout, &exte->userid_routine},
+            {mnt_copy->modnamet_msgidrt, &exte->msgid_routine},
         };
 
         const int n_overrides = (int)(sizeof(overrides) / sizeof(overrides[0]));
@@ -820,9 +670,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
                 continue;
             }
 
-            unsigned size = 0;
-            char ac = 0;
-            void *ep = __load(NULL, rtname, &size, &ac);
+            void *ep = irx_svc_load(rtname);
             if (ep != NULL)
             {
                 *(overrides[i].active) = ep;
@@ -832,7 +680,57 @@ int irx_init_initenvb(struct envblock *prev_envblock,
                 memset(overrides[i].slot, ' ', 8);
             }
         }
+        mnt_loaded = 1;
+
+        struct
+        {
+            const char *name;
+            unsigned char *slot;
+            void **dflt;
+            void **active;
+            int required;
+        } defaults[] = {
+            {"IRXUID", mnt_copy->modnamet_idrout, &exte->irxuid,
+             &exte->userid_routine, 0},
+            {"IRXMSGID", mnt_copy->modnamet_msgidrt, &exte->irxmsgid,
+             &exte->msgid_routine, 0},
+            {"IRXINOUT", mnt_copy->modnamet_iorout, &exte->irxinout,
+             &exte->io_routine, 1},
+        };
+
+        const int n_defaults = (int)(sizeof(defaults) / sizeof(defaults[0]));
+
+        for (int i = 0; i < n_defaults; i++)
+        {
+            if (*(defaults[i].active) != NULL)
+            {
+                continue; /* an override is active */
+            }
+            void *ep = irx_svc_load(defaults[i].name);
+            if (ep == NULL)
+            {
+                if (defaults[i].required)
+                {
+                    reason = 21;
+                    goto cleanup;
+                }
+                continue;
+            }
+            *(defaults[i].dflt) = ep;
+            *(defaults[i].active) = ep;
+            size_t n = strlen(defaults[i].name);
+            memset(defaults[i].slot, ' ', 8);
+            memcpy(defaults[i].slot, defaults[i].name, n);
+        }
     }
+#else
+    /* Host: no LOAD; the routines are linked in. */
+    exte->irxuid = (void *)irxuid;
+    exte->userid_routine = (void *)irxuid;
+    exte->irxmsgid = (void *)irxmsgid;
+    exte->msgid_routine = (void *)irxmsgid;
+    exte->irxinout = (void *)irxinout_host;
+    exte->io_routine = (void *)irxinout_host;
 #endif
     envblk->envblock_irxexte = exte;
 
@@ -895,6 +793,33 @@ int irx_init_initenvb(struct envblock *prev_envblock,
     return 0;
 
 cleanup:
+#ifdef __MVS__
+    /* Give back what step 6 LOADed.  Before step 6 the copy still holds
+     * the parm module's names, which this environment never loaded, so
+     * a DELETE then would take a module from another environment. */
+    if (mnt_copy != NULL && mnt_loaded)
+    {
+        unsigned char *slots[] = {
+            mnt_copy->modnamet_iorout,
+            mnt_copy->modnamet_exrout,
+            mnt_copy->modnamet_idrout,
+            mnt_copy->modnamet_msgidrt,
+        };
+        for (int i = 0; i < (int)(sizeof(slots) / sizeof(slots[0])); i++)
+        {
+            char rtname[9];
+            if (modnamet_slot_name(slots[i], rtname))
+            {
+                (void)irx_svc_delete(rtname);
+            }
+        }
+    }
+#endif
+    if (mnt_copy != NULL)
+    {
+        void *p = mnt_copy;
+        irxstor(RXSMFRE, 0, &p, envblk);
+    }
     if (exte != NULL)
     {
         void *p = exte;

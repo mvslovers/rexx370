@@ -43,6 +43,7 @@
 #include "irxbvm.h"
 #include "irxcond.h"
 #include "irxemsg.h"
+#include "irxenvt.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxjcl.h"
@@ -157,6 +158,9 @@ int irx_jcl_dispatch_main(const char *member,
                 return IRXJCL_NOENV;
             }
             own_env = 1;
+            /* IRXJCL has a C runtime, so it, not IRXINIT, reads the
+             * REXX370_* switches (#298). */
+            irx_env_toggles(env);
         }
     }
 

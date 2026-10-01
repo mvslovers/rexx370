@@ -38,10 +38,9 @@
 *  the CLIBCRT C-runtime is not on the call path -- @@CRT0 is not
 *  required for the dispatch to succeed.
 *
-*  Caveat: crent370 getmain() calls wtof() on its failure path,
-*  which IS CLIBCRT-dependent; a getmain failure here (very
-*  unlikely on a healthy system) would crash secondarily trying
-*  to log. Acceptable tail risk on the bootstrap path. See #85.
+*  irxstor issues GETMAIN itself and reports a failure with a
+*  plain WTO, without libc370 (#298); see #85 and #234 for the
+*  history of the wtof() caveat that used to stand here.
 *
 *  Ref: SC28-1883-0 sec.14 (IRXINIT Programming Service)
 *  Ref: WP-I1c.5 / TSK-198 / GitHub mvslovers/rexx370#83
