@@ -3238,6 +3238,16 @@ int irx_bc_execute(struct envblock *envblock,
                     break;
                 }
 
+                case OP_RAISE:
+                {
+                    /* #294: an error the compiler found in an expression,
+                     * raised when the clause runs (irxbops.h). */
+                    int errnum = (int)*pc++;
+                    irx_cond_raise(envblock, errnum, 0, NULL);
+                    vm_rc = IRXBC_ERR_ARITH;
+                    goto check_syntax_trap;
+                }
+
                 case OP_SET_NUMERIC:
                 {
                     /* WP-BC-NUMERIC: write the NUMERIC settings the arith

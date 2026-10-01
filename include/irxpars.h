@@ -34,6 +34,14 @@
 /* Maximum number of arguments in a CALL or function call. */
 #define IRX_MAX_ARGS 16
 
+/* Deepest expression nesting that still evaluates (#294).  Each
+ * parenthesised sub-expression, function argument list and right-hand
+ * ** operand is one level below the clause's own expression.  Measured
+ * on z/OS: x = abs(abs(...1...)) runs 40 deep and fails with error 39
+ * at 41, in TSO and IRXJCL alike.  Both expression paths recurse on the
+ * C stack per level, so this also bounds the stack they need. */
+#define IRX_EXPR_NEST_MAX 40
+
 /* ================================================================== */
 /*  Return codes                                                      */
 /* ================================================================== */
@@ -85,6 +93,8 @@ struct irx_parser
     Lstr *call_args;      /* current subroutine argument values      */
     int *call_arg_exists; /* 1=passed, 0=omitted (per argument)      */
     int call_argc;        /* number of argument positions            */
+
+    int expr_depth; /* nested expression levels now open (#294) */
 };
 
 /* ================================================================== */

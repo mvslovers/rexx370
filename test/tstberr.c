@@ -17,6 +17,7 @@
 #include "irxemsg.h"
 #include "irxexec.h"
 #include "irxfunc.h"
+#include "irxpars.h"
 #include "irxwkblk.h"
 
 #ifndef __MVS__
@@ -287,6 +288,154 @@ static void test_forms(struct envblock *env)
     set_name(env, "");
 }
 
+/* ------------------------------------------------------------------ */
+/*  Expression nesting (#294)                                          */
+/* ------------------------------------------------------------------ */
+
+#define NEST_SRC_SIZE 1024
+
+/* Line 2 of the exec: x = <depth levels of kind> around 1. */
+static int nest_line(char *buf, int cap, char kind, int depth)
+{
+    int off = snprintf(buf, (size_t)cap, "x = ");
+    for (int i = 0; i < depth && kind != '*'; i++)
+    {
+        off += snprintf(buf + off, (size_t)(cap - off), "%s",
+                        kind == 'f' ? "abs(" : "(");
+    }
+    off += snprintf(buf + off, (size_t)(cap - off), "1");
+    for (int i = 0; i < depth; i++)
+    {
+        off += snprintf(buf + off, (size_t)(cap - off), "%s",
+                        kind == 'f' ? ")" : kind == '(' ? "+1)"
+                                                        : "**1");
+    }
+    return off;
+}
+
+/* Run src on one path; returns irx_exec_run's rc. */
+static int nest_run(struct envblock *env, const char *src, int bytecode,
+                    int *exit_rc, int *fallback)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    wk->wkbi_use_bytecode = bytecode;
+    wk->wkbi_bc_fallback_count = 0;
+    cap_reset();
+    int rc = irx_exec_run(src, (int)strlen(src), NULL, 0, exit_rc, env);
+    *fallback = wk->wkbi_bc_fallback_count;
+    wk->wkbi_use_bytecode = 1;
+    return rc;
+}
+
+/* One kind at IRX_EXPR_NEST_MAX (runs) and one level deeper (error 39
+ * on the clause, with its line), on both paths. */
+static void nest_kind(struct envblock *env, char kind, const char *name,
+                      const char *result)
+{
+    char line[NEST_SRC_SIZE];
+    char src[NEST_SRC_SIZE + 64];
+    char expect[NEST_SRC_SIZE + 128];
+    char label[96];
+    int exit_rc = 0;
+    int fallback = 0;
+
+    for (int bc = 1; bc >= 0; bc--)
+    {
+        const char *path = bc ? "bytecode" : "token-walk";
+
+        nest_line(line, (int)sizeof(line), kind, IRX_EXPR_NEST_MAX);
+        snprintf(src, sizeof(src), "say 'a'\n%s\nsay x\n", line);
+        int rc = nest_run(env, src, bc, &exit_rc, &fallback);
+        snprintf(expect, sizeof(expect), "a\n%s\n", result);
+        snprintf(label, sizeof(label), "%s %d deep runs (%s)", name,
+                 IRX_EXPR_NEST_MAX, path);
+        CHECK(rc == 0 && strcmp(g_cap, expect) == 0 && fallback == 0,
+              label);
+        if (rc != 0 || strcmp(g_cap, expect) != 0 || fallback != 0)
+        {
+            printf("    rc=%d fallback=%d got:\n%s", rc, fallback, g_cap);
+        }
+
+        nest_line(line, (int)sizeof(line), kind, IRX_EXPR_NEST_MAX + 1);
+        snprintf(src, sizeof(src), "say 'a'\n%s\nsay x\n", line);
+        rc = nest_run(env, src, bc, &exit_rc, &fallback);
+        snprintf(expect, sizeof(expect),
+                 "a\n     2 +++ %s\n"
+                 "IRX0039I Error running NEST, line 2: "
+                 "Evaluation stack overflow\n",
+                 line);
+        snprintf(label, sizeof(label), "%s %d deep: error 39 (%s)", name,
+                 IRX_EXPR_NEST_MAX + 1, path);
+        /* ** has no closing token to skip to: the bytecode compiler
+         * leaves it to the token-walk path. */
+        int want_fallback = bc && kind == '*';
+        CHECK(rc != 0 && strcmp(g_cap, expect) == 0 &&
+                  (!bc || fallback == want_fallback),
+              label);
+        if (rc == 0 || strcmp(g_cap, expect) != 0 ||
+            (bc && fallback != want_fallback))
+        {
+            printf("    rc=%d fallback=%d got:\n%s", rc, fallback, g_cap);
+        }
+    }
+}
+
+static void test_nesting(struct envblock *env)
+{
+    printf("\n[expression nesting: error 39 (#294)]\n");
+    set_name(env, "NEST");
+
+    nest_kind(env, 'f', "abs()", "1");
+    char sum[16];
+    snprintf(sum, sizeof(sum), "%d", IRX_EXPR_NEST_MAX + 1);
+    nest_kind(env, '(', "parens", sum);
+    nest_kind(env, '*', "1**1", "1");
+
+    /* The count is back to 0 after each clause: two clauses at the
+     * limit, one after the other, both run. */
+    char line[NEST_SRC_SIZE];
+    char src[2 * NEST_SRC_SIZE + 64];
+    int exit_rc = 0;
+    int fallback = 0;
+    nest_line(line, (int)sizeof(line), 'f', IRX_EXPR_NEST_MAX);
+    snprintf(src, sizeof(src), "%s\ny%s\nsay x + y\n", line, line + 1);
+    for (int bc = 1; bc >= 0; bc--)
+    {
+        int rc = nest_run(env, src, bc, &exit_rc, &fallback);
+        CHECK(rc == 0 && strcmp(g_cap, "2\n") == 0,
+              bc ? "two clauses at the limit (bytecode)"
+                 : "two clauses at the limit (token-walk)");
+    }
+
+    /* SIGNAL ON SYNTAX traps error 39 like any other, and the clauses
+     * before it ran.  Bytecode only: SIGNAL ON is a no-op on the
+     * frozen token-walk path (CON-18).  The handler does not read RC:
+     * the VM does not set it on a SYNTAX trap yet, so the number is
+     * read from the condition the trap fired on. */
+    nest_line(line, (int)sizeof(line), 'f', IRX_EXPR_NEST_MAX + 1);
+    snprintf(src, sizeof(src),
+             "signal on syntax\nsay 'a'\n%s\nexit 1\nsyntax:\n"
+             "say 'trapped'\nexit 3\n",
+             line);
+    int rc = nest_run(env, src, 1, &exit_rc, &fallback);
+    const struct irx_wkblk_int *wk =
+        (const struct irx_wkblk_int *)env->envblock_workblok_ext;
+    int cond = wk->wkbi_last_condition != NULL
+                   ? wk->wkbi_last_condition->code
+                   : 0;
+    CHECK(rc == 0 && exit_rc == 3 && strcmp(g_cap, "a\ntrapped\n") == 0 &&
+              fallback == 0 && cond == SYNTAX_EVAL_STACK,
+          "SIGNAL ON SYNTAX traps error 39 (bytecode)");
+    if (rc != 0 || exit_rc != 3 || strcmp(g_cap, "a\ntrapped\n") != 0 ||
+        cond != SYNTAX_EVAL_STACK)
+    {
+        printf("    rc=%d exit=%d fallback=%d cond=%d got:\n%s", rc,
+               exit_rc, fallback, cond, g_cap);
+    }
+    set_name(env, "");
+}
+
 int main(void)
 {
     struct envblock *env = NULL;
@@ -304,6 +453,7 @@ int main(void)
     test_token_walk(env);
     test_no_message(env);
     test_forms(env);
+    test_nesting(env);
 
     irxterm(env);
 

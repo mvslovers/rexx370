@@ -347,6 +347,17 @@
 #define NUMSUB_FORM_ENG 3 /* wkbi_form = NUMFORM_ENGINEERING           */
 
 /* ================================================================== */
+/*  OP_RAISE (#294)                                                   */
+/*                                                                    */
+/*  Raise SYNTAX error <errnum> when the clause runs, trappable by    */
+/*  SIGNAL ON SYNTAX.  The compiler emits it for an error it detects  */
+/*  in an expression that must still surface at run time, as on       */
+/*  z/OS: an operand nested past IRX_EXPR_NEST_MAX (error 39).        */
+/* ================================================================== */
+
+#define OP_RAISE 0xA0 /* 2 bytes: op + errnum:u8                     */
+
+/* ================================================================== */
 /*  Per-opcode size in bytes (including the opcode byte itself)       */
 /* ================================================================== */
 
@@ -387,6 +398,7 @@
      ((op) == OP_TRACE_SET)    ? 2 :         \
      ((op) == OP_ADDRESS_SET)  ? 3 :         \
      ((op) == OP_SET_NUMERIC)  ? 2 :         \
+     ((op) == OP_RAISE)        ? 2 :         \
      1)
 /* clang-format on */
 

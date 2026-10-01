@@ -23,6 +23,7 @@
 #include "irxarith.h"
 #include "irxbif.h"
 #include "irxbifs.h"
+#include "irxcond.h"
 #include "irxctrl.h"
 #include "irxlstr.h"
 #include "irxpars.h"
@@ -3920,6 +3921,31 @@ static int parse_prefix(struct irx_parser *p, PLstr out);
 static int parse_primary(struct irx_parser *p, PLstr out);
 
 /* ------------------------------------------------------------------ */
+/*  Expression nesting (#294)                                         */
+/*                                                                    */
+/*  Every nested level recurses on the C stack, which nothing else    */
+/*  bounds.  Past IRX_EXPR_NEST_MAX raise error 39, as z/OS does.     */
+/*  Each successful nest_enter() is paired with one nest_leave() on   */
+/*  every path out, so the count is back to 0 between clauses.        */
+/* ------------------------------------------------------------------ */
+
+static int nest_enter(struct irx_parser *p)
+{
+    if (p->expr_depth >= IRX_EXPR_NEST_MAX)
+    {
+        irx_cond_raise(p->envblock, SYNTAX_EVAL_STACK, 0, NULL);
+        return fail(p, IRXPARS_SYNTAX);
+    }
+    p->expr_depth++;
+    return IRXPARS_OK;
+}
+
+static void nest_leave(struct irx_parser *p)
+{
+    p->expr_depth--;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Compound-tail resolution                                          */
 /*                                                                    */
 /*  stem.i.j where i=FOO, j=3 -> STEM.FOO.3. The pool is expected     */
@@ -4092,17 +4118,31 @@ static int lookup_variable(struct irx_parser *p,
 /*  to detect the pattern. Arguments are comma-separated expressions. */
 /* ------------------------------------------------------------------ */
 
+/* The argument arrays live on the heap, not in the frame: this frame
+ * is on the C stack once per nested call, and IRX_EXPR_NEST_MAX of
+ * them have to fit IRXEXEC's 64 KB stack (#294). */
+#define FCALL_ARGS_SIZE ((size_t)IRX_MAX_ARGS * (sizeof(Lstr) + sizeof(PLstr)))
+
 static int parse_function_call(struct irx_parser *p,
                                const struct irx_token *name_tok,
                                PLstr out)
 {
-    Lstr argvals[IRX_MAX_ARGS];
-    PLstr argptrs[IRX_MAX_ARGS];
     int argc = 0;
     int i;
-    int rc;
+    int rc = nest_enter(p);
     Lstr upname;
 
+    if (rc != IRXPARS_OK)
+    {
+        return rc;
+    }
+    Lstr *argvals = (Lstr *)p->alloc->alloc(FCALL_ARGS_SIZE, p->alloc->ctx);
+    if (argvals == NULL)
+    {
+        nest_leave(p);
+        return fail(p, IRXPARS_NOMEM);
+    }
+    PLstr *argptrs = (PLstr *)(argvals + IRX_MAX_ARGS);
     for (i = 0; i < IRX_MAX_ARGS; i++)
     {
         Lzeroinit(&argvals[i]);
@@ -4180,6 +4220,8 @@ done:
     {
         Lfree(p->alloc, &argvals[i]);
     }
+    p->alloc->dealloc(argvals, FCALL_ARGS_SIZE, p->alloc->ctx);
+    nest_leave(p);
     return rc;
 }
 
@@ -4217,8 +4259,14 @@ static int parse_primary(struct irx_parser *p, PLstr out)
 
     if (t->tok_type == TOK_LPAREN)
     {
+        rc = nest_enter(p);
+        if (rc != IRXPARS_OK)
+        {
+            return rc;
+        }
         advance_tok(p);
         rc = parse_or(p, out);
+        nest_leave(p);
         if (rc != IRXPARS_OK)
         {
             return rc;
@@ -4394,7 +4442,12 @@ static int parse_power(struct irx_parser *p, PLstr out)
         advance_tok(p); /* first  * */
         advance_tok(p); /* second * */
 
-        rc = parse_power(p, &rhs); /* recurse = right-associative */
+        rc = nest_enter(p);
+        if (rc == IRXPARS_OK)
+        {
+            rc = parse_power(p, &rhs); /* recurse = right-associative */
+            nest_leave(p);
+        }
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);

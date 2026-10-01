@@ -330,8 +330,9 @@ struct series
 };
 
 static const struct series SERIES[] = {
-    {"parens", gen_parens, {10, 20, 40, 80}, 1, 1},
-    {"abs()", gen_calls, {10, 20, 40, 80}, 1, 0},
+    /* 40 is IRX_EXPR_NEST_MAX: deeper is error 39 (#294). */
+    {"parens", gen_parens, {10, 20, 30, 40}, 1, 1},
+    {"abs()", gen_calls, {10, 20, 30, 40}, 1, 0},
     {"if chain", gen_ifchain, {10, 20, 40, 80}, 1, 0},
     /* A DO block, also after THEN, takes a slot of BCOM_MAX_LOOP (16). */
     {"if-do", gen_if, {5, 10, 15, 0}, 1, 0},

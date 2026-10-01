@@ -24,6 +24,15 @@
  * argv[0]=program-name, argv[1]=member-name. */
 #define ARGC_MEMBER_ONLY 2
 
+/* C stack for IRXJCL, read by @@CRT1 as @@STKLEN; without it libc370
+ * GETMAINs 256 KB (#258).  64 KB is what IRXEXEC runs on under TSO
+ * (WPOOL, asm/irxexec.asm).  The deepest expression is bounded by
+ * IRX_EXPR_NEST_MAX (#294): 40 nested calls measured 53 KB on the
+ * token-walk path, 46 KB on bytecode (TSTSTK, JOB01494).  Nested
+ * blocks are not bounded yet (#295, #296).  A constant read once at
+ * startup, not interpreter state. */
+unsigned __stklen = 64 * 1024;
+
 int main(int argc, char *argv[])
 {
     const char *member = NULL;

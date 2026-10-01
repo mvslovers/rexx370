@@ -34,6 +34,7 @@
 #include "irx.h"
 #include "irxbops.h"
 #include "irxbvm.h"
+#include "irxcond.h"
 #include "irxexbl.h"
 #include "irxfunc.h"
 #include "irxpars.h"
@@ -141,6 +142,9 @@ struct bcom_ctx
     struct irx_bc_line_ent *lmap;
     int lmap_count;
     int lmap_cap;
+
+    /* Nested expression levels now open (#294). */
+    int expr_depth;
 };
 
 /* ================================================================== */
@@ -196,6 +200,7 @@ enum bc_unsup_reason
     BC_UNSUP_SIGNAL_TARGET,        /* SIGNAL label is not a symbol      */
     BC_UNSUP_DROP_TARGET,          /* DROP target is not a symbol       */
     BC_UNSUP_NUMERIC_FORM,         /* unsupported NUMERIC sub-keyword   */
+    BC_UNSUP_EXPR_DEPTH,           /* expression nested too deep (#294) */
     BC_UNSUP_COUNT                 /* sentinel — table size; keep last  */
 };
 
@@ -641,6 +646,66 @@ static int bc_cur_line(const struct bcom_ctx *ctx)
         (ctx)->unsup_reason = (reason);       \
         (ctx)->unsup_line = bc_cur_line(ctx); \
     } while (0)
+
+/* Nested expression levels (#294).  A parenthesised sub-expression, a
+ * function argument list, a right-hand ** operand and a prefix operand
+ * each recurse on the C stack.  bc_nest_enter() opens one level;
+ * every successful enter is paired with bc_nest_leave(). */
+static int bc_nest_open(const struct bcom_ctx *ctx)
+{
+    return ctx->expr_depth < IRX_EXPR_NEST_MAX;
+}
+
+/* For ** and prefix operands: past the limit the program falls back to
+ * the token-walk path, which raises error 39 when the clause runs.
+ * z/OS gave no figures for these, and their operand has no closing
+ * token to skip to (see bc_raise_nested).  Returns 0 when refused. */
+static int bc_nest_enter(struct bcom_ctx *ctx)
+{
+    if (!bc_nest_open(ctx))
+    {
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPR_DEPTH);
+        return 0;
+    }
+    ctx->expr_depth++;
+    return 1;
+}
+
+static void bc_nest_leave(struct bcom_ctx *ctx)
+{
+    ctx->expr_depth--;
+}
+
+/* A '(' or a function call past the limit: skip the operand up to its
+ * matching ')' without recursing and compile it as OP_RAISE 39.  The
+ * error then comes when the clause runs, with its line, and SIGNAL ON
+ * SYNTAX traps it, as on z/OS (abs() 40 deep runs, 41 is error 39).
+ * Refusing the program here would fail it before its first clause. */
+static void bc_raise_nested(struct bcom_ctx *ctx)
+{
+    int balance = 0;
+
+    for (;;)
+    {
+        if (tok_ends_clause(ctx))
+        {
+            BC_FAIL_UNSUP(ctx, BC_UNSUP_EXPR_PAREN);
+            return;
+        }
+        int type = tok_at(ctx, 0)->tok_type;
+        ctx->pos++;
+        if (type == TOK_LPAREN)
+        {
+            balance++;
+        }
+        else if (type == TOK_RPAREN && --balance == 0)
+        {
+            break;
+        }
+    }
+    emit_byte(ctx, OP_RAISE);
+    emit_byte(ctx, SYNTAX_EVAL_STACK);
+}
 
 /* ================================================================== */
 /*  Symbol / constant table                                           */
@@ -2215,8 +2280,15 @@ static void bc_exp8(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_LPAREN)
     {
+        if (!bc_nest_open(ctx))
+        {
+            bc_raise_nested(ctx);
+            return;
+        }
+        bc_nest_enter(ctx);
         ctx->pos++;
         bc_exp0(ctx);
+        bc_nest_leave(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2325,8 +2397,15 @@ static void bc_exp8(struct bcom_ctx *ctx)
                 {
                     return;
                 }
+                if (!bc_nest_open(ctx))
+                {
+                    bc_raise_nested(ctx);
+                    return;
+                }
+                bc_nest_enter(ctx);
                 ctx->pos += 2; /* consume symbol + '(' */
                 bc_funcall(ctx, si);
+                bc_nest_leave(ctx);
             }
             else
             {
@@ -2363,8 +2442,13 @@ static void bc_exp7(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_OPERATOR && tok_ch(ctx, 0) == '-')
     {
+        if (!bc_nest_enter(ctx))
+        {
+            return;
+        }
         ctx->pos++;
         bc_exp7(ctx);
+        bc_nest_leave(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2375,15 +2459,25 @@ static void bc_exp7(struct bcom_ctx *ctx)
 
     if (t->tok_type == TOK_OPERATOR && tok_ch(ctx, 0) == '+')
     {
+        if (!bc_nest_enter(ctx))
+        {
+            return;
+        }
         ctx->pos++;
         bc_exp7(ctx);
+        bc_nest_leave(ctx);
         return;
     }
 
     if (t->tok_type == TOK_NOT)
     {
+        if (!bc_nest_enter(ctx))
+        {
+            return;
+        }
         ctx->pos++;
         bc_exp7(ctx);
+        bc_nest_leave(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -2411,8 +2505,13 @@ static void bc_exp6(struct bcom_ctx *ctx)
     if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '*' &&
         tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '*')
     {
+        if (!bc_nest_enter(ctx))
+        {
+            return;
+        }
         ctx->pos += 2;
         bc_exp6(ctx);
+        bc_nest_leave(ctx);
         if (ctx->rc != IRXBC_OK)
         {
             return;
@@ -4457,6 +4556,7 @@ static const char *const bc_unsup_text[BC_UNSUP_COUNT] = {
     [BC_UNSUP_SIGNAL_TARGET] = "SIGNAL label is not a symbol",
     [BC_UNSUP_DROP_TARGET] = "DROP target is not a symbol",
     [BC_UNSUP_NUMERIC_FORM] = "unsupported NUMERIC form",
+    [BC_UNSUP_EXPR_DEPTH] = "expression nested too deep",
 };
 
 const char *irx_bc_unsup_text(int reason)
