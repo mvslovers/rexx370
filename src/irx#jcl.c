@@ -61,6 +61,9 @@
  *         256 bytes of EVDATA scratch.  We memset the whole buffer
  *         to zero and then set evsize; irx_exec_dispatch validates
  *         that evpad1/evpad2/evlen are all zero on entry. */
+/* One "[bc]" diagnostic line. */
+#define JCL_BC_LINE_LEN 120
+
 #define EVALBLK_DWORDS 34
 #define EVALBLK_BYTES  (EVALBLK_DWORDS * 8) /* 272 */
 
@@ -68,12 +71,28 @@
  * ARGTABLE_END = 8 bytes of 0xFF (see include/irx.h). */
 #define ARGTAB_END_BYTE ((unsigned char)'\xFF')
 
+/* One line through the environment's I/O routine, which owns
+ * SYSTSPRT (IRXINOUT, #302); IRXJCL must not open it a second time. */
+static void jcl_line(struct envblock *env, char *text, int len)
+{
+    struct irxexte *exte = (struct irxexte *)env->envblock_irxexte;
+    if (exte == NULL || exte->io_routine == NULL || len < 0)
+    {
+        return;
+    }
+    Lstr ls;
+    ls.pstr = (unsigned char *)text;
+    ls.len = (size_t)len;
+    ls.maxlen = (size_t)len;
+    ls.type = LSTRING_TY;
+    ((int (*)(int, PLstr, struct envblock *))exte->io_routine)(RXFWRITE,
+                                                               &ls, env);
+}
+
 /* Bytecode path diagnostic (REXX370_BCDEBUG=1): the "[bc] exec=N
  * fallback=M" line the cps measurements are gated on (ROADMAP,
- * CON-12).  Emitted here, at the end of the run and while stdout still
- * points at SYSTSPRT, rather than in IRXTERM: the environment core links
- * no interpreter and no stdio (#254).  wkbi_bc_debug is only ever set
- * when IRXINIT found a live C runtime, which is what makes printf safe. */
+ * CON-12).  Emitted here, at the end of the run, rather than in
+ * IRXTERM: the environment core links no interpreter (#254). */
 static void jcl_bc_debug_report(struct envblock *env)
 {
     struct irx_wkblk_int *wkbi =
@@ -82,30 +101,25 @@ static void jcl_bc_debug_report(struct envblock *env)
     {
         return;
     }
-    printf("[bc] exec=%d fallback=%d\n",
-           wkbi->wkbi_bc_exec_count,
-           wkbi->wkbi_bc_fallback_count);
+    char line[JCL_BC_LINE_LEN];
+    int n = snprintf(line, sizeof(line), "[bc] exec=%d fallback=%d",
+                     wkbi->wkbi_bc_exec_count, wkbi->wkbi_bc_fallback_count);
+    jcl_line(env, line, n);
     /* On a token-walk fallback, name the construct that forced it and
      * the source line (WP-BC-DIAG). */
     if (wkbi->wkbi_bc_fallback_count > 0)
     {
-        printf("[bc] unsup: line %d, %s\n",
-               wkbi->wkbi_bc_unsup_line,
-               irx_bc_unsup_text(wkbi->wkbi_bc_unsup_reason));
+        n = snprintf(line, sizeof(line), "[bc] unsup: line %d, %s",
+                     wkbi->wkbi_bc_unsup_line,
+                     irx_bc_unsup_text(wkbi->wkbi_bc_unsup_reason));
+        jcl_line(env, line, n);
     }
-    fflush(stdout);
 }
 
 int irx_jcl_dispatch_main(const char *member,
                           const char *arg_string,
                           int arg_len)
 {
-#ifdef __MVS__
-    /* SYSTSPRT redirect state (set up after validation, in Step 3). */
-    FILE *systsprt_fp = NULL;
-    FILE *saved_stdout = NULL;
-#endif
-
     /* ---- Step 1: validate member ------------------------------------ */
     if (member == NULL)
     {
@@ -164,21 +178,10 @@ int irx_jcl_dispatch_main(const char *member,
         }
     }
 
-#ifdef __MVS__
-    /* Redirect stdout to the JCL-allocated SYSTSPRT DD so the exec's SAY/TRACE
-     * output lands in a named spool dataset (crent370 @@start opens stdout on
-     * *SYSPRINT dynamic SYSOUT).  Done here -- after validation/env so the
-     * BADPARM/NOENV early returns leave stdout untouched -- and ALWAYS restored
-     * before the FILE is closed in cleanup: leaving stdout pointing at a closed
-     * FILE crashes the caller's next printf (S0C4).  Falls back silently if the
-     * DD is absent. */
-    saved_stdout = stdout;
-    systsprt_fp = fopen("DD:SYSTSPRT", "w");
-    if (systsprt_fp != NULL)
-    {
-        stdout = systsprt_fp;
-    }
-#endif
+    /* SAY, TRACE and messages reach SYSTSPRT through the environment's
+     * I/O routine (IRXINOUT, which opens the MODNAMET OUTDD itself,
+     * #302).  IRXJCL used to redirect stdout to DD:SYSTSPRT here; two
+     * DCBs writing one SYSOUT would interleave their blocks. */
 
     /* ---- Step 4: EXECBLK on stack ---------------------------------- */
     struct execblk eb;
@@ -288,16 +291,5 @@ cleanup_env:
     {
         irxterm(env);
     }
-#ifdef __MVS__
-    /* Restore stdout BEFORE closing the SYSTSPRT FILE -- otherwise stdout is
-     * left pointing at a closed FILE and the caller's next printf S0C4s (the
-     * IRXJCL batch entry calls this once and exits, so it never bit there;
-     * a caller that loops -- e.g. the test harness -- does). */
-    if (systsprt_fp != NULL)
-    {
-        stdout = saved_stdout;
-        fclose(systsprt_fp);
-    }
-#endif
     return rc_final;
 }

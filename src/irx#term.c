@@ -53,7 +53,25 @@ static int term_slot_name(const unsigned char slot[8], char out[9])
     out[n] = '\0';
     return 1;
 }
+
 #endif /* __MVS__ */
+
+/* Tell the active I/O routine that the environment ends (RXFTERM), so
+ * IRXINOUT CLOSEs its DCB and writes the last block (#302).  Called
+ * from irxterm() while the work block still exists and again from the
+ * core before the routines are DELETEd; the second call finds nothing
+ * left to close.  Routines that do not know RXFTERM return 20, which
+ * is ignored. */
+static void term_io(struct envblock *envblock)
+{
+    struct irxexte *exte = (struct irxexte *)envblock->envblock_irxexte;
+    if (exte != NULL && exte->io_routine != NULL)
+    {
+        int (*io)(int, void *, struct envblock *) =
+            (int (*)(int, void *, struct envblock *))exte->io_routine;
+        (void)io(RXFTERM, NULL, envblock);
+    }
+}
 
 /* Forward-declare the ECTENVBK slot accessor from irx#anch.c. */
 struct envblock **ectenvbk_slot(void);
@@ -100,6 +118,10 @@ int irx_init_term(struct envblock *envblock, int *out_reason_code)
         return 20;
     }
     my_is_tso = (my_slot->flags & IRXANCHR_FLAG_TSO_ATTACHED) != 0;
+
+    /* Step 2b: let the I/O routine close its files while it is still
+     * loaded (#302). */
+    term_io(envblock);
 
     /* Step 3: Give back the replaceable routines IRXINIT LOADed, then
      * free IRXEXTE, then MODNAMET, then PARMBLOCK — the reverse of
@@ -217,7 +239,9 @@ int irxterm(struct envblock *envblk)
 
     /* 2. Term exit — deferred to Phase 6. */
 
-    /* 3. Free internal Work Block. */
+    /* 3. Free internal Work Block -- after the I/O routine has closed
+     * what it keeps there (#302). */
+    term_io(envblk);
     wkbi = (struct irx_wkblk_int *)envblk->envblock_workblok_ext;
     if (wkbi != NULL)
     {

@@ -58,6 +58,7 @@
 #define RXFCLOSE    6 /* Close a dataset                         */
 #define RXFREAD_DS  7 /* Read from dataset (EXECIO)              */
 #define RXFWRITE_DS 8 /* Write to dataset (EXECIO)               */
+#define RXFTERM     9 /* Environment ends: flush and close (#302) */
 
 /* ================================================================== */
 /*  Storage Management Function Codes                                 */
@@ -267,6 +268,11 @@ struct irx_wkblk_int
      * the INSTBLK member, blank-stripped, NUL-terminated; empty when
      * the exec came in without one (irx_exec_run called directly). */
     char wkbi_exec_name[9];
+
+    /* The default I/O routine's state (#302): its QSAM DCB area and
+     * record buffer, set on the first write, released by RXFTERM.
+     * Owned by IRXINOUT; nothing else reads it. */
+    void *wkbi_io_state;
 };
 
 /* True if work block wk is long enough to hold field (see above). */
