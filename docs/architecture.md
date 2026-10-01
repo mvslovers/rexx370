@@ -292,6 +292,10 @@ How the thresholds moved (#258):
 - **#302:** IRXINOUT writes the MODNAMET OUTDD through QSAM
   (`asm/irxqsam.asm`) instead of stdio, 42 KB → 4.6 KB. IRXJCL runs from
   768K again, at VIRT 804K.
+- **-Os** (cc370, experimental there; validated here by the full suite,
+  JOB01488): 8.7 % less own code, IRXEXEC 321.6 KB → 298.8 KB. IRXJCL
+  still runs from 768K, at VIRT 780K; at 704K it now gets past the C
+  runtime's startup and fails on an 8 KB GETMAIN (JOB01489).
 
 The TMP loads only from authorized libraries (`IEA703I 306-C` from a
 development STEPLIB), so its row needs the modules installed.
