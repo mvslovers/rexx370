@@ -273,22 +273,26 @@ Parses EXEC PARM, initializes non-TSO environment via IRXINIT, calls IRXEXEC, cl
 ```
 
 **Minimum REGION** (measured on MVSCE-LAB with `tso/lab/region_ladder.py`,
-one-line exec, JOB01462):
+one-line exec, installed modules, JOB01475):
 
 | Path | Runs from | Below that |
 |---|---|---|
-| `PGM=IRXJCL` | **768K** | 704K and 640K: CC 12 from the C runtime's startup, before IRXJCL runs (704K: `Out of memory` from the `fopen` in `@@START`; 640K: `SYSIN DD not defined`, libc370#254). 512K: ABEND U0801, no storage for the C stack |
-| `PGM=IKJEFT01`, `%exec` | **640K** | 512K: ABEND 878-01 inside EXEC (`IKJ56641I`). 384K and less: IRXEXEC cannot be loaded (`IEA703I 106-C`), reported as `IKJ56500I COMMAND … NOT FOUND` |
+| `PGM=IRXJCL` | **896K** | 768K: `IRXSTOR getmain request … failed`, CC 20. 704K and 640K: CC 12 from the C runtime's startup, before IRXJCL runs (704K: `Out of memory` from the `fopen` in `@@START`, libc370#277; 640K: `SYSIN DD not defined`, libc370#254). 512K: ABEND U0801, no storage for the C stack |
+| `PGM=IKJEFT01`, `%exec` | **512K** | 384K: ABEND 878-01 inside EXEC (`IKJ56641I`). 256K: IRXEXEC cannot be loaded (`IEA703I 106-C`), reported as `IKJ56500I COMMAND … NOT FOUND` |
 
-The IRXJCL floor is now set by the C runtime, not by rexx370: until #258 the
-bytecode compiler held its code, constant and symbol tables in one fixed
-87 K context, and 768K failed on that GETMAIN (`IRX0005I`, JOB01460). The
-tables now start at 512 bytes of code and 16 entries each. A one-line
-exec peaks at VIRT 832K instead of 900K under IRXJCL, and at 592K instead
-of 680K under the TMP, whose threshold nonetheless stays at 640K
-(before: JOB01460). The TMP loads only from authorized libraries
-(`IEA703I 306-C` from a development STEPLIB), so its row needs the
-modules installed.
+How the thresholds moved (#258):
+- **#293:** the bytecode compiler's tables grow instead of sitting in one
+  fixed 87 K context. IRXJCL went from 896K to 768K (JOB01462).
+- **#298/#255:** IRXINIT and IRXTERM no longer carry libc370's
+  getmain/printf/stdio chain, and the default routines are load modules
+  of their own. Under the TMP a one-line exec now peaks at VIRT 508K
+  instead of 592K, and `%exec` runs from 512K instead of 640K, the class
+  default. IRXJCL went back to 896K (VIRT 876K instead of 832K): it now
+  LOADs the IRXINOUT module, which brings a second copy of stdio. #302
+  removes stdio from IRXINOUT.
+
+The TMP loads only from authorized libraries (`IEA703I 306-C` from a
+development STEPLIB), so its row needs the modules installed.
 
 Larger execs need more. Code a REGION with headroom (the examples use
 `REGION=4096K`); the class default of 512K is not enough for IRXJCL.
