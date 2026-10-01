@@ -273,11 +273,11 @@ Parses EXEC PARM, initializes non-TSO environment via IRXINIT, calls IRXEXEC, cl
 ```
 
 **Minimum REGION** (measured on MVSCE-LAB with `tso/lab/region_ladder.py`,
-one-line exec, installed modules, JOB01475):
+one-line exec; IRXJCL row JOB01482, TMP row JOB01475):
 
 | Path | Runs from | Below that |
 |---|---|---|
-| `PGM=IRXJCL` | **896K** | 768K: `IRXSTOR getmain request … failed`, CC 20. 704K and 640K: CC 12 from the C runtime's startup, before IRXJCL runs (704K: `Out of memory` from the `fopen` in `@@START`, libc370#277; 640K: `SYSIN DD not defined`, libc370#254). 512K: ABEND U0801, no storage for the C stack |
+| `PGM=IRXJCL` | **768K** | 704K and 640K: CC 12 from the C runtime's startup, before IRXJCL runs (704K: `Out of memory` from the `fopen` in `@@START`, libc370#277; 640K: `SYSIN DD not defined`, libc370#254). 512K: ABEND U0801, no storage for the C stack |
 | `PGM=IKJEFT01`, `%exec` | **512K** | 384K: ABEND 878-01 inside EXEC (`IKJ56641I`). 256K: IRXEXEC cannot be loaded (`IEA703I 106-C`), reported as `IKJ56500I COMMAND … NOT FOUND` |
 
 How the thresholds moved (#258):
@@ -287,9 +287,11 @@ How the thresholds moved (#258):
   getmain/printf/stdio chain, and the default routines are load modules
   of their own. Under the TMP a one-line exec now peaks at VIRT 508K
   instead of 592K, and `%exec` runs from 512K instead of 640K, the class
-  default. IRXJCL went back to 896K (VIRT 876K instead of 832K): it now
-  LOADs the IRXINOUT module, which brings a second copy of stdio. #302
-  removes stdio from IRXINOUT.
+  default. IRXJCL went back to 896K (VIRT 876K): it LOADed the
+  IRXINOUT module, which still wrote through stdio, a second copy.
+- **#302:** IRXINOUT writes the MODNAMET OUTDD through QSAM
+  (`asm/irxqsam.asm`) instead of stdio, 42 KB → 4.6 KB. IRXJCL runs from
+  768K again, at VIRT 804K.
 
 The TMP loads only from authorized libraries (`IEA703I 306-C` from a
 development STEPLIB), so its row needs the modules installed.
