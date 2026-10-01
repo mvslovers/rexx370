@@ -8,9 +8,11 @@
 /*  arrangement TISTSO uses.                                           */
 /*                                                                    */
 /*    TSO leg    is_tso()=1 -> IRXTSPRM -> MODNAMET names IRXIOTSO     */
-/*               -> IRXINIT LOADs it -> io_routine is NOT irxinout     */
-/*    batch leg  is_tso()=0 -> IRXPARMS -> slot blank                  */
-/*               -> io_routine IS irxinout (stdio, as before)          */
+/*               -> IRXINIT LOADs it; the default slot stays NULL:     */
+/*               IRXINOUT is not loaded under TSO (#255)               */
+/*    batch leg  is_tso()=0 -> IRXPARMS -> slot blank -> IRXINIT LOADs */
+/*               the IRXINOUT module (stdio) into both slots and names */
+/*               it in the MODNAMET copy (#255)                        */
 /*                                                                    */
 /*  Why assert the POINTER and not the output: on MVS the TSO routine  */
 /*  ends in PUTLINE and there is nothing to read back from inside the  */
@@ -66,21 +68,6 @@ static int tests_failed = 0;
         }                                \
     } while (0)
 
-/* All blanks means "no override, use the default". IRXINIT blanks the
- * slot when a named module fails to LOAD, so a blank slot on the TSO
- * leg is a real failure and not merely an absent name. */
-static int slot_is_blank(const unsigned char slot[8])
-{
-    for (int i = 0; i < 8; i++)
-    {
-        if (slot[i] != ' ')
-        {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 static void run_say(struct envblock *env, const char *src, const char *what)
 {
     int exit_rc = 0;
@@ -129,28 +116,30 @@ int main(int argc, char **argv)
                   "TSO: MODNAMET still names IRXIOTSO (so the LOAD worked)");
             CHECK(exte->io_routine != (void *)irxinout,
                   "TSO: io_routine is the loaded routine, not the default");
-            /* IRXEXTE carries an Active and a Default slot per routine.
-             * An override replaces the ACTIVE one only -- irxinout must
-             * still hand back the built-in, or a caller asking for the
-             * default explicitly would silently get the TSO routine. */
-            CHECK(exte->irxinout == (void *)irxinout,
-                  "TSO: the default slot still points at the built-in");
-            CHECK(exte->irxinout != exte->io_routine,
-                  "TSO: active and default are distinct");
+            /* The default IRXINOUT is a load module of its own (#255),
+             * loaded only where it is the active I/O routine.  Under
+             * TSO it could not run (stdio, no C runtime), so the default
+             * slot stays NULL rather than costing region. */
+            CHECK(exte->irxinout == NULL,
+                  "TSO: default slot NULL, IRXINOUT not loaded (#255)");
         }
         else
         {
-            CHECK(slot_is_blank(mnt->modnamet_iorout),
-                  "batch: MODNAMET IORT slot is blank");
-            CHECK(exte->io_routine == (void *)irxinout,
-                  "batch: io_routine is the default stdio routine");
-            CHECK(exte->irxinout == (void *)irxinout,
-                  "batch: active and default are the same routine");
+            /* IRXINIT LOADed the default and recorded it, so IRXTERM
+             * DELETEs it (#255). */
+            CHECK(memcmp(mnt->modnamet_iorout, "IRXINOUT", 8) == 0,
+                  "batch: MODNAMET names IRXINOUT (the default was loaded)");
+            CHECK(exte->io_routine != NULL &&
+                      exte->io_routine == exte->irxinout,
+                  "batch: active and default are the same loaded routine");
+            /* This program links irx#io.c itself; the slot must point at
+             * the LOADed module, not at that copy. */
+            CHECK(exte->io_routine != (void *)irxinout,
+                  "batch: io_routine is the IRXINOUT module, not a copy");
         }
     }
 #else
     (void)mnt;
-    (void)slot_is_blank;
     printf("  (host build: MODNAMET + wiring assertions are MVS-only)\n");
 #endif
 

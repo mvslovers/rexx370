@@ -154,6 +154,33 @@ static void test_t2_parmblock_copy(void)
 /*  wrapper irxinit().                                                */
 /* ------------------------------------------------------------------ */
 
+/* The default I/O slot is NULL exactly when another I/O routine is
+ * active: IRXINIT LOADs IRXINOUT only where it becomes the active one
+ * (#255).  "Another" means the MODNAMET copy names a module other than
+ * IRXINOUT in IORT. */
+static int io_default_as_expected(const struct envblock *envblk)
+{
+    const struct irxexte *exte =
+        (const struct irxexte *)envblk->envblock_irxexte;
+    const struct parmblock *pb =
+        (const struct parmblock *)envblk->envblock_parmblock;
+    const struct modnamet *mnt =
+        pb != NULL ? (const struct modnamet *)pb->parmblock_modnamet : NULL;
+    int other = 0;
+
+    if (mnt != NULL && memcmp(mnt->modnamet_iorout, "IRXINOUT", 8) != 0)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            if (mnt->modnamet_iorout[i] != ' ')
+            {
+                other = 1;
+            }
+        }
+    }
+    return other ? exte->irxinout == NULL : exte->irxinout != NULL;
+}
+
 static void test_t3_irxexte_defaults(void)
 {
     struct envblock *envblk = NULL;
@@ -182,8 +209,8 @@ static void test_t3_irxexte_defaults(void)
               "C-core wired irxmsgid in IRXEXTE");
         CHECK(exte->msgid_routine != NULL,
               "C-core wired msgid_routine in IRXEXTE");
-        CHECK(exte->irxinout != NULL,
-              "C-core wired irxinout in IRXEXTE");
+        CHECK(io_default_as_expected(envblk),
+              "C-core: irxinout set unless another I/O routine is active");
         CHECK(exte->io_routine != NULL,
               "C-core wired io_routine in IRXEXTE");
         /* Slots without an implementation yet stay NULL. */
@@ -352,8 +379,9 @@ static void test_t7_irxinit_compat_wrapper(void)
                   "compat wrapper wired irxuid in IRXEXTE");
             CHECK(exte->irxmsgid != NULL,
                   "compat wrapper wired irxmsgid in IRXEXTE");
-            CHECK(exte->irxinout != NULL,
-                  "compat wrapper wired irxinout in IRXEXTE");
+            CHECK(io_default_as_expected(envblk),
+                  "compat wrapper: irxinout set unless another I/O routine "
+                  "is active");
         }
 
         /* Compat wrapper installs interpreter Work Block. */
