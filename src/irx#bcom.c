@@ -51,6 +51,12 @@
 #define BCOM_MAX_LPATCH 48
 #define BCOM_MAX_LABEL  33
 
+/* Initial sizes of the three growable tables.  Each doubles through
+ * irxstor up to its BCOM_MAX_* ceiling, so a small exec pays for a
+ * small context (#258); the ceilings still raise IRXBC_ERR_CAPACITY. */
+#define BCOM_CODE_INIT 512
+#define BCOM_TBL_INIT  16
+
 /* ================================================================== */
 /*  DO loop type codes                                                */
 /* ================================================================== */
@@ -98,14 +104,20 @@ struct bcom_ctx
     int tok_count;
     int pos;
 
-    unsigned char code[BCOM_MAX_CODE];
+    /* Code, constant and symbol tables, grown through irxstor up to
+     * BCOM_MAX_* (#258).  Everything refers into them by index, never
+     * by pointer, so a grow may move them. */
+    unsigned char *code;
     int code_len;
+    int code_cap;
 
-    char consts[BCOM_MAX_CONSTS][IRXBC_ENTRY_SIZE];
+    char (*consts)[IRXBC_ENTRY_SIZE];
     int const_count;
+    int const_cap;
 
-    char syms[BCOM_MAX_SYMS][IRXBC_ENTRY_SIZE];
+    char (*syms)[IRXBC_ENTRY_SIZE];
     int sym_count;
+    int sym_cap;
 
     struct bc_loop_ctx loops[BCOM_MAX_LOOP];
     int loop_depth;
@@ -123,9 +135,8 @@ struct bcom_ctx
     int unsup_line;
 
     /* Trace map (#281): one entry per clause, grown through irxstor
-     * rather than held as a fixed array here -- this context is already
-     * 87 K on MVS and is the allocation that fails first under a small
-     * REGION (#258). */
+     * rather than held as a fixed array here, like the tables above
+     * (#258). */
     const char *src_base;
     struct irx_bc_line_ent *lmap;
     int lmap_count;
@@ -202,12 +213,65 @@ static void bc_stmts_until(struct bcom_ctx *ctx, const char *stop1,
 /*  Emit helpers                                                      */
 /* ================================================================== */
 
-static int emit_byte(struct bcom_ctx *ctx, unsigned char op)
+/* Grow a table of elem-byte entries so that it holds at least need
+ * entries: from init, doubling, never past max.  Beyond max the program
+ * cannot be represented as bytecode (IRXBC_ERR_CAPACITY, falls back to
+ * the interpreter); an irxstor failure is IRXBC_ERR_STOR.  irxstor
+ * returns zeroed storage, so entries past count stay zero. */
+static int tbl_grow(struct bcom_ctx *ctx, void **tbl, int *cap, int count,
+                    int need, int elem, int init, int max)
 {
-    if (ctx->code_len >= BCOM_MAX_CODE)
+    if (need <= *cap)
+    {
+        return IRXBC_OK;
+    }
+    if (need > max)
     {
         ctx->rc = IRXBC_ERR_CAPACITY;
         return IRXBC_ERR_CAPACITY;
+    }
+    int ncap = *cap > 0 ? *cap : init;
+    while (ncap < need)
+    {
+        ncap *= 2;
+    }
+    if (ncap > max)
+    {
+        ncap = max;
+    }
+    void *nb = NULL;
+    if (irxstor(RXSMGET, ncap * elem, &nb, ctx->env) != 0)
+    {
+        ctx->rc = IRXBC_ERR_STOR;
+        return IRXBC_ERR_STOR;
+    }
+    if (*tbl != NULL)
+    {
+        void *old = *tbl;
+        memcpy(nb, old, (size_t)count * (size_t)elem);
+        irxstor(RXSMFRE, 0, &old, ctx->env);
+    }
+    *tbl = nb;
+    *cap = ncap;
+    return IRXBC_OK;
+}
+
+/* Make room for n more code bytes. */
+static int code_reserve(struct bcom_ctx *ctx, int n)
+{
+    void *tbl = ctx->code;
+    int rc = tbl_grow(ctx, &tbl, &ctx->code_cap, ctx->code_len,
+                      ctx->code_len + n, 1, BCOM_CODE_INIT, BCOM_MAX_CODE);
+    ctx->code = (unsigned char *)tbl;
+    return rc;
+}
+
+static int emit_byte(struct bcom_ctx *ctx, unsigned char op)
+{
+    int rc = code_reserve(ctx, 1);
+    if (rc != IRXBC_OK)
+    {
+        return rc;
     }
     ctx->code[ctx->code_len++] = op;
     return IRXBC_OK;
@@ -215,10 +279,10 @@ static int emit_byte(struct bcom_ctx *ctx, unsigned char op)
 
 static int emit_u16(struct bcom_ctx *ctx, int idx)
 {
-    if (ctx->code_len + 2 > BCOM_MAX_CODE)
+    int rc = code_reserve(ctx, 2);
+    if (rc != IRXBC_OK)
     {
-        ctx->rc = IRXBC_ERR_CAPACITY;
-        return IRXBC_ERR_CAPACITY;
+        return rc;
     }
     ctx->code[ctx->code_len++] = (unsigned char)(idx & 0xFF);
     ctx->code[ctx->code_len++] = (unsigned char)((idx >> 8) & 0xFF);
@@ -228,10 +292,10 @@ static int emit_u16(struct bcom_ctx *ctx, int idx)
 static int emit_i16(struct bcom_ctx *ctx, int offset)
 {
     unsigned int v = (unsigned int)(short)(offset);
-    if (ctx->code_len + 2 > BCOM_MAX_CODE)
+    int rc = code_reserve(ctx, 2);
+    if (rc != IRXBC_OK)
     {
-        ctx->rc = IRXBC_ERR_CAPACITY;
-        return IRXBC_ERR_CAPACITY;
+        return rc;
     }
     ctx->code[ctx->code_len++] = (unsigned char)(v & 0xFF);
     ctx->code[ctx->code_len++] = (unsigned char)((v >> 8) & 0xFF);
@@ -598,9 +662,13 @@ static int add_const(struct bcom_ctx *ctx, const char *text, int len)
             return i;
         }
     }
-    if (ctx->const_count >= BCOM_MAX_CONSTS)
+    void *tbl = ctx->consts;
+    int rc = tbl_grow(ctx, &tbl, &ctx->const_cap, ctx->const_count,
+                      ctx->const_count + 1, IRXBC_ENTRY_SIZE, BCOM_TBL_INIT,
+                      BCOM_MAX_CONSTS);
+    ctx->consts = (char (*)[IRXBC_ENTRY_SIZE])tbl;
+    if (rc != IRXBC_OK)
     {
-        ctx->rc = IRXBC_ERR_CAPACITY;
         return -1;
     }
     i = ctx->const_count++;
@@ -629,9 +697,13 @@ static int add_sym(struct bcom_ctx *ctx, const char *name)
             return i;
         }
     }
-    if (ctx->sym_count >= BCOM_MAX_SYMS)
+    void *tbl = ctx->syms;
+    int rc = tbl_grow(ctx, &tbl, &ctx->sym_cap, ctx->sym_count,
+                      ctx->sym_count + 1, IRXBC_ENTRY_SIZE, BCOM_TBL_INIT,
+                      BCOM_MAX_SYMS);
+    ctx->syms = (char (*)[IRXBC_ENTRY_SIZE])tbl;
+    if (rc != IRXBC_OK)
     {
-        ctx->rc = IRXBC_ERR_CAPACITY;
         return -1;
     }
     i = ctx->sym_count++;
@@ -4523,7 +4595,10 @@ int irx_bc_compile(struct envblock *envblock,
         memcpy(dst, ctx->syms[i], IRXBC_ENTRY_SIZE);
         dst += IRXBC_ENTRY_SIZE;
     }
-    memcpy(IRXBC_CODE(bc), ctx->code, (size_t)ctx->code_len);
+    if (ctx->code_len > 0)
+    {
+        memcpy(IRXBC_CODE(bc), ctx->code, (size_t)ctx->code_len);
+    }
     if (map_off != 0)
     {
         uint32_t count = (uint32_t)ctx->lmap_count;
@@ -4540,10 +4615,17 @@ cleanup:
     {
         irx_tokn_free(envblock, tokens, tok_count);
     }
-    if (ctx != NULL && ctx->lmap != NULL)
+    if (ctx != NULL)
     {
-        void *p = ctx->lmap;
-        irxstor(RXSMFRE, 0, &p, envblock);
+        void *tbls[] = {ctx->lmap, ctx->code, ctx->consts, ctx->syms};
+        for (i = 0; i < (int)(sizeof(tbls) / sizeof(tbls[0])); i++)
+        {
+            if (tbls[i] != NULL)
+            {
+                void *p = tbls[i];
+                irxstor(RXSMFRE, 0, &p, envblock);
+            }
+        }
     }
     if (ctx_mem != NULL)
     {

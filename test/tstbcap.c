@@ -1,8 +1,9 @@
 /* ------------------------------------------------------------------ */
 /*  tstbcap.c - issue #212: bytecode fixed-table overflow falls back   */
 /*                                                                    */
-/*  The bytecode compiler keeps three FIXED tables (src/irx#bcom.c):   */
-/*    BCOM_MAX_CODE 16384, BCOM_MAX_CONSTS 512, BCOM_MAX_SYMS 512.     */
+/*  The bytecode compiler keeps three tables (src/irx#bcom.c), grown   */
+/*  on demand since #258 but capped at BCOM_MAX_CODE 16384,            */
+/*  BCOM_MAX_CONSTS 512 and BCOM_MAX_SYMS 512.                         */
 /*  A program that overflows one of them cannot be represented as      */
 /*  bytecode, but the token-walk interpreter has no such limits.  The  */
 /*  overflow is raised inside irx_bc_compile() BEFORE any bytecode     */
@@ -17,12 +18,15 @@
 /*  instead of aborting fatally:                                       */
 /*    1. compile: >512 distinct constants  -> IRXBC_ERR_CAPACITY;      */
 /*    2. compile: >512 distinct symbols    -> IRXBC_ERR_CAPACITY;      */
+/*       >16384 bytes of code              -> IRXBC_ERR_CAPACITY;      */
 /*    3. compile: a small program          -> IRXBC_OK (no false       */
 /*       positive at the boundary);                                    */
 /*    4. run:     the overflowing program falls back (fallback>0) and  */
 /*       produces the correct output with RC=0 (was fatal rc=20);      */
 /*    5. run:     the small program stays on the VM (exec>0, no        */
-/*       fallback) and produces the correct output.                    */
+/*       fallback) and produces the correct output;                    */
+/*    6. run:     programs past the INITIAL table sizes (#258) grow    */
+/*       the tables and stay on the VM: 100 symbols, 500 clauses.      */
 /*                                                                    */
 /*  Cross-compile build (Linux/gcc):                                  */
 /*    LSTR="-I contrib/lstring370-0.1.0-dev/include"                   */
@@ -64,7 +68,12 @@ void *_simulated_ectenvbk = NULL;
 #define OVER_LIMIT  700 /* comfortably over the 512-entry fixed tables    */
 #define UNDER_LIMIT 100 /* comfortably under — must still compile to bc   */
 
-#define SRCBUF_SIZE 8192
+/* x=x+1 clauses: OVER_CODE overflows BCOM_MAX_CODE, GROW_CODE only the
+ * initial code buffer. */
+#define OVER_CODE 3000
+#define GROW_CODE 500
+
+#define SRCBUF_SIZE 32768
 
 static int tests_run = 0;
 static int tests_passed = 0;
@@ -149,6 +158,20 @@ static int gen_syms(char *buf, int cap, int n)
         off += snprintf(buf + off, (size_t)(cap - off), "a%d=1\n", i);
     }
     off += snprintf(buf + off, (size_t)(cap - off), "say a0\n");
+    return off;
+}
+
+/* x=0, then n clauses x=x+1, then SAY x: n clauses of code over two
+ * symbols and two constants, so only the code table grows.  The SAY
+ * output is "<n>". */
+static int gen_code(char *buf, int cap, int n)
+{
+    int off = snprintf(buf, (size_t)cap, "x=0\n");
+    for (int i = 0; i < n; i++)
+    {
+        off += snprintf(buf + off, (size_t)(cap - off), "x=x+1\n");
+    }
+    off += snprintf(buf + off, (size_t)(cap - off), "say x\n");
     return off;
 }
 
@@ -261,6 +284,29 @@ int main(void)
     check_compile(env, src, len, IRXBC_ERR_CAPACITY,
                   "700 distinct symbols -> CAPACITY");
 
+    /* The 500-clause program must need more code than the initial
+     * buffer, or the growth run below never reallocates it. */
+    {
+        struct irx_bc_execblk *bc = NULL;
+        len = gen_code(src, SRCBUF_SIZE, GROW_CODE);
+        rc = irx_bc_compile(env, src, len, &bc, NULL, NULL);
+        CHECK(rc == IRXBC_OK && bc != NULL && bc->code_length > 512 &&
+                  bc->code_length < 16384,
+              "compile: 500 clauses -> OK, past the initial code size");
+        printf("    code_length=%u\n",
+               bc != NULL ? (unsigned)bc->code_length : 0u);
+        if (bc != NULL)
+        {
+            void *p = bc;
+            irxstor(RXSMFRE, 0, &p, env);
+        }
+    }
+
+    /* Code table overflow (code_reserve). */
+    len = gen_code(src, SRCBUF_SIZE, OVER_CODE);
+    check_compile(env, src, len, IRXBC_ERR_CAPACITY,
+                  "3000 clauses of code -> CAPACITY");
+
     /* Boundary: a small program must still compile to bytecode. */
     len = gen_consts(src, SRCBUF_SIZE, UNDER_LIMIT);
     check_compile(env, src, len, IRXBC_OK,
@@ -280,6 +326,15 @@ int main(void)
     snprintf(expected, sizeof(expected), "c%d\n", UNDER_LIMIT - 1);
     check_run(env, src, len, expected, 0,
               "100-constant program runs on the VM");
+
+    printf("\n[run: tables grow past their initial size (#258)]\n");
+
+    len = gen_syms(src, SRCBUF_SIZE, UNDER_LIMIT);
+    check_run(env, src, len, "1\n", 0, "100-symbol program runs on the VM");
+
+    len = gen_code(src, SRCBUF_SIZE, GROW_CODE);
+    snprintf(expected, sizeof(expected), "%d\n", GROW_CODE);
+    check_run(env, src, len, expected, 0, "500-clause program runs on the VM");
 
     irxterm(env);
 
