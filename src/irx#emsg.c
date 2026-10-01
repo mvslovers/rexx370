@@ -35,7 +35,7 @@
 #include "lstring.h"
 
 #ifdef __MVS__
-#include <clibwto.h>
+#include <mvs/wto.h>
 #endif
 
 /* One output line: a clause is at most 500 characters (error 12), the

@@ -31,7 +31,7 @@
 #include "irxfunc.h"
 
 #ifdef __MVS__
-#include "clibppa.h"
+#include <mvs/crt.h>
 #endif
 
 #ifndef __MVS__
