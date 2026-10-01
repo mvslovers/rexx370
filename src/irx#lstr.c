@@ -68,9 +68,9 @@ static void rexx_lstr_dealloc_raw(void *ptr, size_t size, void *ctx)
 /*  Sizes outside these four values bypass the pool entirely.         */
 /*                                                                    */
 /*  Subpool safety: all buffers in a per-env pool were GETMAIN'd with  */
-/*  the same subpool (the env's parmblock_subpool). On MVS, freemain()*/
-/*  reads subpool from the 8-byte prefix embedded by crent370's       */
-/*  getmain(), not from parmblock — so teardown is safe even after    */
+/*  the same subpool (the env's parmblock_subpool). On MVS, RXSMFRE   */
+/*  reads subpool from the 8-byte prefix irxstor puts ahead of each   */
+/*  block, not from parmblock — so teardown is safe even after        */
 /*  PARMBLOCK has been released.                                       */
 /* ------------------------------------------------------------------ */
 

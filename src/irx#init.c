@@ -627,7 +627,7 @@ int irx_init_initenvb(struct envblock *prev_envblock,
      * and are referenced briefly by envblk->envblock_parmblock between
      * step 4 and step 5; after step 5 we overwrite that slot with the
      * heap-allocated pb_copy. RXSMFRE does not read parmblock_subpool
-     * (freemain recovers it from getmain's prefix), so the stale
+     * (RXSMFRE recovers it from the block's prefix), so the stale
      * pointer in cleanup paths is harmless.
      * ---------------------------------------------------------------- */
     struct parmblock bootstrap_pb;
