@@ -202,7 +202,8 @@ RC=0/1).
 | `src/irx#lstr.c` | IRX#LSTR | lstring370 adapter (WP-11b) |
 | `src/irx#vpol.c` | IRX#VPOL | Variable pool (WP-12) |
 | `src/irx#pars.c` | IRX#PARS | Parser + expression evaluator (WP-13) |
-| `src/irx#io.c`   | IRX#IO   | Default I/O routine, load module IRXINOUT (WP-14, #255) |
+| `src/irx#io.c`   | IRX#IO   | Default I/O routine, load module IRXINOUT; writes OUTDD through `asm/irxqsam.asm` (WP-14, #255, #302) |
+| `src/irx#qsmh.c` | IRX#QSMH | Host stand-in for `asm/irxqsam.asm` (`[host] replace`) |
 | `src/irx#tsio.c` | IRX#TSIO | TSO I/O routine IRXIOTSO, writes via PUTLINE (WP-33-TSO) |
 | `src/irx#putl.c` | IRX#PUTL | Host stand-in for `asm/putlin.asm` (captures PUTLINE calls) |
 | `src/irx#ldqs.c` | IRX#LDQS | IRXLOAD's member reader: stdio, needs a C runtime (batch) |
