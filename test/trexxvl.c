@@ -15,9 +15,8 @@
  * Build: [[test]] TREXXVL (startup=crt1), deployed into the TESTLIB;
  * STEPLIB = TESTLIB + LINKLIB so the production IRX* modules resolve.
  */
-#include <cliblink.h>
-#include <clibos.h>
-#include <clibwto.h>
+#include <mvs/link.h>
+#include <mvs/wto.h>
 #include <string.h>
 
 #include "irx.h"

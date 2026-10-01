@@ -39,7 +39,7 @@
 #include "irxwkblk.h"
 
 #ifdef __MVS__
-#include <clibppa.h>
+#include <mvs/crt.h>
 #else
 void *_simulated_ectenvbk = NULL;
 #endif

@@ -3048,7 +3048,7 @@ static int bif_errortext(struct irx_parser *p, int argc, PLstr *argv,
 /* ================================================================== */
 
 #ifdef __MVS__
-#include <time64.h>
+#include <ext/time64.h>
 #else
 #include <stdint.h>
 #include <sys/time.h>

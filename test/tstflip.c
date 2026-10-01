@@ -47,7 +47,7 @@
 #include "irxwkblk.h"
 
 #ifdef __MVS__
-#include <clibenv.h> /* setenv/unsetenv on crent370 (host gets them from
+#include <mvs/env.h> /* setenv/unsetenv on crent370 (host gets them from
                           <stdlib.h> via _POSIX_C_SOURCE above) */
 #endif
 

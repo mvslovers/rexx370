@@ -8,7 +8,7 @@ type = "application"
 # deliberately keeps floating on main so a cc370/libc370 regression surfaces
 # in a PR build (mbt#68). cc370 is omitted -- it defaults to main and has no
 # releases to pin to yet.
-libc370 = "1.0.8"
+libc370 = "2.0.0"
 
 [build]
 # -Os after mbt's -O1 (the last -O wins): about 8 % smaller code, which
