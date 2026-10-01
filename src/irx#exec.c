@@ -276,6 +276,15 @@ int irx_exec_dispatch(struct execblk *execblk,
         wkn->wkbi_exec_name[nl] = '\0';
     }
 
+    /* An error that ends the exec is recorded by the message it
+     * prints; clear the slot so an earlier run cannot answer. */
+    struct irx_wkblk_int *wke =
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    if (wke != NULL)
+    {
+        wke->wkbi_error_number = 0;
+    }
+
     rc = irx_exec_run(src_buf, src_len, first_arg, first_arg_len,
                       &exit_rc, env);
 
@@ -300,6 +309,12 @@ int irx_exec_dispatch(struct execblk *execblk,
     }
 
     /* ---- 10. Return engine exit code (→ R15 via asm wrapper) ---- */
+    /* An exec that ended in error n returns 20000 + n (irxexec.h). */
+    if (rc != 0 && wke != NULL && wke->wkbi_error_number >= SYNTAX_MIN &&
+        wke->wkbi_error_number <= SYNTAX_MAX)
+    {
+        return IRXEXEC_SYNTAX_BASE + wke->wkbi_error_number;
+    }
     if (rc != 0)
     {
         return rc;

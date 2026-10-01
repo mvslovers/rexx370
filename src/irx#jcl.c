@@ -242,15 +242,6 @@ int irx_jcl_dispatch_main(const char *member,
     memset(evalblk_buf, 0, sizeof(evalblk_buf));
     evalblk->evalblock_evsize = EVALBLK_DWORDS;
 
-    /* An error that ended the exec is recorded by the message it
-     * printed; clear the slot so an earlier run cannot answer. */
-    struct irx_wkblk_int *wke =
-        (struct irx_wkblk_int *)env->envblock_workblok_ext;
-    if (wke != NULL)
-    {
-        wke->wkbi_error_number = 0;
-    }
-
     /* flags = IRXEXEC_COMMAND (0x00000000) — z/OS codebase value.
      * Spec ticket quoted 0x80000000 but include/irx.h defines
      * IRXEXEC_COMMAND as 0x00000000 (the correct z/OS value). */
@@ -271,15 +262,9 @@ int irx_jcl_dispatch_main(const char *member,
         irx_load_dispatch(IRXLOAD_FC_FREE, NULL, &instblk, env, &free_retv);
     }
 
+    /* An exec that ended in an error comes back as 20000 + the error
+     * number already (irx_exec_dispatch, #299); an EXIT value as it is. */
     rc_final = exec_rc;
-    /* An exec that ended in an error returns 20000 + the error number,
-     * as IRXEXEC does in EVDATA (SC28-1883-0 p.226); z/OS IRXJCL gives
-     * CC 3658 for error 42 (#281).  An EXIT value is left alone. */
-    if (exec_rc != 0 && wke != NULL && wke->wkbi_error_number >= SYNTAX_MIN &&
-        wke->wkbi_error_number <= SYNTAX_MAX)
-    {
-        rc_final = IRXJCL_SYNTAX_BASE + wke->wkbi_error_number;
-    }
 
     /* ---- Step 8: conditional IRXTERM + return ---------------------- */
 cleanup_env:

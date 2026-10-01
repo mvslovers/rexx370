@@ -1,5 +1,8 @@
 /* ------------------------------------------------------------------ */
-/*  irx#jclm.c — IRXJCL main() entry point                           */
+/*  irx#jclm.c — IRXJCLD main() entry point                          */
+/*                                                                    */
+/*  IRXJCLD is the C-runtime IRXJCL, kept as a lab module for the     */
+/*  REXX370_* switches; PGM=IRXJCL is asm/irxjcl.asm since #299.      */
 /*                                                                    */
 /*  Called by @@CRT0.  @@START parses the MVS EXEC PARM= field into  */
 /*  argv by splitting on whitespace (NUL-terminating each token in   */

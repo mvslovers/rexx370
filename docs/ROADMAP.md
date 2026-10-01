@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-09-30
+Last updated: 2026-10-01
 
 ---
 
@@ -91,8 +91,10 @@ meaningful.**
 > to): REXXCPS self-calibrates to ~590 s, so the step needs **`TIME=1440`** —
 > the default class limit kills it with **S322** at about 1m34, after which
 > SYSTSPRT is empty and the run looks like a program fault. The `[bc]` gate line
-> needs `REXX370_BCDEBUG=1`, passed via a **`SYSENV` DD** (libc370 `@@start.c`
-> calls `loadenv("dd:SYSENV")`, falling back to `ENVIRON`). JCL lines are
+> needs **`PGM=IRXJCLD`**, the C-runtime IRXJCL kept as a lab module: IRXJCL
+> itself is a thin assembler entry since #299 and reads no switches. Set
+> `REXX370_BCDEBUG=1` through a **`SYSENV` DD** (libc370 `@@start.c` calls
+> `loadenv("dd:SYSENV")`, falling back to `ENVIRON`). JCL lines are
 > columns 1-71 — a JOB card one character over is rejected as "no valid JOB
 > card found".
 
@@ -229,7 +231,6 @@ needed for a *complete* REXX.
   built only the subroutine-call path.
 - **WP-CPS-08b** — IRXJCL full spec (sequential-file mode, full EVDATA, step-RC
   bit-masking). Depends on WP-CPS-06b.
-- **WP-CPS-08c** — IRXJCL HLASM rewrite (post-MVP).
 - **BIF integration** (deferred from WP-21b — these depend on subsystems that
   are partly unbuilt):
   - **TRACE()** — integrate with the trace system

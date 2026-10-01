@@ -14,6 +14,9 @@
 
 #include "irx.h"
 
+/* Return value base for an exec that ended in error n (3..49). */
+#define IRXEXEC_SYNTAX_BASE 20000
+
 /* Execute a REXX program from source text.
  *
  *   source     - REXX source text (need not be NUL-terminated)
@@ -57,6 +60,12 @@ int irx_exec_run(const char *source, int source_len,
 /*  P10 (rexx_return_code) is handled by asm/irxexec.asm after this   */
 /*  returns — the wrapper stores R15 through the P10 pointer if the   */
 /*  caller supplied one. This function returns int → R15 only.        */
+/*                                                                    */
+/*  An exec that ended in a REXX error returns IRXEXEC_SYNTAX_BASE    */
+/*  plus the error number (SC28-1883-0 p.226; z/OS IRXJCL gives CC    */
+/*  3658 for error 42, #281), so a caller such as IRXJCL needs no     */
+/*  knowledge of the work block to report it (#299).  An EXIT value   */
+/*  is returned as it is.                                             */
 /*                                                                    */
 /*  Refs:                                                             */
 /*    z/OS REXX Reference — IRXEXEC parameters and return codes       */
