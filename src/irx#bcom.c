@@ -2493,6 +2493,9 @@ static void bc_exp7(struct bcom_ctx *ctx)
     bc_exp8(ctx);
 }
 
+/* ** left to right (SC28-1883-0 p.15): 2**3**2 is (2**3)**2.  A loop,
+ * so a chain holds no operator open (#267); the right operand is a
+ * prefix-level term, as prefix operators bind tighter than **. */
 static void bc_exp6(struct bcom_ctx *ctx)
 {
     if (ctx->rc != IRXBC_OK)
@@ -2506,11 +2509,11 @@ static void bc_exp6(struct bcom_ctx *ctx)
         return;
     }
 
-    if (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '*' &&
-        tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '*')
+    while (tok_type_at(ctx, 0, TOK_OPERATOR) && tok_ch(ctx, 0) == '*' &&
+           tok_type_at(ctx, 1, TOK_OPERATOR) && tok_ch(ctx, 1) == '*')
     {
         ctx->pos += 2;
-        bc_operand(ctx, bc_exp6);
+        bc_operand(ctx, bc_exp7);
         if (ctx->rc != IRXBC_OK)
         {
             return;

@@ -210,14 +210,16 @@ static void test_ac4_precedence(void)
     vpool_destroy(pool);
 }
 
-static void test_ac5_power_right_assoc(void)
+static void test_ac5_power_left_to_right(void)
 {
     struct lstr_alloc *a = lstr_default_alloc();
     struct irx_vpool *pool = vpool_create(a, NULL);
+    /* One priority, so left to right: (2**3)**2 (SC28-1883-0 p.15,
+     * #267). */
     printf("\n--- AC#5: x = 2 ** 3 ** 2 ---\n");
     CHECK(run_source(a, pool, "x = 2 ** 3 ** 2\n") == IRXPARS_OK,
           "parser OK");
-    CHECK(get_var_eq(a, pool, "X", "512"), "X = '512' (2**9)");
+    CHECK(get_var_eq(a, pool, "X", "64"), "X = '64' ((2**3)**2)");
     vpool_destroy(pool);
 }
 
@@ -674,7 +676,7 @@ int main(void)
     test_ac2_blank_concat();
     test_ac3_explicit_concat();
     test_ac4_precedence();
-    test_ac5_power_right_assoc();
+    test_ac5_power_left_to_right();
     test_ac6_eq_case_sensitive();
     test_ac7_strict_eq();
     test_ac8_function_length();

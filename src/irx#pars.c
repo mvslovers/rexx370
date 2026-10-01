@@ -4439,7 +4439,13 @@ static int parse_prefix(struct irx_parser *p, PLstr out)
 }
 
 /* ------------------------------------------------------------------ */
-/*  parse_power: right-associative **                                 */
+/*  parse_power: ** left to right                                     */
+/*                                                                    */
+/*  Operators of one priority are evaluated left to right             */
+/*  (SC28-1883-0 p.15), so 2**3**2 is (2**3)**2 = 64.  A loop, as in  */
+/*  parse_mul: a chain holds no operator open, and z/OS runs          */
+/*  1**1**... 2000 deep (#267).  The right operand is a prefix-level  */
+/*  term: prefix operators bind tighter than ** (-3**2 = 9).          */
 /* ------------------------------------------------------------------ */
 
 static int next_is_power(struct irx_parser *p)
@@ -4458,7 +4464,7 @@ static int parse_power(struct irx_parser *p, PLstr out)
         return rc;
     }
 
-    if (next_is_power(p))
+    while (next_is_power(p))
     {
         Lstr rhs;
         int arc;
@@ -4467,8 +4473,7 @@ static int parse_power(struct irx_parser *p, PLstr out)
         advance_tok(p); /* first  * */
         advance_tok(p); /* second * */
 
-        /* recurse = right-associative */
-        rc = parse_operand(p, parse_power, &rhs);
+        rc = parse_operand(p, parse_prefix, &rhs);
         if (rc != IRXPARS_OK)
         {
             Lfree(p->alloc, &rhs);

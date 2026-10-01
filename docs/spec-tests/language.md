@@ -439,8 +439,9 @@ Token-walk (`REXX370_BYTECODE=0`): ran to the end; FAIL: 1, 6, 7, 11.
 
 ### EVALORD (33 cases: 6 manual examples, 27 derived)
 
-Host run, bytecode VM: ran to the end; FAIL: 8.  
-Token-walk (`REXX370_BYTECODE=0`): died after case 20 (run_rc 24); FAIL: 8.
+Host run, bytecode VM: ran to the end; all pass (8 since #267).  
+Token-walk (`REXX370_BYTECODE=0`): died after case 20 (run_rc 24, line 33:
+internal function call, #263); 1-20 pass (8 since #267).
 
 | # | expression | expected | spec | source | BREXX said | note |
 |---|---|---|---|---|---|---|
