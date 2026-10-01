@@ -2417,6 +2417,39 @@ sources = [
 ]
 
 # ---------------------------------------------------------------
+# TSTSTK - C stack high-water per workload (#258). MVS measures, the host
+# only runs the execs. Keeps the default 256 KB stack so there is room.
+# ---------------------------------------------------------------
+[[test]]
+name = "TSTSTK"
+startup = "crt1"
+sources = [
+  "test/tststk.c",
+  "src/irx#init.c",
+  "src/irx#term.c",
+  "src/irx#stor.c",
+  "src/irx#anch.c",
+  "src/irx#uid.c",
+  "src/irx#msid.c",
+  "src/irx#cond.c",
+  "src/irx#emsg.c",
+  "src/irx#bif.c",
+  "src/irx#bifs.c",
+  "src/irx#io.c",
+  "src/irx#lstr.c",
+  "src/irx#tokn.c",
+  "src/irx#vpol.c",
+  "src/irx#pars.c",
+  "src/irx#ctrl.c",
+  "src/irx#exec.c",
+  "src/irx#bcom.c",
+  "src/irx#bvm.c",
+  "src/irx#bctl.c",
+  "src/irx#arith.c",
+  "asm/istso.asm",
+]
+
+# ---------------------------------------------------------------
 # TSTSPEC - SC28-1883-0 conformance suite (#261). Runs every exec in
 # test/spec/ through the IRXJCL core; expected values and their spec
 # references are in docs/spec-tests/. Known failures are listed in
