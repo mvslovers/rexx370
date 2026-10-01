@@ -34,6 +34,24 @@
 /* Maximum number of arguments in a CALL or function call. */
 #define IRX_MAX_ARGS 16
 
+/* Expression nesting (#294), modelled on z/OS's evaluation stack: 40
+ * entries, error 39 beyond.  A parenthesised sub-expression or a
+ * function argument list takes one, so does a binary operator while
+ * its right operand is evaluated, a prefix operator takes two.
+ * Measured on z/OS (MIKE-TODO round 2, TSO and IRXJCL alike, and
+ * round 5, TSO):
+ *
+ *   abs(abs(...1...))     40 runs    (((1)))            40 runs
+ *   ((1+1)+1)...          39 runs    1+(1+(...1))       20 runs
+ *   - - ... - 1           20 runs
+ *
+ * Both expression paths recurse on the C stack per entry, so this also
+ * bounds the stack they need. */
+#define IRX_EXPR_NEST_MAX      40
+#define IRX_NEST_COST_GROUP    1 /* ( ... ) or name( ... )            */
+#define IRX_NEST_COST_OPERATOR 1 /* pending binary operator           */
+#define IRX_NEST_COST_PREFIX   2 /* prefix + - or \                    */
+
 /* ================================================================== */
 /*  Return codes                                                      */
 /* ================================================================== */
@@ -85,6 +103,8 @@ struct irx_parser
     Lstr *call_args;      /* current subroutine argument values      */
     int *call_arg_exists; /* 1=passed, 0=omitted (per argument)      */
     int call_argc;        /* number of argument positions            */
+
+    int expr_depth; /* nested expression levels now open (#294) */
 };
 
 /* ================================================================== */

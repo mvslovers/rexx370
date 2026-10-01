@@ -26,6 +26,7 @@ struct envblock; /* forward decl to avoid circular include */
 #define SYNTAX_WHOLE_NUMBER 26 /* invalid whole number             */
 #define SYNTAX_BAD_RESULT   33 /* invalid expression result        */
 #define SYNTAX_BAD_BOOL     34 /* logical value not 0 or 1         */
+#define SYNTAX_EVAL_STACK   39 /* evaluation stack overflow        */
 #define SYNTAX_BAD_CALL     40 /* incorrect call to routine        */
 #define SYNTAX_BAD_ARITH    41 /* bad arithmetic conversion         */
 /* Overflow, underflow and division by zero share error 42 (p.402;

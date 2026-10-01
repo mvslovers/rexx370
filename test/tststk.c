@@ -330,8 +330,10 @@ struct series
 };
 
 static const struct series SERIES[] = {
-    {"parens", gen_parens, {10, 20, 40, 80}, 1, 1},
-    {"abs()", gen_calls, {10, 20, 40, 80}, 1, 0},
+    /* The deepest that runs, as on z/OS: 39 parentheses with a pending
+     * +, 40 calls; deeper is error 39 (#294, irxpars.h). */
+    {"parens", gen_parens, {10, 20, 30, 39}, 1, 1},
+    {"abs()", gen_calls, {10, 20, 30, 40}, 1, 0},
     {"if chain", gen_ifchain, {10, 20, 40, 80}, 1, 0},
     /* A DO block, also after THEN, takes a slot of BCOM_MAX_LOOP (16). */
     {"if-do", gen_if, {5, 10, 15, 0}, 1, 0},
