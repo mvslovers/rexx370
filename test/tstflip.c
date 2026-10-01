@@ -10,6 +10,9 @@
 /*    - REXX370_BYTECODE=1/true/yes/on keeps wkbi_use_bytecode = 1   */
 /*    - Garbage value falls back to default (1)                       */
 /*    - Explicit test setters win over env-var (test isolation)       */
+/*    - IRXINIT alone reads no environment variable; the switches     */
+/*      apply through irx_env_toggles(), which IRXJCL calls (#298)    */
+/*    - REXX370_BCDEBUG=1 sets wkbi_bc_debug                          */
 /*                                                                    */
 /*  Build (Linux):                                                     */
 /*    gcc -I include -I contrib/lstring370-0.1.0-dev/include \        */
@@ -38,6 +41,7 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxenvt.h"
 #include "irxexec.h"
 #include "irxfunc.h"
 #include "irxwkblk.h"
@@ -84,6 +88,7 @@ static int wkbi_flag_after_init(void)
     {
         return -1;
     }
+    irx_env_toggles(env);
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk != NULL)
     {
@@ -223,6 +228,7 @@ static void test_setter_wins_over_env(void)
         unsetenv("REXX370_BYTECODE");
         return;
     }
+    irx_env_toggles(env);
 
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
@@ -274,6 +280,7 @@ static void test_setter_zero_wins_over_env(void)
         unsetenv("REXX370_BYTECODE");
         return;
     }
+    irx_env_toggles(env);
 
     wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
     if (wk == NULL)
@@ -304,6 +311,38 @@ static void test_setter_zero_wins_over_env(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  IRXINIT alone ignores REXX370_BYTECODE=0 (#298).                  */
+/* ------------------------------------------------------------------ */
+static void test_irxinit_reads_no_env(void)
+{
+    struct envblock *env = NULL;
+
+    printf("\n--- FLIP#09: IRXINIT alone reads no env var ---\n");
+
+    setenv("REXX370_BYTECODE", "0", 1);
+    setenv("REXX370_BCDEBUG", "1", 1);
+    int ok = irxinit(NULL, &env) == 0 && env != NULL;
+    CHECK(ok, "irxinit ok");
+    if (ok)
+    {
+        struct irx_wkblk_int *wk =
+            (struct irx_wkblk_int *)env->envblock_workblok_ext;
+        CHECK(wk != NULL && wk->wkbi_use_bytecode == 1,
+              "REXX370_BYTECODE=0 without irx_env_toggles -> flag 1");
+        CHECK(wk != NULL && wk->wkbi_bc_debug == 0,
+              "REXX370_BCDEBUG=1 without irx_env_toggles -> debug 0");
+        irx_env_toggles(env);
+        CHECK(wk != NULL && wk->wkbi_use_bytecode == 0,
+              "irx_env_toggles applies REXX370_BYTECODE=0");
+        CHECK(wk != NULL && wk->wkbi_bc_debug == 1,
+              "irx_env_toggles applies REXX370_BCDEBUG=1");
+        irxterm(env);
+    }
+    unsetenv("REXX370_BYTECODE");
+    unsetenv("REXX370_BCDEBUG");
+}
+
+/* ------------------------------------------------------------------ */
 /*  main                                                              */
 /* ------------------------------------------------------------------ */
 int main(void)
@@ -318,6 +357,7 @@ int main(void)
     test_env_garbage();
     test_setter_wins_over_env();
     test_setter_zero_wins_over_env();
+    test_irxinit_reads_no_env();
 
     printf("\n=== Results: %d/%d passed", tests_passed, tests_run);
     if (tests_failed > 0)

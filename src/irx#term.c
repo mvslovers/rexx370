@@ -23,7 +23,7 @@
 #include <string.h>
 
 #ifdef __MVS__
-#include <clibos.h> /* __delete() — give back LOADed replaceable routines */
+#include "irxsvc.h" /* irx_svc_delete() — give back LOADed routines */
 #endif
 
 #include "irx.h"
@@ -109,8 +109,11 @@ int irx_init_term(struct envblock *envblock, int *out_reason_code)
      * copy that hangs off the PARMBLOCK.
      *
      * A blank slot means nothing was loaded: INITENVB blanks it when a
-     * named module fails to LOAD, so the copy records what is actually
-     * wired and never asks for a DELETE that was never a LOAD. */
+     * named module fails to LOAD and writes the name of each default
+     * routine it LOADs (IRXUID, IRXMSGID, IRXINOUT, #255), so the copy
+     * records what is actually wired and never asks for a DELETE that
+     * was never a LOAD.  An environment built by an older IRXINIT has
+     * blank default slots and gets no DELETE for them. */
     {
         struct parmblock *tpb =
             (struct parmblock *)envblock->envblock_parmblock;
@@ -127,13 +130,15 @@ int irx_init_term(struct envblock *envblock, int *out_reason_code)
             unsigned char *slots[] = {
                 tmnt->modnamet_iorout,
                 tmnt->modnamet_exrout,
+                tmnt->modnamet_idrout,
+                tmnt->modnamet_msgidrt,
             };
             for (int i = 0; i < (int)(sizeof(slots) / sizeof(slots[0])); i++)
             {
                 char rtname[9];
                 if (term_slot_name(slots[i], rtname))
                 {
-                    (void)__delete(rtname);
+                    (void)irx_svc_delete(rtname);
                 }
             }
 #endif

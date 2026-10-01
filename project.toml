@@ -104,9 +104,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
-  "src/irx#uid.c",
-  "src/irx#msid.c",
-  "src/irx#io.c",
+  "src/irx#svc.c",
   "asm/istso.asm",
 ]
 
@@ -129,9 +127,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
-  "src/irx#uid.c",
-  "src/irx#msid.c",
-  "src/irx#io.c",
+  "src/irx#svc.c",
   "asm/istso.asm",
 ]
 
@@ -194,13 +190,13 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
   "src/irx#emsg.c",
   "src/irx#bif.c",
   "src/irx#bifs.c",
-  "src/irx#io.c",
   "src/irx#lstr.c",
   "src/irx#tokn.c",
   "src/irx#vpol.c",
@@ -233,6 +229,37 @@ startup = false
 sources = ["src/irx#tsio.c", "asm/putlin.asm"]
 
 # ---------------------------------------------------------------
+# IRXINOUT / IRXUID / IRXMSGID - the default replaceable routines
+# (SC28-1883-0 Chapter 16) as load modules of their own (#255), like
+# IRXIOTSO. IRXINIT LOADs them into IRXEXTE and writes their names
+# into the environment's MODNAMET copy; IRXTERM DELETEs them. Nothing
+# points into IRXINIT afterwards, and IRXINIT links no stdio (#298).
+#
+# IRXINOUT writes through stdio, so it needs the caller's C runtime
+# (IRXJCL). It is LOADed only where it is the active I/O routine;
+# under TSO IRXTSPRM names IRXIOTSO instead.
+#
+# startup = false: they are called, not started.
+# ---------------------------------------------------------------
+[[module]]
+name = "IRXINOUT"
+entry = "IRXINOUT"
+startup = false
+sources = ["src/irx#io.c"]
+
+[[module]]
+name = "IRXUID"
+entry = "IRXUID"
+startup = false
+sources = ["src/irx#uid.c"]
+
+[[module]]
+name = "IRXMSGID"
+entry = "IRXMSGID"
+startup = false
+sources = ["src/irx#msid.c"]
+
+# ---------------------------------------------------------------
 # IRXDBG - Debug / Inspection Tool.
 # Inspects IRXANCHR state, ECT/ECTENVBK slot, and ENVBLOCK fields.
 # Useful during WP-I1c development to verify IRXINIT/IRXTERM state.
@@ -247,7 +274,7 @@ sources = ["src/irx#tsio.c", "asm/putlin.asm"]
 [[module]]
 name = "IRXDBG"
 startup = "crt1"
-sources = ["src/irxdbg.c", "src/irx#anch.c"]
+sources = ["src/irxdbg.c", "src/irx#anch.c", "src/irx#svc.c"]
 
 [[module]]
 name = "IRX#HELO"
@@ -258,13 +285,13 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
   "src/irx#emsg.c",
   "src/irx#bif.c",
   "src/irx#bifs.c",
-  "src/irx#io.c",
   "src/irx#lstr.c",
   "src/irx#tokn.c",
   "src/irx#vpol.c",
@@ -306,16 +333,17 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#init.c",
+  "src/irx#envt.c",
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
   "src/irx#emsg.c",
   "src/irx#bif.c",
   "src/irx#bifs.c",
-  "src/irx#io.c",
   "src/irx#lstr.c",
   "src/irx#tokn.c",
   "src/irx#vpol.c",
@@ -349,6 +377,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -409,6 +438,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -438,6 +468,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -473,7 +504,7 @@ sources = [
 [[test]]
 name = "TSTANSL"
 startup = "crt1"
-sources = ["test/tstansl.c", "src/irx#anch.c"]
+sources = ["test/tstansl.c", "src/irx#anch.c", "src/irx#svc.c"]
 
 # ---------------------------------------------------------------
 # TSTINIT - WP-I1c.1 IRXINIT INITENVB C-Core unit tests.
@@ -495,6 +526,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -536,6 +568,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -577,6 +610,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -606,6 +640,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -635,6 +670,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -664,6 +700,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -705,6 +742,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -747,6 +785,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -819,6 +858,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -848,6 +888,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -877,6 +918,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -912,6 +954,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -941,6 +984,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -970,6 +1014,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -999,6 +1044,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1028,6 +1074,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1057,6 +1104,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1086,6 +1134,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1115,6 +1164,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1156,6 +1206,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1198,6 +1249,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1233,6 +1285,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1268,6 +1321,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1309,6 +1363,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1350,6 +1405,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1391,6 +1447,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1434,6 +1491,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1475,6 +1533,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1508,6 +1567,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1551,6 +1611,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1594,6 +1655,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1640,6 +1702,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1685,6 +1748,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1731,6 +1795,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1777,6 +1842,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1823,6 +1889,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1867,6 +1934,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1914,6 +1982,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -1994,9 +2063,11 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#init.c",
+  "src/irx#envt.c",
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2033,6 +2104,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2062,6 +2134,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2198,6 +2271,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2231,6 +2305,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2264,6 +2339,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2297,6 +2373,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2330,6 +2407,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2360,9 +2438,11 @@ startup = "crt1"
 sources = [
   "test/tstflip.c",
   "src/irx#init.c",
+  "src/irx#envt.c",
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2396,6 +2476,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2429,6 +2510,7 @@ sources = [
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",
@@ -2468,9 +2550,11 @@ sources = [
   "src/irx#bvm.c",
   "src/irx#bctl.c",
   "src/irx#init.c",
+  "src/irx#envt.c",
   "src/irx#term.c",
   "src/irx#stor.c",
   "src/irx#anch.c",
+  "src/irx#svc.c",
   "src/irx#uid.c",
   "src/irx#msid.c",
   "src/irx#cond.c",

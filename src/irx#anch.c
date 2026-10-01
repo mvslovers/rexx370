@@ -14,7 +14,7 @@
 #include "irxanchr.h"
 
 #ifdef __MVS__
-#include "clibos.h"
+#include "irxsvc.h"
 
 /* Low-core / control-block offsets per IBM macros — see header.
  * Named after the IBM fields so reviewers can cross-check the walk
@@ -156,8 +156,6 @@ static uint32_t anchor_fetch_inc(uint32_t *mem)
 
 int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
 {
-    unsigned size = 0;
-    char ac = 0;
     void *ptr;
     irxanchr_header_t *hdr;
 
@@ -169,7 +167,7 @@ int irx_anchor_get_handle(irxanchr_header_t **out_anchor)
     /* No matching DELETE — IRXTMPW holds the JPQ entry for the Step-TCB
      * lifetime, so repeat LOADs just bump the use count against the
      * existing CDE. */
-    ptr = __load(NULL, "IRXANCHR", &size, &ac);
+    ptr = irx_svc_load("IRXANCHR");
     if (ptr == NULL)
     {
         return IRX_ANCHOR_RC_LOAD_FAIL;

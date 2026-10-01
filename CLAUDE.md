@@ -192,15 +192,17 @@ RC=0/1).
 |------|--------|---------|
 | `src/irx#init.c` | IRX#INIT | IRXINIT — environment initialization |
 | `src/irx#term.c` | IRX#TERM | IRXTERM — environment termination |
-| `src/irx#stor.c` | IRX#STOR | Storage management replaceable routine |
+| `src/irx#stor.c` | IRX#STOR | Storage management replaceable routine; GETMAIN/FREEMAIN by inline assembler (#298) |
+| `src/irx#svc.c`  | IRX#SVC  | LOAD/DELETE by inline assembler, no libc370 (#298) |
+| `src/irx#envt.c` | IRX#ENVT | REXX370_BYTECODE / REXX370_BCDEBUG for C hosts (IRXJCL, tests); IRXINIT reads no env vars (#298) |
 | `src/irx#anch.c` | IRX#ANCH | ECTENVBK anchor (push/pop discipline) |
-| `src/irx#uid.c` | IRX#UID | User ID replaceable routine |
-| `src/irx#msid.c` | IRX#MSID | Message ID replaceable routine |
+| `src/irx#uid.c` | IRX#UID | User ID replaceable routine, load module IRXUID (#255) |
+| `src/irx#msid.c` | IRX#MSID | Message ID replaceable routine, load module IRXMSGID (#255) |
 | `src/irx#tokn.c` | IRX#TOKN | Tokenizer (WP-10) |
 | `src/irx#lstr.c` | IRX#LSTR | lstring370 adapter (WP-11b) |
 | `src/irx#vpol.c` | IRX#VPOL | Variable pool (WP-12) |
 | `src/irx#pars.c` | IRX#PARS | Parser + expression evaluator (WP-13) |
-| `src/irx#io.c`   | IRX#IO   | Default I/O routine IRXINOUT (WP-14) |
+| `src/irx#io.c`   | IRX#IO   | Default I/O routine, load module IRXINOUT (WP-14, #255) |
 | `src/irx#tsio.c` | IRX#TSIO | TSO I/O routine IRXIOTSO, writes via PUTLINE (WP-33-TSO) |
 | `src/irx#putl.c` | IRX#PUTL | Host stand-in for `asm/putlin.asm` (captures PUTLINE calls) |
 | `src/irx#ldqs.c` | IRX#LDQS | IRXLOAD's member reader: stdio, needs a C runtime (batch) |
