@@ -418,7 +418,7 @@
 #define IRXBC_ERR_LOOP           27 /* DO nesting too deep                   */
 #define IRXBC_ERR_IO             28 /* I/O routine call failed               */
 #define IRXBC_ERR_STRTOOLONG     29 /* literal/symbol exceeds IRXBC_STR_MAX  */
-#define IRXBC_ERR_CALL           30 /* CALL stack overflow (IRXBC_CALL_DEPTH)    */
+#define IRXBC_ERR_CALL           30 /* unused: a full call stack is error 11 */
 #define IRXBC_ERR_PARSE_COMPOUND 31 /* compound-variable target in PARSE template */
 #define IRXBC_ERR_CAPACITY       33 /* compile-time fixed-table overflow (fallback) */
 

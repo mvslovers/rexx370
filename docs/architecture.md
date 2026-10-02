@@ -1020,7 +1020,8 @@ Uses a big-switch dispatch on an unsigned char opcode byte. c2asm370
 generates an optimised branch table from this pattern. The PC starts
 at `IRXBC_ENTRY(bc)` (= start of bytecode + `entry_offset`).
 
-VM limits: stack depth 256, DO nesting 16, CALL depth 16.
+VM limits: stack depth 256, DO nesting 16, 250 active internal calls
+(then error 11, #295).
 
 ## 15.7 Integration
 
