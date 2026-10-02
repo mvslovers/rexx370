@@ -328,35 +328,38 @@ static void test_signal_value(struct envblock *env)
 
 static void test_signal_sigl(struct envblock *env)
 {
-    struct irx_wkblk_int *wk;
-    struct irx_bc_execblk *bc = NULL;
-    int rc;
-    int exit_rc = 0;
-    const char *src = "SIGNAL done\ndone:\nSAY \"ok\"\n";
+    /* SIGL is the line of the clause executing when control moved to
+     * the label: a SIGNAL, a trapped condition, a CALL or an internal
+     * function call (SC28-1883-0 p.152, p.164); for SIGNAL label the
+     * line of the SIGNAL (p.63).  Bytecode path; #315. */
+    printf("\n--- SIGL special variable (#315) ---\n");
 
-    printf("\n--- SIGL special variable ---\n");
-
-    wk = (struct irx_wkblk_int *)env->envblock_workblok_ext;
-    if (wk == NULL)
-    {
-        CHECK(0, "SIGL: no work block");
-        return;
-    }
-
-    wk->wkbi_sigl = 999; /* set a sentinel before SIGNAL */
-
-    rc = irx_bc_compile(env, src, (int)strlen(src), &bc, NULL, NULL);
-    if (rc == IRXBC_OK && bc != NULL)
-    {
-        rc = irx_bc_execute(env, bc, NULL, 0, NULL, 0, &exit_rc);
-        {
-            void *p = bc;
-            irxstor(RXSMFRE, 0, &p, env);
-        }
-    }
-
-    /* SIGL should be 0 after OP_SIGNAL (line tracking not yet impl) */
-    CHECK(wk->wkbi_sigl == 0, "SIGL = 0 after SIGNAL (pending line-track impl)");
+    bc_only(env, "say 'a'\nsignal lbl\nexit 1\nlbl:\nsay sigl\n",
+            "a\n2\n", "SIGNAL label: SIGL = line of the SIGNAL");
+    bc_only(env,
+            "x = 'LBL'\nsignal value x\nexit 1\nlbl:\nsay sigl\n",
+            "2\n", "SIGNAL VALUE: SIGL = line of the SIGNAL");
+    bc_only(env,
+            "signal on syntax\nsay 'a'\nx = 1/0\nexit 1\n"
+            "syntax:\nsay rc sigl\n",
+            "a\n42 3\n", "SYNTAX trap: SIGL = line in error");
+    bc_only(env,
+            "signal on novalue\nsay 'a'\nx = y\nexit 1\n"
+            "novalue:\nsay sigl\n",
+            "a\n3\n", "NOVALUE trap: SIGL = line of the reference");
+    bc_only(env, "say 'a'\ncall sub\nexit 0\nsub:\nsay sigl\nreturn\n",
+            "a\n2\n", "CALL: SIGL = line of the CALL");
+    bc_only(env,
+            "say 'a'\nx = f()\nsay x\nexit 0\nf:\nsay sigl\nreturn 7\n",
+            "a\n2\n7\n", "function call: SIGL = line of the call");
+    /* SIGL is set in the caller's variables: a PROCEDURE sees it only
+     * through EXPOSE (p.33). */
+    bc_only(env, "call sub\nexit 0\nsub: procedure\nsay sigl\nreturn\n",
+            "SIGL\n", "PROCEDURE: SIGL hidden");
+    bc_only(env,
+            "call sub\nexit 0\nsub: procedure expose sigl\nsay sigl\n"
+            "return\n",
+            "1\n", "PROCEDURE EXPOSE SIGL: the caller's line");
 }
 
 /* ------------------------------------------------------------------ */
