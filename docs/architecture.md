@@ -263,7 +263,27 @@ Function pointer table for all replaceable routines. Ref: chapter 14, p. 328.
 
 ## 4.1 IRXJCL — batch execution
 
-Parses EXEC PARM, initializes non-TSO environment via IRXINIT, calls IRXEXEC, cleans up with IRXTERM.
+A thin assembler entry with no C runtime (`asm/irxjcl.asm`, 1.8 KB, #299).
+It drives the installed services instead of linking the interpreter:
+
+1. Splits the PARM (SC28-1883-0 Figure 9): leading blanks are skipped
+   (#311 asks z/OS), the first word is the member, folded to upper case;
+   the argument starts at the next non-blank and is passed unchanged.
+2. Takes the environment R0 names if IRXINIT CHEKENVB accepts it, else the
+   current one (FINDENVB), else makes one (INITENVB) and IRXTERMs it at the
+   end. Called from TSO it therefore runs in the TMP's environment.
+3. Loads the exec through the environment's load routine (IRXEXTE
+   `load_routine`, MODNAMET EXROUT; IRXLDTSO in batch and TSO, §5.1).
+4. LOADs IRXEXEC and runs the INSTBLK; its R15 is IRXJCL's return code.
+5. FREEs the INSTBLK through the load routine.
+
+A load failure is reported like `irx#emsg.c` reports it: WTO in a non-TSO
+environment, the I/O routine under TSO (which is C, so IRXJCL GETMAINs a
+stack pool for that one call).
+
+The C entry it replaced lives on as the lab module **IRXJCLD** (not
+installed): it alone reads `REXX370_BYTECODE` / `REXX370_BCDEBUG`, so cps
+measurements with the `[bc]` line run `PGM=IRXJCLD`.
 
 ```jcl
 //REXX     EXEC PGM=IRXJCL,PARM='exec_name parm1 parm2'
@@ -273,12 +293,12 @@ Parses EXEC PARM, initializes non-TSO environment via IRXINIT, calls IRXEXEC, cl
 ```
 
 **Minimum REGION** (measured on MVSCE-LAB with `tso/lab/region_ladder.py`,
-one-line exec; IRXJCL row JOB01482, TMP row JOB01475):
+one-line exec, modules installed in SYS2.LINKLIB at `bf62e8c`; JOB01606):
 
 | Path | Runs from | Below that |
 |---|---|---|
-| `PGM=IRXJCL` | **768K** | 704K and 640K: CC 12 from the C runtime's startup, before IRXJCL runs (704K: `Out of memory` from the `fopen` in `@@START`, libc370#277; 640K: `SYSIN DD not defined`, libc370#254). 512K: ABEND U0801, no storage for the C stack |
-| `PGM=IKJEFT01`, `%exec` | **512K** | 384K: ABEND 878-01 inside EXEC (`IKJ56641I`). 256K: IRXEXEC cannot be loaded (`IEA703I 106-C`), reported as `IKJ56500I COMMAND … NOT FOUND` |
+| `PGM=IRXJCL` | **384K** (VIRT 420K) | 320K: IRXEXEC cannot be loaded (`IEA703I 106-C`); IRXJCL reports `IRX0110I`, CC 20 |
+| `PGM=IKJEFT01`, `%exec` | **448K** (VIRT 488K) | 384K: ABEND 878-01 inside EXEC (`IKJ56641I`). 256K: IRXEXEC cannot be loaded (`IEA703I 106-C`), reported as `IKJ56500I COMMAND … NOT FOUND` |
 
 How the thresholds moved (#258):
 - **#293:** the bytecode compiler's tables grow instead of sitting in one
@@ -296,18 +316,25 @@ How the thresholds moved (#258):
   JOB01488): 8.7 % less own code, IRXEXEC 321.6 KB → 298.8 KB. IRXJCL
   still runs from 768K, at VIRT 780K; at 704K it now gets past the C
   runtime's startup and fails on an 8 KB GETMAIN (JOB01489).
+- **#294:** IRXJCL on a 64 KB C stack instead of libc370's 256 KB: 640K
+  (JOB01496).
+- **#299:** IRXJCL is a thin assembler entry, 333.7 KB → 1.8 KB, no C
+  runtime: 384K (JOB01592, installed JOB01606). The ladder had no step
+  between 512K and 640K before; with one, the C entry ran from 576K and
+  `%exec` from 448K (JOB01586).
 
 The TMP loads only from authorized libraries (`IEA703I 306-C` from a
 development STEPLIB), so its row needs the modules installed.
 
 Larger execs need more. Code a REGION with headroom (the examples use
-`REGION=4096K`); the class default of 512K is not enough for IRXJCL.
-Tracked in #258.
+`REGION=4096K`). Tracked in #258.
 
 **Return code.** IRXJCL ends with the exec's return code. When the exec
 cannot be run, it ends with 20 (for example the member is not in
 `SYSEXEC`: `IRX0406E`, `IRX0110I`, `IRX0112I` in the job log), and a
-REXX error n ends it with 20000 + n. MVS keeps 12 bits of that as the
+REXX error n ends it with 20000 + n, which IRXEXEC returns (§4.2). An
+invalid PARM (empty, blank, a name over eight characters) is 20021, CC
+3637; no environment is 28. MVS keeps 12 bits of that as the
 condition code `COND=` tests: error 42 (`x = 1/0`) is CC 3658, which
 IEFACTRT and the step accounting show. **`IEF142I` shows something else**:
 the last four decimal digits of the full value, `COND CODE 0042` —
@@ -318,6 +345,11 @@ the error number, not the condition code (JOB01452–01454, #258).
 Main interface. Parameters: EXECBLK_PTR, ARGLIST_PTR, FLAGS, INSTBLK_PTR, CPPL_PTR, EVALBLK_PTR, WKAREA_PTR, USERFIELD_PTR, ENVBLOCK_PTR.
 
 **Return codes:** 0=OK, 4=RC>=1, 20=not found, 28=env not found, 32=invalid plist, -3=host cmd not found.
+
+rexx370 returns the exec's EXIT value in R15 (and P10), and **20000 + n**
+for an exec that ended in REXX error n (`IRXEXEC_SYNTAX_BASE`, #299), so a
+caller such as IRXJCL needs no knowledge of the work block. EVDATA is not
+filled yet (WP-CPS-06b).
 
 ## 4.3 IRXEXCOM — variable access
 
@@ -352,6 +384,12 @@ Functions: GETRLTE, GETRL, GETBLOCK.
   then SYSPROC (a SYSPROC member is REXX only with the REXX identifier);
 - `NOLOADDD` on: SYSPROC only.
 
+**Which routine.** Both shipped parameters modules, IRXPARMS (batch) and
+IRXTSPRM (TSO), name **IRXLDTSO** in MODNAMET EXROUT: the load logic with a
+BPAM reader (`asm/irxbpam.asm`) that needs no C runtime (#230, #299).
+IRXLOAD, the same logic with a stdio reader, is linked only into C hosts
+(IRXJCLD, the tests).
+
 SYSPROC is searched only in environments that are integrated into TSO
 (`TSOFL` on), as in V2 (#248). A non-TSO environment, for example batch IRXJCL,
 searches the LOADDD alone, and with `NOLOADDD` on it searches nothing. A call
@@ -367,7 +405,12 @@ parameters module. ALTLIB is future work.
 
 Functions: RXFWRITE (SAY), RXFREAD (PULL), RXFREADP (stack+terminal), RXFTWRITE (trace), RXFWRITERR, RXFOPEN, RXFCLOSE, RXFREAD_DS, RXFWRITE_DS.
 
-MVS 3.8j: TGET/TPUT (TSO) or WTO/WTOR (batch). EXECIO via QSAM.
+The default is a load module named by the parameters module (#255): in
+batch **IRXINOUT** writes the MODNAMET OUTDD (SYSTSPRT) through QSAM
+(`asm/irxqsam.asm`, #302); under TSO IRXTSPRM names **IRXIOTSO**, which
+writes through PUTLINE, so output reaches the terminal in the foreground and
+SYSTSPRT in a background TMP. TPUT does nothing there (no TSB). Neither needs
+a C runtime. EXECIO via QSAM is future work.
 
 ## 5.3 Host Command Environment Routine
 
@@ -444,7 +487,7 @@ Once initialized, the ENVBLOCK pointer is passed as an explicit parameter (regis
 
 ### Non-TSO environments
 
-For batch jobs started by JES2 (future Phase 5 IRXJCL), no persistent anchor exists. The ENVBLOCK is created locally by IRXJCL; `ECTENVBK` and `ENVBLOCK_ECTPTR` stay 0. The pointer is passed by reference through all IRXxxxx service calls as parameter — SC28-1883-0-compliant, since every IRXxxxx signature includes an ENVBLOCK pointer argument.
+For batch jobs started by JES2 (`PGM=IRXJCL`), no persistent anchor exists. The ENVBLOCK is created locally by IRXJCL; `ECTENVBK` and `ENVBLOCK_ECTPTR` stay 0. The pointer is passed by reference through all IRXxxxx service calls as parameter — SC28-1883-0-compliant, since every IRXxxxx signature includes an ENVBLOCK pointer argument.
 
 See `include/irxanchr.h` and `src/irx#anch.c` for the anchor API, and CON-1 §3.1 / §6.1 for the spec-level definition.
 
@@ -666,7 +709,8 @@ The condition reporting infrastructure (wkbi_last_condition slot, error codes in
 # 12. Module structure
 
 This section is the authoritative module cut; `project.toml` follows it, not the
-other way round. Sizes are load-module sizes as built on 2026-09-27 (#254).
+other way round. Sizes are load-module sizes from `tso/lab/ldsize.py` at
+`bf62e8c` (2026-10-02).
 
 **The rule:** a load module links only what it calls. The environment core
 (IRXINIT, IRXTERM) carries no tokenizer, parser, VM or BIFs; the interpreter
@@ -676,29 +720,32 @@ LOADed once and may be deleted, IRXEXEC is loaded per call (#200, #239).
 
 | Module | Contents | Size |
 |---|---|---|
-| IRXINIT | Environment core: INITENVB / FINDENVB / CHEKENVB, anchor, storage, default routines | 44 K |
-| IRXTERM | Same core as IRXINIT, entered at IRXTERM | 44 K |
-| IRXEXEC | Interpreter: tokenizer, parser, bytecode compiler + VM, BIFs, arithmetic, plus the core | 331 K |
-| IRXJCL | Batch entry (C runtime): IRXLOAD + interpreter + core | 374 K |
-| IRXLOAD | Exec load routine, stdio reader (needs a C runtime) | 72 K |
-| IRXLDTSO | Exec load routine, BPAM reader, no C runtime (TSO) | 33 K |
-| IRXIOTSO | I/O routine via PUTLINE (TSO) | 1 K |
-| IRXANCHR | Environment table | 3 K |
+| IRXINIT | Environment core: INITENVB / FINDENVB / CHEKENVB, anchor, storage; LOADs the default routines | 13.5 K |
+| IRXTERM | Same core as IRXINIT, entered at IRXTERM | 13.3 K |
+| IRXEXEC | Interpreter: tokenizer, parser, bytecode compiler + VM, BIFs, arithmetic, plus the core | 300.8 K |
+| IRXJCL | Batch entry, assembler, no C runtime (§4.1) | 1.8 K |
+| IRXLDTSO | Exec load routine, BPAM reader, no C runtime (batch and TSO) | 8.8 K |
+| IRXINOUT | Default I/O routine, QSAM (batch) | 4.6 K |
+| IRXIOTSO | I/O routine via PUTLINE (TSO) | 0.9 K |
+| IRXUID / IRXMSGID | Default user-ID and message-ID routines | < 1 K each |
+| IRXANCHR | Environment table | 2.6 K |
 | IRXPARMS / IRXTSPRM / IRXISPRM | Parameter modules (batch / TSO / ISPF) | < 1 K each |
-| IRXDBG, IRX#HELO | Diagnostic dump and hello-world smoke test | 87 K / 369 K |
+| IRXJCLD | Lab only: the C-runtime IRXJCL with the whole interpreter (§4.1) | 333.8 K |
+| IRXLOAD | Exec load routine, stdio reader; only for C hosts | 67.7 K |
+| IRXDBG, IRX#HELO | Diagnostic dump and hello-world smoke test | 78.5 K / – |
 
 **Open, in order:**
 
-- **#255** — the default routines `irxuid`, `irxmsgid` and `irxinout` still sit
-  inside the IRXINIT module, and IRXEXTE points at them there. They become their
-  own load modules, following IRXIOTSO. After that IRXINIT drops `irx#io.c` and
-  with it the stdio it pulls from the C library.
-- **#256** — then IKJEFTRX can DELETE IRXINIT right after INITENVB, so a TSO
-  session keeps no IRXINIT code resident.
-- IRXEXEC and IRXJCL each carry a full copy of the interpreter. Whether that
-  becomes one shared interpreter module is open. IBM has a separate `IRXINT`
-  module next to IRXINIT on z/OS (aliases IRXEX, IRXIO, IRXLD, …), presumably
-  the interpreter itself; this has not been researched (TSK-206).
+- **#256** — IKJEFTRX can DELETE IRXINIT right after INITENVB, so a TSO
+  session keeps no IRXINIT code resident (IRXJCL already does, #299).
+- **#300** — the modules in the LPA: reentrancy has not been verified.
+- Done: the default routines are load modules of their own (#255), and
+  IRXJCL no longer carries a copy of the interpreter (#299), so IRXEXEC is
+  the only installed module that does (IRXJCLD and IRX#HELO are lab
+  modules). IBM has a separate `IRXINT` module next to
+  IRXINIT on z/OS (aliases IRXEX, IRXIO, IRXLD, …), presumably the
+  interpreter itself; whether rexx370 follows that has not been researched
+  (TSK-206).
 
 ---
 
