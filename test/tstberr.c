@@ -235,12 +235,19 @@ static void test_no_message(struct envblock *env)
                       "x = 1/0\n"
                       "exit 1\n"
                       "syntax:\n"
-                      "say 'trapped'\n"
+                      "say 'trapped' rc\n"
                       "exit 3\n";
     cap_reset();
     int rc = irx_exec_run(src, (int)strlen(src), NULL, 0, &exit_rc, env);
     CHECK(rc == 0 && exit_rc == 3, "SIGNAL ON SYNTAX traps the error");
-    CHECK(strcmp(g_cap, "trapped\n") == 0, "trapped: no traceback");
+    /* RC holds the error number in the handler (SC28-1883-0 p.153,
+     * #308). */
+    CHECK(strcmp(g_cap, "trapped 42\n") == 0,
+          "trapped: no traceback, RC = 42");
+    if (strcmp(g_cap, "trapped 42\n") != 0)
+    {
+        printf("    got:\n%s", g_cap);
+    }
 
     const char *src2 = "say 'a'\nexit 4\n";
     cap_reset();
@@ -499,30 +506,24 @@ static void test_nesting(struct envblock *env)
     }
 
     /* SIGNAL ON SYNTAX traps error 39 like any other, and the clauses
-     * before it ran.  Bytecode only: SIGNAL ON is a no-op on the
-     * frozen token-walk path (CON-18).  The handler does not read RC:
-     * the VM does not set it on a SYNTAX trap yet, so the number is
-     * read from the condition the trap fired on. */
+     * before it ran; RC holds the number in the handler (#308).
+     * Bytecode only: SIGNAL ON is a no-op on the frozen token-walk path
+     * (CON-18). */
     nest_line(line, (int)sizeof(line), NEST_CALLS, IRX_EXPR_NEST_MAX + 1,
               result, (int)sizeof(result));
     snprintf(src, sizeof(src),
              "signal on syntax\nsay 'a'\n%s\nexit 1\nsyntax:\n"
-             "say 'trapped'\nexit 3\n",
+             "say 'trapped' rc\nexit 3\n",
              line);
     int rc = nest_run(env, src, 1, &exit_rc, &fallback);
-    const struct irx_wkblk_int *wk =
-        (const struct irx_wkblk_int *)env->envblock_workblok_ext;
-    int cond = wk->wkbi_last_condition != NULL
-                   ? wk->wkbi_last_condition->code
-                   : 0;
-    CHECK(rc == 0 && exit_rc == 3 && strcmp(g_cap, "a\ntrapped\n") == 0 &&
-              fallback == 0 && cond == SYNTAX_EVAL_STACK,
-          "SIGNAL ON SYNTAX traps error 39 (bytecode)");
-    if (rc != 0 || exit_rc != 3 || strcmp(g_cap, "a\ntrapped\n") != 0 ||
-        cond != SYNTAX_EVAL_STACK)
+    CHECK(rc == 0 && exit_rc == 3 && strcmp(g_cap, "a\ntrapped 39\n") == 0 &&
+              fallback == 0,
+          "SIGNAL ON SYNTAX traps error 39, RC = 39 (bytecode)");
+    if (rc != 0 || exit_rc != 3 || strcmp(g_cap, "a\ntrapped 39\n") != 0 ||
+        fallback != 0)
     {
-        printf("    rc=%d exit=%d fallback=%d cond=%d got:\n%s", rc,
-               exit_rc, fallback, cond, g_cap);
+        printf("    rc=%d exit=%d fallback=%d got:\n%s", rc, exit_rc,
+               fallback, g_cap);
     }
     set_name(env, "");
 }

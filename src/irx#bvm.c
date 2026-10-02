@@ -4028,6 +4028,27 @@ int irx_bc_execute(struct envblock *envblock,
                            fn, fnl);
                     wk_t->wkbi_last_condition->cond_name[fnl] = '\0';
                 }
+                /* SYNTAX: RC is the error number before control reaches
+                 * the label (SC28-1883-0 p.153, #308).  Set after the
+                 * frames are unwound, in the pool the label runs in. */
+                if (fired_cond == COND_SYNTAX &&
+                    wk_t->wkbi_last_condition != NULL &&
+                    wk_t->wkbi_last_condition->valid)
+                {
+                    char rc_text[12];
+                    Lstr rc_val;
+                    rc_val.pstr = (unsigned char *)rc_text;
+                    rc_val.len = (size_t)i32toa(
+                        wk_t->wkbi_last_condition->code, rc_text);
+                    rc_val.maxlen = rc_val.len;
+                    rc_val.type = LSTRING_TY;
+                    if (vpool_set_buf(vpool, "RC", 2, &rc_val, 0, 0) !=
+                        VPOOL_OK)
+                    {
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
+                    }
+                }
             }
             fired_cond = 0;
             if (WKBI_HAS(wk_run, wkbi_cond_seq))
