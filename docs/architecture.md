@@ -644,6 +644,21 @@ All SAA Procedures Language functions must be implemented: ABBREV, ABS, ADDRESS,
 
 **CALL ON:** calls a label as a subroutine. Surrounding structures remain intact.
 
+**RC and SIGL** (SC28-1883-0 p.152-153, p.164). On the bytecode path:
+
+- A SYNTAX trap sets **RC** to the error number before control reaches
+  the label (#308). ERROR and FAILURE, which would set it to the command's
+  return code, are not trapped yet.
+- **SIGL** is the line of the clause executing when control moved to a
+  label: the SIGNAL (also SIGNAL VALUE), the clause that raised a trapped
+  condition, or the CALL / internal function call (#315). For calls it is
+  set in the caller's variables, so a PROCEDURE sees it only through
+  `EXPOSE SIGL`. The line comes from the trace map (`irx_bc_line_at`, the
+  same lookup the `+++` traceback uses).
+
+The frozen token walk (CON-18) does not trap conditions at all and sets
+SIGL on CALL only.
+
 The condition reporting infrastructure (wkbi_last_condition slot, error codes in include/irxcond.h) is established as part of WP-20 (see section 7.3.4). The full trap handler mechanism comes in WP-61.
 
 ---
