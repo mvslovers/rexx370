@@ -942,9 +942,9 @@ All 1 byte.  Binary ops pop two slots and push one result; unary pop one.
 |--------|------|------|-------------|
 | `OP_SAY` | 0x70 | 1 | Pop TOS, write via IRXINOUT |
 | `OP_TOINT` | 0x71 | 1 | Coerce TOS to integer string |
-| `OP_FORINIT` | 0x72 | 2 | Pop count → frame[`n:u8`]; push bool (count>0) |
+| `OP_FORINIT` | 0x72 | 2 | Pop count → frame[do_base + `n:u8`] (per call, #320); push bool (count>0) |
 | `OP_BYINIT` | 0x73 | 2 | Reserved (`n:u8`) |
-| `OP_DECFOR` | 0x74 | 4 | Decrement frame[`n:u8`]; jump-if-done (`off:i16`) |
+| `OP_DECFOR` | 0x74 | 4 | Decrement frame[do_base + `n:u8`]; jump-if-done (`off:i16`) |
 | `OP_DOTEST` | 0x75 | 1 | Reserved (WHILE/UNTIL via JF) |
 | `OP_ITERATE` | 0x76 | 3 | Jump to iterate point (`off:i16`) |
 | `OP_LEAVE` | 0x77 | 3 | Jump to loop end (`off:i16`) |

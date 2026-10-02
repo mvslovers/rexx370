@@ -176,6 +176,11 @@ compiler is a decommission gate** — each is a construct that still forces a
 whole-program fallback to token-walk.
 
 **Closed gates** (constructs that no longer force a token-walk fallback):
+- ~~**#320**~~ — DO n / DO FOR counters shared across recursive calls: a
+  routine recursing from inside `DO 3` silently counted wrong (5 instead of 39).
+  **Done** (2026-10-02): the counters are indexed from a per-call base the VM
+  moves on an internal call and restores on RETURN. Not a fallback gate but a
+  silent bytecode divergence; listed here as fixed.
 - ~~**WP-BC-NUMERIC**~~ — `NUMERIC DIGITS/FUZZ/FORM` statement (PR #188, 2026-06-03).
   Writes `wkbi_digits/fuzz/form` in the VM; the arith engine and the OC-ARITH/OC-12
   fast-path gates read them automatically. The gates correctly disable the integer
@@ -210,12 +215,6 @@ Open items:
 - **WP-CPS-09a-FU** — SIGNAL/CALL condition-trap *activation* (the parser-only
   baseline is done via #131; the runtime trap machinery — NOVALUE hook,
   condition dispatcher, SIGL/RC/CONDITION updates, CALL ON/OFF — is open).
-- **#320 — DO n / DO FOR counters shared across recursive calls** (bytecode
-  only): the VM indexes the counters by static loop depth and does not save
-  them on an internal call, so a routine recursing from inside `DO 3` gives the
-  wrong iteration count with no error (5 instead of 39 in the issue's repro;
-  the token walk is right). Silent wrong output; fix by saving the counters in
-  the call frame.
 - **Token-walk's own defects** — discovered while building bytecode equivalence
   tests. The token-walk is *not* a gold standard; it is wrong in several places
   where the bytecode is right (the true reference is SC28-1883-0):

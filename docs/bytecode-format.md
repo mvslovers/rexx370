@@ -206,15 +206,18 @@ Jump offsets are signed 16-bit, relative to the byte after the instruction.
 | `OP_JF` | 0x05 | 3 | `off:i16` — jump if top-of-stack false, pop |
 | `OP_JT` | 0x06 | 3 | `off:i16` — jump if top-of-stack true, pop |
 | `OP_TOINT` | 0x71 | 1 | Coerce TOS to integer string |
-| `OP_FORINIT` | 0x72 | 2 | `n:u8` — pop count → frame[n]; push bool (count>0) |
+| `OP_FORINIT` | 0x72 | 2 | `n:u8` — pop count → frame[do_base + n]; push bool (count>0) |
 | `OP_BYINIT` | 0x73 | 2 | `n:u8` — reserved |
-| `OP_DECFOR` | 0x74 | 4 | `n:u8` + `off:i16` — decrement frame[n]; jump-if-done |
+| `OP_DECFOR` | 0x74 | 4 | `n:u8` + `off:i16` — decrement frame[do_base + n]; jump-if-done |
 | `OP_DOTEST` | 0x75 | 1 | Reserved (WHILE/UNTIL via JF) |
 | `OP_ITERATE` | 0x76 | 3 | `off:i16` — jump to iterate point |
 | `OP_LEAVE` | 0x77 | 3 | `off:i16` — jump to loop end |
 
 **DO count loop protocol:**
 
+- `n` is the loop's static nesting depth. `do_base` belongs to the active call: an
+  internal call moves it past the counters of the loops around its call site, and
+  RETURN restores it, so a routine never reuses its caller's counters (#320).
 - Push count expression, `OP_FORINIT n` (pops count, pushes bool), `OP_JF exit`.
 - Body, `OP_DECFOR n exit_off` (decrements; if done jumps forward to exit).
 - `OP_JMP` back to top of body.

@@ -629,6 +629,30 @@ static void test_bif_dispatch_cache(struct envblock *env)
 /*  main                                                               */
 /* ------------------------------------------------------------------ */
 
+/* DO n / DO FOR counters belong to the call that runs the loop
+ * (#320): a routine called from inside a counted loop, recursively or
+ * not, must not disturb the caller's count. */
+static void test_do_count_across_calls(struct envblock *env)
+{
+    printf("\n--- DO n across internal calls (#320) ---\n");
+    bc_only(env,
+            "n = 0\ncall r 2\nsay 'calls' n\nexit 0\n"
+            "r: procedure expose n\nparse arg k\ndo 3\n  n = n + 1\n"
+            "  if k > 0 then call r k - 1\nend\nreturn\n",
+            "calls 39\n", "recursive CALL inside DO 3: 3+9+27");
+    bc_only(env,
+            "n = 0\nsay f(2)\nsay n\nexit 0\n"
+            "f: procedure expose n\nparse arg k\nt = 0\ndo 2\n"
+            "  n = n + 1\n  if k > 0 then t = t + f(k - 1)\nend\n"
+            "return t + 1\n",
+            "7\n14\n", "recursive function inside DO 2");
+    bc_only(env,
+            "n = 0\ndo 2\n  do 2\n    call r\n  end\nend\nsay n\n"
+            "exit 0\nr: procedure expose n\ndo 3\n  n = n + 1\nend\n"
+            "return\n",
+            "12\n", "DO 3 in a routine called from DO 2 / DO 2");
+}
+
 int main(void)
 {
     struct envblock *env = NULL;
@@ -658,6 +682,7 @@ int main(void)
     test_exit_in_routine(env);
     test_bif_contexts(env);
     test_bif_dispatch_cache(env);
+    test_do_count_across_calls(env);
 
     irxterm(env);
 
