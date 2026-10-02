@@ -52,6 +52,15 @@
 #define IRX_NEST_COST_OPERATOR 1 /* pending binary operator           */
 #define IRX_NEST_COST_PREFIX   2 /* prefix + - or \                    */
 
+/* C stack guard (#296).  Nesting that recurses on the C stack -- the
+ * bytecode compiler per block and per expression level, the token walk
+ * per expression level and per IF -- checks first that at least this
+ * much is left below wkbi_stack_end, and raises an error instead of
+ * running past it: error 11 for a block, error 39 for an expression.
+ * The margin covers the deepest call chain after the last check (a BIF,
+ * the arithmetic engine, a message) and matches TSTSTK's STK_MARGIN. */
+#define IRX_STACK_MARGIN 16384
+
 /* ================================================================== */
 /*  Return codes                                                      */
 /* ================================================================== */
@@ -176,5 +185,10 @@ int irx_pars_eval_expr(struct irx_parser *p,
  * irx_bif_find_local() in src/irx#bifs.c. */
 int irx_pars_bif_arg(struct irx_parser *p, int argc, PLstr *argv,
                      PLstr result) asm("IRXPARBA");
+
+/* True when the C stack has less than IRX_STACK_MARGIN left before the
+ * environment's wkbi_stack_end (#296).  Always false off MVS, and when
+ * the end is not known. */
+int irx_stack_low(struct envblock *env) asm("IRXSTKLW");
 
 #endif /* IRXPARS_H */

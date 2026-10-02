@@ -5,7 +5,7 @@
 *
 *  Parses the caller VLIST (10 slots, VL-bit on P9 or P10), saves
 *  the R0 envblock hint, and delegates to the C-core dispatcher
-*  irx_exec_dispatch (asm() alias IRXEDISP, CON-4).
+*  irx_exec_dispatch_stk (asm() alias IRXEDISP, CON-4).
 *
 *  Calling convention (z/OS IRXEXEC, 10-slot form):
 *
@@ -146,7 +146,7 @@ IRXEXEC  CSECT
          XC    WPARMS(40),WPARMS   10F = 40 bytes
          XC    WFLAGS(4),WFLAGS    P10-present flag
          XC    WDP10(4),WDP10      saved P10 bare addr
-         XC    WCPLIST(44),WCPLIST 11F (10 dispatch args + sentinel)
+         XC    WCPLIST(44),WCPLIST 11F (10 args + stack end)
 *
 *  --- parse VLIST: up to 10 entries, VL-bit legal on P9 or P10 -----
 *
@@ -272,8 +272,14 @@ NOFLAG   EQU   *
 *  envblock_r0 (10th arg): caller's original R0 (saved in WDR0).
          L     R2,WDR0             R2 = caller R0 (envblock or 0)
          ST    R2,WCPLIST+36
+*  stack_end (11th arg, #296): WPOOL is the last field of the
+*  workarea, so its end is WAREA + WALEN.  The interpreter keeps a
+*  margin below it instead of running past the pool.
+         L     R2,=A(WALEN)
+         AR    R2,R13              R2 = end of WPOOL
+         ST    R2,WCPLIST+40
 *
-*  --- call irx_exec_dispatch ---
+*  --- call irx_exec_dispatch_stk ---
          LA    R1,WCPLIST
          L     R15,=V(IRXEDISP)
          BALR  R14,R15
@@ -350,7 +356,7 @@ WDNAB    DS    F                   +76 DSANAB  (must point to WPOOL)
 WPARMS   DS    10F                 bare addresses from 10-slot VLIST
 WFLAGS   DS    F                   parse flags (X'80' = P10 present)
 WDP10    DS    F                   saved P10 bare address
-WCPLIST  DS    11F                 C plist: 10 dispatch args + sentinel
+WCPLIST  DS    11F                 C plist: 10 args + stack end
 *  Stack pool for nested c2asm370 PDPPRLG frames.  A real exec's
 *  recursive-descent compile (bc_exp0..bc_exp8, ~9 frames/level) plus
 *  the VM + Lstr chain nests well past 8 KB -- WP-VLIST-WPOOL measured

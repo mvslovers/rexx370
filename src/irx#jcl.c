@@ -50,6 +50,10 @@
 #include "irxload.h"
 #include "irxwkblk.h"
 
+#ifdef __MVS__
+#include <mvs/crt.h>
+#endif
+
 /* One load-failure message line (IRX0406E with DD and member). */
 #define JCL_MSG_MAX 128
 
@@ -245,16 +249,24 @@ int irx_jcl_dispatch_main(const char *member,
     /* flags = IRXEXEC_COMMAND (0x00000000) — z/OS codebase value.
      * Spec ticket quoted 0x80000000 but include/irx.h defines
      * IRXEXEC_COMMAND as 0x00000000 (the correct z/OS value). */
-    int exec_rc = irx_exec_dispatch(NULL,
-                                    argtab,
-                                    IRXEXEC_COMMAND,
-                                    instblk,
-                                    NULL,
-                                    evalblk,
-                                    NULL,
-                                    NULL,
-                                    env,
-                                    NULL);
+    /* The end of this program's C stack, so deep nesting stops with an
+     * error instead of running past it (#296).  @@CRT1 allocates the
+     * stack as the PPA block, __stklen bytes long. */
+    void *stack_end = NULL;
+#ifdef __MVS__
+    stack_end = (char *)__ppaget() + __ppaget()->ppastkln;
+#endif
+    int exec_rc = irx_exec_dispatch_stk(NULL,
+                                        argtab,
+                                        IRXEXEC_COMMAND,
+                                        instblk,
+                                        NULL,
+                                        evalblk,
+                                        NULL,
+                                        NULL,
+                                        env,
+                                        NULL,
+                                        stack_end);
 
     /* ---- Step 7: IRXLOAD FC=FREE ----------------------------------- */
     {

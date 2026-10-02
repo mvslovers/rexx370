@@ -68,6 +68,23 @@ int irx_exec_dispatch(struct execblk *execblk,
                       struct envblock *envblock,
                       struct envblock *envblock_r0)
 {
+    return irx_exec_dispatch_stk(execblk, argtable, flags, instblk,
+                                 reserved_parm5, evalblock, workarea,
+                                 userfield, envblock, envblock_r0, NULL);
+}
+
+int irx_exec_dispatch_stk(struct execblk *execblk,
+                          void *argtable,
+                          int flags,
+                          struct instblk *instblk,
+                          void *reserved_parm5,
+                          struct evalblock *evalblock,
+                          void *workarea,
+                          void *userfield,
+                          struct envblock *envblock,
+                          struct envblock *envblock_r0,
+                          void *stack_end)
+{
     struct envblock *env = NULL;
     int rsn = 0;
     const struct argtable_entry *ae;
@@ -285,9 +302,26 @@ int irx_exec_dispatch(struct execblk *execblk,
         wke->wkbi_error_number = 0;
     }
 
+    /* The C stack this run may use (#296), for its duration: a nested
+     * IRXEXEC runs on a stack of its own and restores the outer end. */
+    void *saved_stack_end = NULL;
+    int has_stack_end = WKBI_HAS(wke, wkbi_stack_end);
+    if (has_stack_end)
+    {
+        saved_stack_end = wke->wkbi_stack_end;
+        if (stack_end != NULL)
+        {
+            wke->wkbi_stack_end = stack_end;
+        }
+    }
+
     rc = irx_exec_run(src_buf, src_len, first_arg, first_arg_len,
                       &exit_rc, env);
 
+    if (has_stack_end)
+    {
+        wke->wkbi_stack_end = saved_stack_end;
+    }
     if (wkn != NULL)
     {
         memcpy(wkn->wkbi_exec_name, saved_name, sizeof(saved_name));

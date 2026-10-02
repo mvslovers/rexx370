@@ -273,6 +273,13 @@ struct irx_wkblk_int
      * record buffer, set on the first write, released by RXFTERM.
      * Owned by IRXINOUT; nothing else reads it. */
     void *wkbi_io_state;
+
+    /* End of the C stack the interpreter runs on (#296): the end of
+     * IRXEXEC's WPOOL, or of a C host's runtime stack.  Recursion that
+     * would leave less than IRX_STACK_MARGIN raises an error instead
+     * of running past it (irx_stack_low).  NULL: not known, no check.
+     * Set by irx_exec_dispatch_stk for the run, restored after it. */
+    void *wkbi_stack_end;
 };
 
 /* True if work block wk is long enough to hold field (see above). */

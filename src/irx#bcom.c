@@ -201,6 +201,7 @@ enum bc_unsup_reason
     BC_UNSUP_DROP_TARGET,          /* DROP target is not a symbol       */
     BC_UNSUP_NUMERIC_FORM,         /* unsupported NUMERIC sub-keyword   */
     BC_UNSUP_EXPR_DEPTH,           /* expression nested too deep (#294) */
+    BC_UNSUP_CTL_DEPTH,            /* block too deep, no END to skip to */
     BC_UNSUP_COUNT                 /* sentinel — table size; keep last  */
 };
 
@@ -663,7 +664,9 @@ static int bc_cur_line(const struct bcom_ctx *ctx)
  * Returns 0 when refused. */
 static int bc_nest_enter(struct bcom_ctx *ctx, int cost)
 {
-    if (ctx->expr_depth + cost <= IRX_EXPR_NEST_MAX)
+    /* Also refused when the C stack is short (#296): same error. */
+    if (ctx->expr_depth + cost <= IRX_EXPR_NEST_MAX &&
+        !irx_stack_low(ctx->env))
     {
         ctx->expr_depth += cost;
         return 1;
@@ -4153,6 +4156,72 @@ static void bc_stmts_until(struct bcom_ctx *ctx, const char *stop1,
 }
 
 /* ================================================================== */
+/*  Block nesting (#296)                                              */
+/* ================================================================== */
+
+/* Skip from the start of a statement to the END that closes the
+ * innermost block enclosing it, without consuming that END.  DO, SELECT
+ * and END are keywords only at the start of a clause -- after a clause
+ * end, a label's ':', THEN, ELSE or OTHERWISE -- and not when an '='
+ * makes them an assignment.  Returns 0 when no such END exists. */
+static int bc_skip_to_end(struct bcom_ctx *ctx)
+{
+    int balance = 0;
+    int at_start = 1;
+    for (;;)
+    {
+        const struct irx_token *t = tok_at(ctx, 0);
+        if (t == NULL || t->tok_type == TOK_EOF)
+        {
+            return 0;
+        }
+        if (at_start && t->tok_type == TOK_SYMBOL && !tok_next_is_assign(ctx))
+        {
+            if (tok_kw(ctx, 0, "END"))
+            {
+                if (balance == 0)
+                {
+                    return 1; /* the enclosing END -- left to its owner */
+                }
+                balance--;
+            }
+            else if (tok_kw(ctx, 0, "DO") || tok_kw(ctx, 0, "SELECT"))
+            {
+                balance++;
+            }
+        }
+        at_start = t->tok_type == TOK_EOC || t->tok_type == TOK_SEMICOLON ||
+                   tok_kw(ctx, 0, "THEN") || tok_kw(ctx, 0, "ELSE") ||
+                   tok_kw(ctx, 0, "OTHERWISE");
+        ctx->pos++;
+    }
+}
+
+/* Called for a statement that opens a block (IF, DO, SELECT), each of
+ * which recurses on the C stack.  When the C stack is short (#296) the
+ * statement is not compiled: OP_RAISE 11 stands in its place and the
+ * rest of the enclosing block is skipped, as bc_nest_enter does for a
+ * parenthesis.  The error then comes when the clause runs, with its
+ * line, and SIGNAL ON SYNTAX traps it.  Outside any block there is no
+ * END to stop at: the program falls back to the token walk, whose own
+ * guard raises the error.  Returns 1 when refused. */
+static int bc_block_refused(struct bcom_ctx *ctx)
+{
+    if (!irx_stack_low(ctx->env))
+    {
+        return 0;
+    }
+    if (!bc_skip_to_end(ctx))
+    {
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_CTL_DEPTH);
+        return 1;
+    }
+    emit_byte(ctx, OP_RAISE);
+    emit_byte(ctx, SYNTAX_CTL_STACK);
+    return 1;
+}
+
+/* ================================================================== */
 /*  bc_stmt                                                           */
 /* ================================================================== */
 
@@ -4205,19 +4274,28 @@ static void bc_stmt(struct bcom_ctx *ctx)
 
     if (tok_kw(ctx, 0, "IF"))
     {
-        C_if_bc(ctx);
+        if (!bc_block_refused(ctx))
+        {
+            C_if_bc(ctx);
+        }
         return;
     }
 
     if (tok_kw(ctx, 0, "SELECT"))
     {
-        C_select_bc(ctx);
+        if (!bc_block_refused(ctx))
+        {
+            C_select_bc(ctx);
+        }
         return;
     }
 
     if (tok_kw(ctx, 0, "DO"))
     {
-        C_do_bc(ctx);
+        if (!bc_block_refused(ctx))
+        {
+            C_do_bc(ctx);
+        }
         return;
     }
 
@@ -4559,6 +4637,7 @@ static const char *const bc_unsup_text[BC_UNSUP_COUNT] = {
     [BC_UNSUP_DROP_TARGET] = "DROP target is not a symbol",
     [BC_UNSUP_NUMERIC_FORM] = "unsupported NUMERIC form",
     [BC_UNSUP_EXPR_DEPTH] = "expression nested too deep",
+    [BC_UNSUP_CTL_DEPTH] = "control stack full outside any block",
 };
 
 const char *irx_bc_unsup_text(int reason)
