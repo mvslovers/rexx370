@@ -1067,8 +1067,10 @@ Uses a big-switch dispatch on an unsigned char opcode byte. c2asm370
 generates an optimised branch table from this pattern. The PC starts
 at `IRXBC_ENTRY(bc)` (= start of bytecode + `entry_offset`).
 
-VM limits: stack depth 256, DO nesting 16, 250 active internal calls
-(then error 11, #295).
+VM limits: stack depth 256, 250 active internal calls (then error 11,
+#295). Blocks: 250 control stack entries in the compiler, IF-DO taking two,
+then error 11; on IRXEXEC's 64 KB pool the C stack guard stops them at 114
+DO / 74 IF-DO levels (#296, `docs/extensions.md`).
 
 ## 15.7 Integration
 

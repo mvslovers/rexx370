@@ -351,8 +351,9 @@
 /*                                                                    */
 /*  Raise SYNTAX error <errnum> when the clause runs, trappable by    */
 /*  SIGNAL ON SYNTAX.  The compiler emits it for an error it detects  */
-/*  in an expression that must still surface at run time, as on       */
-/*  z/OS: an operand nested past IRX_EXPR_NEST_MAX (error 39).        */
+/*  that must still surface at run time, as on z/OS: an operand       */
+/*  nested past IRX_EXPR_NEST_MAX (error 39), a block past the        */
+/*  control stack or with the C stack short (error 11, #296).         */
 /* ================================================================== */
 
 #define OP_RAISE 0xA0 /* 2 bytes: op + errnum:u8                     */

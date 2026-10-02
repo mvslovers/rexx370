@@ -594,6 +594,98 @@ static void test_call_depth(struct envblock *env)
     set_name(env, "");
 }
 
+/* Blocks share the control stack (#296): an active IF, DO or SELECT
+ * takes one of 250 entries, a DO after THEN two; one more is error 11
+ * on the clause that opens it.  Bytecode path.  The traceback is longer
+ * than the capture buffer, so number and line come from the work
+ * block.  The exact boundary is still to be confirmed on z/OS. */
+#define BLOCK_SRC_SIZE 8192
+
+static int block_src(char *buf, int cap, int depth, const char *open,
+                     int trap)
+{
+    int off = snprintf(buf, (size_t)cap, "%ssay 'a'\n",
+                       trap ? "signal on syntax\n" : "");
+    for (int i = 0; i < depth && off < cap; i++)
+    {
+        off += snprintf(buf + off, (size_t)(cap - off), "%s\n", open);
+    }
+    off += snprintf(buf + off, (size_t)(cap - off), "x = 1\n");
+    for (int i = 0; i < depth && off < cap; i++)
+    {
+        off += snprintf(buf + off, (size_t)(cap - off), "end\n");
+    }
+    off += snprintf(buf + off, (size_t)(cap - off), "say x\nexit 0\n%s",
+                    trap ? "syntax:\nsay 'trapped' rc sigl\nexit 3\n" : "");
+    return off;
+}
+
+static void block_case(struct envblock *env, int depth, const char *open,
+                       int error_line, const char *tag)
+{
+    static char src[BLOCK_SRC_SIZE];
+    int exit_rc = 0;
+    int fallback = 0;
+    const struct irx_wkblk_int *wk =
+        (const struct irx_wkblk_int *)env->envblock_workblok_ext;
+    char label[96];
+
+    block_src(src, (int)sizeof(src), depth, open, 0);
+    int rc = nest_run(env, src, 1, &exit_rc, &fallback);
+    if (error_line == 0)
+    {
+        snprintf(label, sizeof(label), "%s %d deep runs", tag, depth);
+        CHECK(rc == 0 && strcmp(g_cap, "a\n1\n") == 0 && fallback == 0,
+              label);
+        if (rc != 0 || strcmp(g_cap, "a\n1\n") != 0 || fallback != 0)
+        {
+            printf("    rc=%d fallback=%d error=%d got:\n%.200s\n", rc,
+                   fallback, wk->wkbi_error_number, g_cap);
+        }
+        return;
+    }
+    snprintf(label, sizeof(label), "%s %d deep: error 11 on line %d", tag,
+             depth, error_line);
+    CHECK(rc != 0 && fallback == 0 && strncmp(g_cap, "a\n", 2) == 0 &&
+              wk->wkbi_error_number == SYNTAX_CTL_STACK &&
+              wk->wkbi_error_line == error_line,
+          label);
+    if (rc == 0 || fallback != 0 ||
+        wk->wkbi_error_number != SYNTAX_CTL_STACK ||
+        wk->wkbi_error_line != error_line)
+    {
+        printf("    rc=%d fallback=%d error=%d line=%d\n", rc, fallback,
+               wk->wkbi_error_number, wk->wkbi_error_line);
+    }
+
+    /* SIGNAL ON SYNTAX traps it, with RC and SIGL; one line further
+     * down for the SIGNAL ON. */
+    block_src(src, (int)sizeof(src), depth, open, 1);
+    rc = nest_run(env, src, 1, &exit_rc, &fallback);
+    char want[64];
+    snprintf(want, sizeof(want), "a\ntrapped 11 %d\n", error_line + 1);
+    snprintf(label, sizeof(label), "%s %d deep: SIGNAL ON SYNTAX traps it",
+             tag, depth);
+    CHECK(rc == 0 && exit_rc == 3 && strcmp(g_cap, want) == 0, label);
+    if (rc != 0 || exit_rc != 3 || strcmp(g_cap, want) != 0)
+    {
+        printf("    rc=%d exit=%d got:\n%.200s\n", rc, exit_rc, g_cap);
+    }
+}
+
+static void test_block_depth(struct envblock *env)
+{
+    printf("\n[block depth: error 11 (#296)]\n");
+    set_name(env, "NEST");
+    /* Line 1 says 'a', the k-th opening clause is on line k + 1. */
+    block_case(env, IRX_CTL_STACK_MAX, "do", 0, "do");
+    block_case(env, IRX_CTL_STACK_MAX + 1, "do", IRX_CTL_STACK_MAX + 2, "do");
+    block_case(env, IRX_CTL_STACK_MAX / 2, "if 1 then do", 0, "if-do");
+    block_case(env, IRX_CTL_STACK_MAX / 2 + 1, "if 1 then do",
+               IRX_CTL_STACK_MAX / 2 + 2, "if-do");
+    set_name(env, "");
+}
+
 int main(void)
 {
     struct envblock *env = NULL;
@@ -613,6 +705,7 @@ int main(void)
     test_forms(env);
     test_nesting(env);
     test_call_depth(env);
+    test_block_depth(env);
 
     irxterm(env);
 

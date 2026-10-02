@@ -52,6 +52,14 @@
 #define IRX_NEST_COST_OPERATOR 1 /* pending binary operator           */
 #define IRX_NEST_COST_PREFIX   2 /* prefix + - or \                    */
 
+/* Block nesting (#296), modelled on z/OS's control stack: 250
+ * entries, error 11 "Control stack full" beyond (z/OS, HANDOVER).  An
+ * active IF, DO or SELECT takes one, so a DO after THEN takes two.
+ * The bytecode compiler counts it per statement it compiles; active
+ * internal calls are bounded the same way at run time (IRXBC_CALL_MAX).
+ * The C stack guard below may stop deep nesting earlier. */
+#define IRX_CTL_STACK_MAX 250
+
 /* C stack guard (#296).  Nesting that recurses on the C stack -- the
  * bytecode compiler per block and per expression level, the token walk
  * per expression level and per IF -- checks first that at least this

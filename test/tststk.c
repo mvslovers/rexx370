@@ -337,9 +337,11 @@ static const struct series SERIES[] = {
     {"parens", gen_parens, {10, 20, 30, 39}, 1, 1},
     {"abs()", gen_calls, {10, 20, 30, 40}, 1, 0},
     {"if chain", gen_ifchain, {10, 20, 40, 80}, 1, 0},
-    /* A DO block, also after THEN, takes a slot of BCOM_MAX_LOOP (16). */
-    {"if-do", gen_if, {5, 10, 15, 0}, 1, 0},
-    {"do", gen_do, {5, 10, 15, 0}, 1, 0},
+    /* Each DO, IF and SELECT takes a control stack entry: 250 DO, 125
+     * IF-DO at most (#296).  No guard here (wkbi_stack_end is NULL),
+     * so the series measures what the nesting itself needs. */
+    {"if-do", gen_if, {10, 50, 100, 125}, 1, 0},
+    {"do", gen_do, {10, 50, 100, 250}, 1, 0},
     /* down(249) holds 250 calls active, the most the VM runs (#295). */
     {"recursion", gen_recurse, {1, 15, 100, 249}, 0, 1},
 };
