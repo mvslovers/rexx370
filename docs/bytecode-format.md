@@ -374,13 +374,16 @@ Unconditional `SIGNAL label` and `SIGNAL VALUE expr` (PR A); condition traps
 
 All SIGNAL forms that transfer control clear the eval stack, unwind all active
 call frames (restoring isolated variable scopes created by `OP_PROC`), close
-any active PARSE frame, set `SIGL=0`, and jump to the handler label.
+any active PARSE frame, set SIGL, and jump to the handler label.
 
 Labels must be defined somewhere in the bytecode stream via `OP_LABEL`.  The
 VM pre-scans for `OP_LABEL` at startup and builds `label_pc[sym_idx]`.
 
-SIGL line-number tracking is not yet implemented (requires trace-map support in
-a later WP); `wkbi_sigl` is set to 0.
+SIGL is the line of the clause at `pc - 1` -- the SIGNAL, or the clause that
+raised a trapped condition -- from the trace map (`irx_bc_line_at`, #315); a
+SYNTAX trap also sets RC to the error number (#308). `OP_CALL` and
+`OP_CALL_BIF` set SIGL the same way when they enter an internal routine, in the
+caller's variables. `wkbi_sigl` mirrors the value.
 
 | Opcode | Hex | Size | Description |
 |--------|-----|------|-------------|

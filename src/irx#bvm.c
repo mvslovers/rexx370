@@ -1049,6 +1049,40 @@ static void vm_report(struct envblock *envblock,
     irx_emsg_syntax(envblock, errnum, line, tb, n);
 }
 
+/* SIGL: the line of the clause executing when control moves to a
+ * label -- a SIGNAL, a trapped condition, a CALL or an internal
+ * function call (SC28-1883-0 p.152, p.164).  pc has moved past the
+ * transferring opcode, never past its clause, so pc - 1 lies inside
+ * it.  Set in `pool`, the caller's variables (p.33).  A pc the trace
+ * map does not cover leaves SIGL as it is.  Returns a VPOOL_* code. */
+static int vm_set_sigl(struct irx_vpool *pool, struct irx_wkblk_int *wk,
+                       const struct irx_bc_execblk *bc,
+                       const unsigned char *code_base,
+                       const unsigned char *pc)
+{
+    if (pc == NULL || code_base == NULL || pc <= code_base)
+    {
+        return VPOOL_OK;
+    }
+    const struct irx_bc_line_ent *e =
+        irx_bc_line_at(bc, (uint32_t)(pc - code_base) - 1U);
+    if (e == NULL)
+    {
+        return VPOOL_OK;
+    }
+    if (wk != NULL)
+    {
+        wk->wkbi_sigl = (int)e->line;
+    }
+    char text[12];
+    Lstr val;
+    val.pstr = (unsigned char *)text;
+    val.len = (size_t)i32toa((int32_t)e->line, text);
+    val.maxlen = val.len;
+    val.type = LSTRING_TY;
+    return vpool_set_buf(pool, "SIGL", 4, &val, 0, 0);
+}
+
 /* ================================================================== */
 /*  irx_bc_execute                                                    */
 /* ================================================================== */
@@ -2541,6 +2575,17 @@ int irx_bc_execute(struct envblock *envblock,
                         proxy_parser->call_args = cf->args;
                         proxy_parser->call_arg_exists = cf->arg_exists;
                         proxy_parser->call_argc = nargs;
+                        /* SIGL: the calling line, in the caller's
+                         * variables -- a PROCEDURE has not run yet
+                         * (p.33, #315). */
+                        if (vm_set_sigl(vpool,
+                                        (struct irx_wkblk_int *)envblock
+                                            ->envblock_workblok_ext,
+                                        bc, code_base, pc) != VPOOL_OK)
+                        {
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
                         pc = code_base + target;
                     }
                     else
@@ -2675,6 +2720,17 @@ int irx_bc_execute(struct envblock *envblock,
                         proxy_parser->call_args = cf->args;
                         proxy_parser->call_arg_exists = cf->arg_exists;
                         proxy_parser->call_argc = nargs;
+                        /* SIGL: the calling line, in the caller's
+                         * variables -- a PROCEDURE has not run yet
+                         * (p.33, #315). */
+                        if (vm_set_sigl(vpool,
+                                        (struct irx_wkblk_int *)envblock
+                                            ->envblock_workblok_ext,
+                                        bc, code_base, pc) != VPOOL_OK)
+                        {
+                            vm_rc = IRXBC_ERR_STOR;
+                            goto done;
+                        }
                         pc = code_base + target;
                     }
                     else
@@ -2960,11 +3016,12 @@ int irx_bc_execute(struct envblock *envblock,
                     /* Clear eval stack */
                     sp = 0;
 
-                    /* SIGL — line tracking not yet available; set to 0 */
+                    /* SIGL: the line of the SIGNAL (p.63, #315). */
                     wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
-                    if (wk != NULL)
+                    if (vm_set_sigl(vpool, wk, bc, code_base, pc) != VPOOL_OK)
                     {
-                        wk->wkbi_sigl = 0;
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
                     }
 
                     pc = code_base + target;
@@ -3057,11 +3114,12 @@ int irx_bc_execute(struct envblock *envblock,
                     /* Clear eval stack */
                     sp = 0;
 
-                    /* SIGL — line tracking not yet available; set to 0 */
+                    /* SIGL: the line of the SIGNAL (p.63, #315). */
                     wk = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
-                    if (wk != NULL)
+                    if (vm_set_sigl(vpool, wk, bc, code_base, pc) != VPOOL_OK)
                     {
-                        wk->wkbi_sigl = 0;
+                        vm_rc = IRXBC_ERR_STOR;
+                        goto done;
                     }
 
                     pc = code_base + target;
@@ -3988,8 +4046,13 @@ int irx_bc_execute(struct envblock *envblock,
             wk_t = (struct irx_wkblk_int *)envblock->envblock_workblok_ext;
             if (wk_t != NULL)
             {
-                /* SIGL: line tracking deferred (no trace-map yet) */
-                wk_t->wkbi_sigl = 0;
+                /* SIGL: the line of the clause that raised the
+                 * condition (#315).  pc still points into it. */
+                if (vm_set_sigl(vpool, wk_t, bc, code_base, pc) != VPOOL_OK)
+                {
+                    vm_rc = IRXBC_ERR_STOR;
+                    goto done;
+                }
                 /* Auto-disable fired condition (SC28-1883-0 §7) */
                 cond_enabled &= (unsigned char)(~(unsigned int)fired_cond);
                 /* Record condition name for future CONDITION() BIF */
