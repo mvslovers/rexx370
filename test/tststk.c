@@ -34,8 +34,10 @@
 #include <string.h>
 
 #include "irx.h"
+#include "irxcond.h"
 #include "irxexec.h"
 #include "irxfunc.h"
+#include "irxpars.h"
 #include "irxwkblk.h"
 
 #ifdef __MVS__
@@ -335,9 +337,11 @@ static const struct series SERIES[] = {
     {"parens", gen_parens, {10, 20, 30, 39}, 1, 1},
     {"abs()", gen_calls, {10, 20, 30, 40}, 1, 0},
     {"if chain", gen_ifchain, {10, 20, 40, 80}, 1, 0},
-    /* A DO block, also after THEN, takes a slot of BCOM_MAX_LOOP (16). */
-    {"if-do", gen_if, {5, 10, 15, 0}, 1, 0},
-    {"do", gen_do, {5, 10, 15, 0}, 1, 0},
+    /* Each DO, IF and SELECT takes a control stack entry: 250 DO, 125
+     * IF-DO at most (#296).  No guard here (wkbi_stack_end is NULL),
+     * so the series measures what the nesting itself needs. */
+    {"if-do", gen_if, {10, 50, 100, 125}, 1, 0},
+    {"do", gen_do, {10, 50, 100, 250}, 1, 0},
     /* down(249) holds 250 calls active, the most the VM runs (#295). */
     {"recursion", gen_recurse, {1, 15, 100, 249}, 0, 1},
 };
@@ -374,6 +378,63 @@ static void run_series(struct envblock *env, const struct series *sr,
     }
 }
 
+#ifdef __MVS__
+/* The C stack guard (#296): with wkbi_stack_end set just past what a
+ * few levels need, a deep exec must stop with its error, and the stack
+ * must not have been used past that end.  GUARD_ROOM above the margin
+ * is room for the run itself and a few levels. */
+#define GUARD_ROOM 4096
+
+static void guard_case(struct envblock *env, const char *src, int len,
+                       int bytecode, int want, int also, const char *tag)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    unsigned char here = 0;
+    unsigned char *end = &here + IRX_STACK_MARGIN + GUARD_ROOM;
+    int exit_rc = 0;
+
+    g_cap[0] = '\0';
+    wk->wkbi_use_bytecode = bytecode;
+    wk->wkbi_error_number = 0;
+    wk->wkbi_stack_end = end;
+    stk_paint();
+    int rc = irx_exec_run(src, len, NULL, 0, &exit_rc, env);
+    unsigned char *top = stk_base() + stk_highwater();
+    wk->wkbi_stack_end = NULL;
+    wk->wkbi_use_bytecode = 1;
+
+    printf("  guard %-18s %-10s error %d, %ld bytes below the end\n", tag,
+           bytecode ? "bytecode" : "token-walk", wk->wkbi_error_number,
+           (long)(end - top));
+    char label[96];
+    snprintf(label, sizeof(label), "guard %s (%s): error %d", tag,
+             bytecode ? "bytecode" : "token-walk", want);
+    CHECK(rc != 0 && (wk->wkbi_error_number == want ||
+                      (also != 0 && wk->wkbi_error_number == also)),
+          label);
+    snprintf(label, sizeof(label), "guard %s (%s): stack kept below the end",
+             tag, bytecode ? "bytecode" : "token-walk");
+    CHECK(top <= end, label);
+}
+
+static void test_guard(struct envblock *env, char *src)
+{
+    printf("--- C stack guard (#296) ---\n");
+    int len = gen_do(src, SRCBUF_SIZE, 15);
+    guard_case(env, src, len, 1, SYNTAX_CTL_STACK, 0, "do 15");
+    len = gen_if(src, SRCBUF_SIZE, 15);
+    guard_case(env, src, len, 1, SYNTAX_CTL_STACK, 0, "if-do 15");
+    /* The token walk checks each IF and each expression level: either
+     * can be the one that finds the stack short. */
+    guard_case(env, src, len, 0, SYNTAX_CTL_STACK, SYNTAX_EVAL_STACK,
+               "if-do 15");
+    len = gen_calls(src, SRCBUF_SIZE, 40);
+    guard_case(env, src, len, 1, SYNTAX_EVAL_STACK, 0, "abs() 40");
+    guard_case(env, src, len, 0, SYNTAX_EVAL_STACK, 0, "abs() 40");
+}
+#endif
+
 int main(void)
 {
     static char src[SRCBUF_SIZE];
@@ -402,6 +463,10 @@ int main(void)
     {
         run_series(env, &SERIES[i], src);
     }
+
+#ifdef __MVS__
+    test_guard(env, src);
+#endif
 
     irxterm(env);
 

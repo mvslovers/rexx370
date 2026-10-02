@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-10-01
+Last updated: 2026-10-02
 
 ---
 
@@ -210,6 +210,12 @@ Open items:
 - **WP-CPS-09a-FU** — SIGNAL/CALL condition-trap *activation* (the parser-only
   baseline is done via #131; the runtime trap machinery — NOVALUE hook,
   condition dispatcher, SIGL/RC/CONDITION updates, CALL ON/OFF — is open).
+- **#320 — DO n / DO FOR counters shared across recursive calls** (bytecode
+  only): the VM indexes the counters by static loop depth and does not save
+  them on an internal call, so a routine recursing from inside `DO 3` gives the
+  wrong iteration count with no error (5 instead of 39 in the issue's repro;
+  the token walk is right). Silent wrong output; fix by saving the counters in
+  the call frame.
 - **Token-walk's own defects** — discovered while building bytecode equivalence
   tests. The token-walk is *not* a gold standard; it is wrong in several places
   where the bytecode is right (the true reference is SC28-1883-0):

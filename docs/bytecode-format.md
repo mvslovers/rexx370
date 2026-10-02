@@ -337,7 +337,7 @@ them, concatenates with the stem name to form the full variable name, then calls
 | Resource | Limit | Configured by |
 |----------|-------|---------------|
 | Eval stack depth | 256 | `IRXBC_STACK_DEPTH` |
-| DO loop nesting | 16 | `IRXBC_DO_DEPTH` |
+| Block nesting (DO, IF, SELECT; IF-DO counts two) | 250, then OP_RAISE 11; the C stack guard may stop it earlier (#296) | `IRX_CTL_STACK_MAX`, `IRX_STACK_MARGIN` |
 | Active internal calls | 250, then error 11 (frames grow from 16 through `irxstor`, #295) | `IRXBC_CALL_MAX` |
 | ARG() max arguments | `IRX_MAX_ARGS` | `include/irxfunc.h` |
 | Constant/symbol name length | 63 bytes | `IRXBC_STR_MAX` |
@@ -503,6 +503,18 @@ by the preceding `bc_expr`; the VM pops it and validates it with `vm_lstr_to_lon
 lockstep under the CON-18 freeze).  An invalid value raises SYNTAX
 (`IRXBC_ERR_ARITH` → `check_syntax_trap`), so `SIGNAL ON SYNTAX` can trap it.
 Validation matches the token-walk `kw_numeric` exactly.
+
+### Compile-time errors that surface at run time
+
+| Opcode | Hex | Size | Operands / Semantics |
+|--------|-----|------|----------------------|
+| `OP_RAISE` | 0xA0 | 2 | `errnum:u8` — raise SYNTAX `errnum` when the clause runs; `SIGNAL ON SYNTAX` traps it |
+
+The compiler emits it where it refuses to compile something whose error z/OS
+raises only when the clause runs, so the clauses before it still run: an
+expression nested past `IRX_EXPR_NEST_MAX` (error 39, #294), and a block past
+the control stack (`IRX_CTL_STACK_MAX`) or with the C stack short (error 11,
+#296). The rest of the innermost parenthesis or enclosing block is skipped.
 
 **Forms compiled:**
 - `NUMERIC DIGITS expr` → `bc_expr` + `OP_SET_NUMERIC NUMSUB_DIGITS`

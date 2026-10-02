@@ -1442,6 +1442,14 @@ static int kw_if(struct irx_parser *p)
     int cond_true;
     int rc;
 
+    /* Each IF recurses on the C stack for the clause after THEN or
+     * ELSE: stop with error 11 before the stack runs out (#296). */
+    if (irx_stack_low(p->envblock))
+    {
+        irx_cond_raise(p->envblock, SYNTAX_CTL_STACK, 0, NULL);
+        return fail(p, IRXPARS_SYNTAX);
+    }
+
     Lzeroinit(&cond);
     rc = irx_pars_eval_expr(p, &cond);
     if (rc != IRXPARS_OK)
@@ -3930,9 +3938,35 @@ static int parse_primary(struct irx_parser *p, PLstr out);
 /*  every path out, so the count is back to 0 between clauses.        */
 /* ------------------------------------------------------------------ */
 
+/* C stack guard (#296): see IRX_STACK_MARGIN.  PDPPRLG takes each new
+ * frame from the next-available-byte word at +76 of the caller's save
+ * area, so this function's own NAB is where the next frame would go. */
+#define PDP_DSA_NAB 76
+
+int irx_stack_low(struct envblock *env)
+{
+#ifdef __MVS__
+    struct irx_wkblk_int *wk =
+        (env != NULL) ? (struct irx_wkblk_int *)env->envblock_workblok_ext
+                      : NULL;
+    if (!WKBI_HAS(wk, wkbi_stack_end) || wk->wkbi_stack_end == NULL)
+    {
+        return 0;
+    }
+    char *dsa;
+    __asm__ volatile("LR\t%0,13" : "=r"(dsa));
+    const char *nab = *(char **)(void *)(dsa + PDP_DSA_NAB);
+    return (const char *)wk->wkbi_stack_end - nab < IRX_STACK_MARGIN;
+#else
+    (void)env;
+    return 0;
+#endif
+}
+
 static int nest_enter(struct irx_parser *p, int cost)
 {
-    if (p->expr_depth + cost > IRX_EXPR_NEST_MAX)
+    if (p->expr_depth + cost > IRX_EXPR_NEST_MAX ||
+        irx_stack_low(p->envblock))
     {
         irx_cond_raise(p->envblock, SYNTAX_EVAL_STACK, 0, NULL);
         return fail(p, IRXPARS_SYNTAX);

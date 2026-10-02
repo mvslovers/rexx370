@@ -48,7 +48,6 @@
 #define BCOM_MAX_CODE   16384
 #define BCOM_MAX_CONSTS 512
 #define BCOM_MAX_SYMS   512
-#define BCOM_MAX_LOOP   16
 #define BCOM_MAX_LPATCH 48
 #define BCOM_MAX_LABEL  33
 
@@ -120,8 +119,16 @@ struct bcom_ctx
     int sym_count;
     int sym_cap;
 
-    struct bc_loop_ctx loops[BCOM_MAX_LOOP];
+    /* One context per open DO/SELECT, allocated the first time a depth
+     * is reached and kept for reuse: loop_push() hands out a pointer
+     * that outer levels hold across the nested compile, so the
+     * contexts never move; only the pointer array grows (#296). */
+    struct bc_loop_ctx **loops;
+    int loop_cap;
     int loop_depth;
+    /* IFs whose THEN or ELSE clause is being compiled: with loop_depth
+     * the control stack entries in use (IRX_CTL_STACK_MAX). */
+    int if_depth;
 
     int rc;
     int hit_exit;
@@ -201,6 +208,7 @@ enum bc_unsup_reason
     BC_UNSUP_DROP_TARGET,          /* DROP target is not a symbol       */
     BC_UNSUP_NUMERIC_FORM,         /* unsupported NUMERIC sub-keyword   */
     BC_UNSUP_EXPR_DEPTH,           /* expression nested too deep (#294) */
+    BC_UNSUP_CTL_DEPTH,            /* block too deep, no END to skip to */
     BC_UNSUP_COUNT                 /* sentinel — table size; keep last  */
 };
 
@@ -663,7 +671,9 @@ static int bc_cur_line(const struct bcom_ctx *ctx)
  * Returns 0 when refused. */
 static int bc_nest_enter(struct bcom_ctx *ctx, int cost)
 {
-    if (ctx->expr_depth + cost <= IRX_EXPR_NEST_MAX)
+    /* Also refused when the C stack is short (#296): same error. */
+    if (ctx->expr_depth + cost <= IRX_EXPR_NEST_MAX &&
+        !irx_stack_low(ctx->env))
     {
         ctx->expr_depth += cost;
         return 1;
@@ -835,12 +845,44 @@ static void make_do_sym(char *buf, int depth, const char *suffix)
 static struct bc_loop_ctx *loop_push(struct bcom_ctx *ctx, int type)
 {
     struct bc_loop_ctx *f;
-    if (ctx->loop_depth >= BCOM_MAX_LOOP)
+    /* bc_block_refused() keeps the depth within the control stack. */
+    if (ctx->loop_depth >= IRX_CTL_STACK_MAX)
     {
         ctx->rc = IRXBC_ERR_LOOP;
         return NULL;
     }
-    f = &ctx->loops[ctx->loop_depth++];
+    if (ctx->loop_depth >= ctx->loop_cap)
+    {
+        int ncap = ctx->loop_cap > 0 ? ctx->loop_cap * 2 : 8;
+        void *nm = NULL;
+        if (irxstor(RXSMGET, ncap * (int)sizeof(struct bc_loop_ctx *), &nm,
+                    ctx->env) != 0)
+        {
+            ctx->rc = IRXBC_ERR_STOR;
+            return NULL;
+        }
+        memset(nm, 0, (size_t)ncap * sizeof(struct bc_loop_ctx *));
+        if (ctx->loops != NULL)
+        {
+            void *old = ctx->loops;
+            memcpy(nm, old, (size_t)ctx->loop_cap * sizeof(struct bc_loop_ctx *));
+            irxstor(RXSMFRE, 0, &old, ctx->env);
+        }
+        ctx->loops = (struct bc_loop_ctx **)nm;
+        ctx->loop_cap = ncap;
+    }
+    if (ctx->loops[ctx->loop_depth] == NULL)
+    {
+        void *m = NULL;
+        if (irxstor(RXSMGET, (int)sizeof(struct bc_loop_ctx), &m,
+                    ctx->env) != 0)
+        {
+            ctx->rc = IRXBC_ERR_STOR;
+            return NULL;
+        }
+        ctx->loops[ctx->loop_depth] = (struct bc_loop_ctx *)m;
+    }
+    f = ctx->loops[ctx->loop_depth++];
     memset(f, 0, sizeof(struct bc_loop_ctx));
     f->type = type;
     return f;
@@ -885,19 +927,19 @@ static struct bc_loop_ctx *loop_find(struct bcom_ctx *ctx, const char *label)
     {
         for (i = ctx->loop_depth - 1; i >= 0; i--)
         {
-            if (ctx->loops[i].type != BCTL_SELECT)
+            if (ctx->loops[i]->type != BCTL_SELECT)
             {
-                return &ctx->loops[i];
+                return ctx->loops[i];
             }
         }
         return NULL;
     }
     for (i = ctx->loop_depth - 1; i >= 0; i--)
     {
-        if (ctx->loops[i].type != BCTL_SELECT &&
-            strcmp(ctx->loops[i].label, label) == 0)
+        if (ctx->loops[i]->type != BCTL_SELECT &&
+            strcmp(ctx->loops[i]->label, label) == 0)
         {
-            return &ctx->loops[i];
+            return ctx->loops[i];
         }
     }
     return NULL;
@@ -909,9 +951,9 @@ static struct bc_loop_ctx *select_frame(struct bcom_ctx *ctx)
     int i;
     for (i = ctx->loop_depth - 1; i >= 0; i--)
     {
-        if (ctx->loops[i].type == BCTL_SELECT)
+        if (ctx->loops[i]->type == BCTL_SELECT)
         {
-            return &ctx->loops[i];
+            return ctx->loops[i];
         }
     }
     return NULL;
@@ -4153,6 +4195,74 @@ static void bc_stmts_until(struct bcom_ctx *ctx, const char *stop1,
 }
 
 /* ================================================================== */
+/*  Block nesting (#296)                                              */
+/* ================================================================== */
+
+/* Skip from the start of a statement to the END that closes the
+ * innermost block enclosing it, without consuming that END.  DO, SELECT
+ * and END are keywords only at the start of a clause -- after a clause
+ * end, a label's ':', THEN, ELSE or OTHERWISE -- and not when an '='
+ * makes them an assignment.  Returns 0 when no such END exists. */
+static int bc_skip_to_end(struct bcom_ctx *ctx)
+{
+    int balance = 0;
+    int at_start = 1;
+    for (;;)
+    {
+        const struct irx_token *t = tok_at(ctx, 0);
+        if (t == NULL || t->tok_type == TOK_EOF)
+        {
+            return 0;
+        }
+        if (at_start && t->tok_type == TOK_SYMBOL && !tok_next_is_assign(ctx))
+        {
+            if (tok_kw(ctx, 0, "END"))
+            {
+                if (balance == 0)
+                {
+                    return 1; /* the enclosing END -- left to its owner */
+                }
+                balance--;
+            }
+            else if (tok_kw(ctx, 0, "DO") || tok_kw(ctx, 0, "SELECT"))
+            {
+                balance++;
+            }
+        }
+        at_start = t->tok_type == TOK_EOC || t->tok_type == TOK_SEMICOLON ||
+                   tok_kw(ctx, 0, "THEN") || tok_kw(ctx, 0, "ELSE") ||
+                   tok_kw(ctx, 0, "OTHERWISE");
+        ctx->pos++;
+    }
+}
+
+/* Called for a statement that opens a block (IF, DO, SELECT): it takes
+ * a control stack entry and recurses on the C stack.  When the control
+ * stack is full (IRX_CTL_STACK_MAX) or the C stack is short (#296) the
+ * statement is not compiled: OP_RAISE 11 stands in its place and the
+ * rest of the enclosing block is skipped, as bc_nest_enter does for a
+ * parenthesis.  The error then comes when the clause runs, with its
+ * line, and SIGNAL ON SYNTAX traps it.  Outside any block there is no
+ * END to stop at: the program falls back to the token walk, whose own
+ * guard raises the error.  Returns 1 when refused. */
+static int bc_block_refused(struct bcom_ctx *ctx)
+{
+    if (ctx->loop_depth + ctx->if_depth < IRX_CTL_STACK_MAX &&
+        !irx_stack_low(ctx->env))
+    {
+        return 0;
+    }
+    if (!bc_skip_to_end(ctx))
+    {
+        BC_FAIL_UNSUP(ctx, BC_UNSUP_CTL_DEPTH);
+        return 1;
+    }
+    emit_byte(ctx, OP_RAISE);
+    emit_byte(ctx, SYNTAX_CTL_STACK);
+    return 1;
+}
+
+/* ================================================================== */
 /*  bc_stmt                                                           */
 /* ================================================================== */
 
@@ -4205,19 +4315,30 @@ static void bc_stmt(struct bcom_ctx *ctx)
 
     if (tok_kw(ctx, 0, "IF"))
     {
-        C_if_bc(ctx);
+        if (!bc_block_refused(ctx))
+        {
+            ctx->if_depth++;
+            C_if_bc(ctx);
+            ctx->if_depth--;
+        }
         return;
     }
 
     if (tok_kw(ctx, 0, "SELECT"))
     {
-        C_select_bc(ctx);
+        if (!bc_block_refused(ctx))
+        {
+            C_select_bc(ctx);
+        }
         return;
     }
 
     if (tok_kw(ctx, 0, "DO"))
     {
-        C_do_bc(ctx);
+        if (!bc_block_refused(ctx))
+        {
+            C_do_bc(ctx);
+        }
         return;
     }
 
@@ -4559,6 +4680,7 @@ static const char *const bc_unsup_text[BC_UNSUP_COUNT] = {
     [BC_UNSUP_DROP_TARGET] = "DROP target is not a symbol",
     [BC_UNSUP_NUMERIC_FORM] = "unsupported NUMERIC form",
     [BC_UNSUP_EXPR_DEPTH] = "expression nested too deep",
+    [BC_UNSUP_CTL_DEPTH] = "control stack full outside any block",
 };
 
 const char *irx_bc_unsup_text(int reason)
@@ -4719,7 +4841,16 @@ cleanup:
     }
     if (ctx != NULL)
     {
-        void *tbls[] = {ctx->lmap, ctx->code, ctx->consts, ctx->syms};
+        for (i = 0; i < ctx->loop_cap; i++)
+        {
+            if (ctx->loops[i] != NULL)
+            {
+                void *p = ctx->loops[i];
+                irxstor(RXSMFRE, 0, &p, envblock);
+            }
+        }
+        void *tbls[] = {ctx->lmap, ctx->code, ctx->consts, ctx->syms,
+                        ctx->loops};
         for (i = 0; i < (int)(sizeof(tbls) / sizeof(tbls[0])); i++)
         {
             if (tbls[i] != NULL)

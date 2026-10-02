@@ -81,6 +81,23 @@ int irx_exec_dispatch(struct execblk *execblk,                       /* P1 */
                       void *workarea,                                /* P7 */
                       void *userfield,                               /* P8 */
                       struct envblock *envblock,                     /* P9 */
-                      struct envblock *envblock_r0) asm("IRXEDISP"); /* R0 */
+                      struct envblock *envblock_r0) asm("IRXEDIS0"); /* R0 */
+
+/* irx_exec_dispatch plus the end of the C stack the run may use
+ * (#296): asm/irxexec.asm passes the end of its WPOOL, a C host the
+ * end of its runtime stack.  The interpreter keeps IRX_STACK_MARGIN
+ * below it (irxpars.h).  NULL: not known, no guard.  This is the
+ * entry the assembler wrapper calls. */
+int irx_exec_dispatch_stk(struct execblk *execblk,
+                          void *argtable,
+                          int flags,
+                          struct instblk *instblk,
+                          void *reserved_parm5,
+                          struct evalblock *evalblock,
+                          void *workarea,
+                          void *userfield,
+                          struct envblock *envblock,
+                          struct envblock *envblock_r0,
+                          void *stack_end) asm("IRXEDISP");
 
 #endif /* IRXEXEC_H */

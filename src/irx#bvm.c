@@ -46,7 +46,9 @@
 /*  DO-loop frame (one per nesting level; up to IRXBC_DO_DEPTH deep)  */
 /* ================================================================== */
 
-#define IRXBC_DO_DEPTH 16
+/* Indexed by the loop's static depth, which the compiler keeps within
+ * the control stack (IRX_CTL_STACK_MAX, #296). */
+#define IRXBC_DO_DEPTH IRX_CTL_STACK_MAX
 
 struct bc_do_frame
 {
