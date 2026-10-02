@@ -60,7 +60,12 @@ struct bc_do_frame
 /*  at call time and freed when the frame is popped by RETURN.        */
 /* ================================================================== */
 
-#define IRXBC_CALL_DEPTH 16
+/* Active internal calls.  The frames start at IRXBC_CALL_INIT and
+ * double through irxstor as calls nest, up to IRXBC_CALL_MAX: z/OS
+ * runs recursion 250 levels deep and then raises error 11, "Control
+ * stack full" (#295).  VM calls cost no C stack, only frame storage. */
+#define IRXBC_CALL_INIT 16
+#define IRXBC_CALL_MAX  250
 
 struct bc_call_frame
 {
@@ -996,13 +1001,28 @@ static void vm_report(struct envblock *envblock,
                       const struct bc_call_frame *frames, int call_sp,
                       int errnum)
 {
-    struct irx_emsg_clause tb[IRXBC_CALL_DEPTH + 1];
-    int site_depth[IRXBC_CALL_DEPTH];
-    int site_ok[IRXBC_CALL_DEPTH];
+    /* One traceback line per active call plus the failing clause:
+     * sized by call_sp, so on the heap.  Without the storage, report
+     * the failing clause alone. */
+    void *mem = NULL;
+    int n_sites = call_sp;
+    if (irxstor(RXSMGET,
+                (n_sites + 1) * (int)sizeof(struct irx_emsg_clause) +
+                    2 * n_sites * (int)sizeof(int),
+                &mem, envblock) != 0)
+    {
+        mem = NULL;
+        n_sites = 0;
+    }
+    struct irx_emsg_clause one;
+    struct irx_emsg_clause *tb =
+        (mem != NULL) ? (struct irx_emsg_clause *)mem : &one;
+    int *site_depth = (int *)(void *)(tb + n_sites + 1);
+    int *site_ok = site_depth + n_sites;
     int n = 0;
     int sum = 0;
 
-    for (int j = 0; j < call_sp && j < IRXBC_CALL_DEPTH; j++)
+    for (int j = 0; j < n_sites; j++)
     {
         /* return_pc is past the call instruction, still inside the
          * calling clause; -1 keeps it off the next clause's first byte. */
@@ -1019,7 +1039,7 @@ static void vm_report(struct envblock *envblock,
     /* The failing clause: pc has moved past the failing opcode, never
      * past its clause, so pc - 1 lies inside it. */
     int d0 = 0;
-    for (int j = 0; j < call_sp && j < IRXBC_CALL_DEPTH; j++)
+    for (int j = 0; j < n_sites; j++)
     {
         sum += site_depth[j];
     }
@@ -1027,14 +1047,14 @@ static void vm_report(struct envblock *envblock,
         vm_tb_clause(bc, (uint32_t)(pc - code_base) - 1U, source, source_len,
                      &tb[n], &d0))
     {
-        tb[n].level = 1 + call_sp + d0 + sum;
+        tb[n].level = 1 + n_sites + d0 + sum;
         n++;
     }
     int line = (n > 0) ? tb[0].line : 0;
 
-    for (int j = call_sp - 1; j >= 0; j--)
+    for (int j = n_sites - 1; j >= 0; j--)
     {
-        if (j >= IRXBC_CALL_DEPTH || !site_ok[j])
+        if (!site_ok[j])
         {
             continue;
         }
@@ -1047,6 +1067,38 @@ static void vm_report(struct envblock *envblock,
     }
 
     irx_emsg_syntax(envblock, errnum, line, tb, n);
+    if (mem != NULL)
+    {
+        irxstor(RXSMFRE, 0, &mem, envblock);
+    }
+}
+
+/* Room for one more call frame: double the array through irxstor, up
+ * to IRXBC_CALL_MAX.  The frames move, so a pointer into them (the
+ * proxy parser's call_args) must be set again afterwards; the callers
+ * do, when they push the new frame.  Returns 0, or IRXBC_ERR_STOR. */
+static int vm_grow_frames(struct envblock *envblock,
+                          struct bc_call_frame **frames, void **mem,
+                          int *cap)
+{
+    int ncap = *cap * 2;
+    if (ncap > IRXBC_CALL_MAX)
+    {
+        ncap = IRXBC_CALL_MAX;
+    }
+    void *nm = NULL;
+    if (irxstor(RXSMGET, ncap * (int)sizeof(struct bc_call_frame), &nm,
+                envblock) != 0)
+    {
+        return IRXBC_ERR_STOR;
+    }
+    memset(nm, 0, (size_t)ncap * sizeof(struct bc_call_frame));
+    memcpy(nm, *mem, (size_t)*cap * sizeof(struct bc_call_frame));
+    irxstor(RXSMFRE, 0, mem, envblock);
+    *mem = nm;
+    *frames = (struct bc_call_frame *)nm;
+    *cap = ncap;
+    return IRXBC_OK;
 }
 
 /* SIGL: the line of the clause executing when control moves to a
@@ -1111,6 +1163,7 @@ int irx_bc_execute(struct envblock *envblock,
     void *lstr_mem = NULL;
     void *frames_mem = NULL;
     void *call_frame_mem = NULL;
+    int call_cap = 0; /* frames allocated at call_frames */
     void *proxy_parser_mem = NULL;
     void *label_pc_mem = NULL;
     void *bif_cache_mem = NULL;                /* WP-BC-OC09 */
@@ -1218,17 +1271,18 @@ int irx_bc_execute(struct envblock *envblock,
     n_syms = (int)bc->symbol_count;
     code_base = IRXBC_CODE(bc);
 
-    /* --- Call frame array (WP-BC-04) --------------------------------- */
+    /* --- Call frame array (WP-BC-04), grows to IRXBC_CALL_MAX (#295) -- */
     if (irxstor(RXSMGET,
-                IRXBC_CALL_DEPTH * (int)sizeof(struct bc_call_frame),
+                IRXBC_CALL_INIT * (int)sizeof(struct bc_call_frame),
                 &call_frame_mem, envblock) != 0)
     {
         vm_rc = IRXBC_ERR_STOR;
         goto done;
     }
     memset(call_frame_mem, 0,
-           IRXBC_CALL_DEPTH * sizeof(struct bc_call_frame));
+           IRXBC_CALL_INIT * sizeof(struct bc_call_frame));
     call_frames = (struct bc_call_frame *)call_frame_mem;
+    call_cap = IRXBC_CALL_INIT;
 
     /* --- Label PC table (WP-BC-04) — indexed by sym_idx -------------- */
     if (n_syms > 0)
@@ -2534,10 +2588,24 @@ int irx_bc_execute(struct envblock *envblock,
                         struct bc_call_frame *cf;
                         int ci;
 
-                        if (call_sp >= IRXBC_CALL_DEPTH)
+                        if (call_sp >= call_cap)
                         {
-                            vm_rc = IRXBC_ERR_CALL;
-                            goto done;
+                            /* Control stack full: error 11, which
+                             * SIGNAL ON SYNTAX can trap (#295). */
+                            if (call_cap >= IRXBC_CALL_MAX)
+                            {
+                                irx_cond_raise(envblock, SYNTAX_CTL_STACK, 0,
+                                               "control stack full");
+                                vm_rc = IRXBC_ERR_ARITH;
+                                goto check_syntax_trap;
+                            }
+                            vm_rc = vm_grow_frames(envblock, &call_frames,
+                                                   &call_frame_mem,
+                                                   &call_cap);
+                            if (vm_rc != IRXBC_OK)
+                            {
+                                goto done;
+                            }
                         }
                         cf = &call_frames[call_sp];
                         memset(cf, 0, sizeof(struct bc_call_frame));
@@ -2679,10 +2747,24 @@ int irx_bc_execute(struct envblock *envblock,
                          * value on the eval stack for the caller. */
                         struct bc_call_frame *cf;
 
-                        if (call_sp >= IRXBC_CALL_DEPTH)
+                        if (call_sp >= call_cap)
                         {
-                            vm_rc = IRXBC_ERR_CALL;
-                            goto done;
+                            /* Control stack full: error 11, which
+                             * SIGNAL ON SYNTAX can trap (#295). */
+                            if (call_cap >= IRXBC_CALL_MAX)
+                            {
+                                irx_cond_raise(envblock, SYNTAX_CTL_STACK, 0,
+                                               "control stack full");
+                                vm_rc = IRXBC_ERR_ARITH;
+                                goto check_syntax_trap;
+                            }
+                            vm_rc = vm_grow_frames(envblock, &call_frames,
+                                                   &call_frame_mem,
+                                                   &call_cap);
+                            if (vm_rc != IRXBC_OK)
+                            {
+                                goto done;
+                            }
                         }
                         cf = &call_frames[call_sp];
                         memset(cf, 0, sizeof(struct bc_call_frame));

@@ -528,6 +528,72 @@ static void test_nesting(struct envblock *env)
     set_name(env, "");
 }
 
+/* Internal calls share the control stack: 250 active calls run, the
+ * 251st is error 11 "Control stack full" (z/OS, HANDOVER; #295).  The
+ * exact boundary is still to be confirmed on z/OS.  Bytecode path: VM
+ * calls cost no C stack, so only the count limits them. */
+#define CALL_DEPTH_MAX 250
+#define CALL_SRC_SIZE  512
+
+static void test_call_depth(struct envblock *env)
+{
+    char src[CALL_SRC_SIZE];
+    char expect[64];
+    int exit_rc = 0;
+    int fallback = 0;
+    const char *body = "exit 0\n"
+                       "down: procedure\n"
+                       "parse arg n\n"
+                       "if n = 0 then return 0\n"
+                       "return down(n - 1) + 1\n";
+
+    printf("\n[call depth: error 11 (#295)]\n");
+    set_name(env, "NEST");
+
+    /* down(k) holds k + 1 calls active at its deepest. */
+    snprintf(src, sizeof(src), "say down(%d)\n%s", CALL_DEPTH_MAX - 1, body);
+    int rc = nest_run(env, src, 1, &exit_rc, &fallback);
+    snprintf(expect, sizeof(expect), "%d\n", CALL_DEPTH_MAX - 1);
+    CHECK(rc == 0 && strcmp(g_cap, expect) == 0 && fallback == 0,
+          "250 active calls run");
+    if (rc != 0 || strcmp(g_cap, expect) != 0)
+    {
+        printf("    rc=%d fallback=%d got:\n%.300s\n", rc, fallback, g_cap);
+    }
+
+    /* The traceback has a line per active call, more than the capture
+     * buffer holds, so the message is checked through the number and
+     * line irx_emsg_syntax records. */
+    snprintf(src, sizeof(src), "say down(%d)\n%s", CALL_DEPTH_MAX, body);
+    rc = nest_run(env, src, 1, &exit_rc, &fallback);
+    const struct irx_wkblk_int *wk =
+        (const struct irx_wkblk_int *)env->envblock_workblok_ext;
+    CHECK(rc != 0 && wk->wkbi_error_number == SYNTAX_CTL_STACK &&
+              wk->wkbi_error_line == 6 &&
+              strncmp(g_cap, "     6 +++", 10) == 0,
+          "251 active calls: error 11 on line 6");
+    if (rc == 0 || wk->wkbi_error_number != SYNTAX_CTL_STACK ||
+        wk->wkbi_error_line != 6)
+    {
+        printf("    rc=%d error=%d line=%d\n", rc, wk->wkbi_error_number,
+               wk->wkbi_error_line);
+    }
+
+    /* SIGNAL ON SYNTAX traps it like any other error. */
+    snprintf(src, sizeof(src),
+             "signal on syntax\nsay down(%d)\nexit 1\n"
+             "syntax:\nsay 'trapped' rc\nexit 3\n%s",
+             CALL_DEPTH_MAX, body + strlen("exit 0\n"));
+    rc = nest_run(env, src, 1, &exit_rc, &fallback);
+    CHECK(rc == 0 && exit_rc == 3 && strstr(g_cap, "trapped 11\n") != NULL,
+          "SIGNAL ON SYNTAX traps error 11, RC = 11");
+    if (rc != 0 || exit_rc != 3 || strstr(g_cap, "trapped 11\n") == NULL)
+    {
+        printf("    rc=%d exit=%d got:\n%.300s\n", rc, exit_rc, g_cap);
+    }
+    set_name(env, "");
+}
+
 int main(void)
 {
     struct envblock *env = NULL;
@@ -546,6 +612,7 @@ int main(void)
     test_no_message(env);
     test_forms(env);
     test_nesting(env);
+    test_call_depth(env);
 
     irxterm(env);
 

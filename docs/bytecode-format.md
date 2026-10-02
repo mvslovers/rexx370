@@ -338,7 +338,7 @@ them, concatenates with the stem name to form the full variable name, then calls
 |----------|-------|---------------|
 | Eval stack depth | 256 | `IRXBC_STACK_DEPTH` |
 | DO loop nesting | 16 | `IRXBC_DO_DEPTH` |
-| CALL depth | 16 | `IRXBC_CALL_DEPTH` |
+| Active internal calls | 250, then error 11 (frames grow from 16 through `irxstor`, #295) | `IRXBC_CALL_MAX` |
 | ARG() max arguments | `IRX_MAX_ARGS` | `include/irxfunc.h` |
 | Constant/symbol name length | 63 bytes | `IRXBC_STR_MAX` |
 
@@ -552,5 +552,5 @@ These limitations are tracked as follow-up items for WP-BC-09+.
 | `IRXBC_ERR_LOOP` | 27 | DO nesting too deep |
 | `IRXBC_ERR_IO` | 28 | I/O routine call failed |
 | `IRXBC_ERR_STRTOOLONG` | 29 | Literal/symbol exceeds `IRXBC_STR_MAX` |
-| `IRXBC_ERR_CALL` | 30 | CALL stack overflow |
+| `IRXBC_ERR_CALL` | 30 | unused since #295: a full call stack raises error 11 |
 | `IRXBC_ERR_PARSE_COMPOUND` | 31 | Compound variable target in PARSE template |

@@ -18,8 +18,8 @@
 /*  Workloads: hello, the REXXCPS kernel, and depth series of nested  */
 /*  parentheses, nested function calls, nested IF/DO and DO blocks,   */
 /*  on both paths; recursive function calls on the bytecode path      */
-/*  only (the token-walk path cannot run them, and the VM stops at    */
-/*  IRXBC_CALL_DEPTH).  The depth                                     */
+/*  only (the token-walk path cannot run them; the VM runs 250 active */
+/*  calls, #295).  The depth                                          */
 /*  series show how the need grows with nesting.  Overflowing the     */
 /*  stack would corrupt storage rather than fail, so a series stops   */
 /*  once a run has used a third of it: the next step doubles.         */
@@ -338,7 +338,8 @@ static const struct series SERIES[] = {
     /* A DO block, also after THEN, takes a slot of BCOM_MAX_LOOP (16). */
     {"if-do", gen_if, {5, 10, 15, 0}, 1, 0},
     {"do", gen_do, {5, 10, 15, 0}, 1, 0},
-    {"recursion", gen_recurse, {1, 5, 10, 15}, 0, 1},
+    /* down(249) holds 250 calls active, the most the VM runs (#295). */
+    {"recursion", gen_recurse, {1, 15, 100, 249}, 0, 1},
 };
 
 static void run_series(struct envblock *env, const struct series *sr,
