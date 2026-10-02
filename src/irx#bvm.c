@@ -46,8 +46,13 @@
 /*  DO-loop frame (one per nesting level; up to IRXBC_DO_DEPTH deep)  */
 /* ================================================================== */
 
-/* Indexed by the loop's static depth, which the compiler keeps within
- * the control stack (IRX_CTL_STACK_MAX, #296). */
+/* A DO n / DO FOR loop's counter sits at frames[do_base + depth]: depth
+ * is the loop's static nesting, which the compiler keeps within the
+ * control stack (IRX_CTL_STACK_MAX, #296), and do_base belongs to the
+ * active call.  An internal call moves do_base past the counters its
+ * call site's enclosing loops use and RETURN restores it, so a routine
+ * never reuses its caller's counters (#320).  The array starts at
+ * IRXBC_DO_DEPTH counters and grows through irxstor. */
 #define IRXBC_DO_DEPTH IRX_CTL_STACK_MAX
 
 struct bc_do_frame
@@ -82,6 +87,8 @@ struct bc_call_frame
      * to SIGNAL ON/OFF are reverted on RETURN, per SC28-1883-0 §7.  */
     unsigned char cond_enabled_save;
     int cond_lsi_save[COND_COUNT];
+    /* The caller's base into the DO-count counters (#320). */
+    int do_base_save;
 };
 
 /* ================================================================== */
@@ -1075,6 +1082,48 @@ static void vm_report(struct envblock *envblock,
     }
 }
 
+/* The static DO/SELECT depth of the clause at pc - 1 (the call site):
+ * the number of counter slots its enclosing loops may use (#320). */
+static int vm_site_depth(const struct irx_bc_execblk *bc,
+                         const unsigned char *code_base,
+                         const unsigned char *pc)
+{
+    if (pc == NULL || code_base == NULL || pc <= code_base)
+    {
+        return 0;
+    }
+    const struct irx_bc_line_ent *e =
+        irx_bc_line_at(bc, (uint32_t)(pc - code_base) - 1U);
+    return (e != NULL) ? (int)e->depth : 0;
+}
+
+/* Room for counter index `need` in the DO-count counters (#320): grow
+ * the array through irxstor.  Nothing points into it.  Returns 0, or
+ * IRXBC_ERR_STOR. */
+static int vm_grow_counters(struct envblock *envblock,
+                            struct bc_do_frame **frames, void **mem,
+                            int *cap, int need)
+{
+    int ncap = *cap;
+    while (ncap <= need)
+    {
+        ncap *= 2;
+    }
+    void *nm = NULL;
+    if (irxstor(RXSMGET, ncap * (int)sizeof(struct bc_do_frame), &nm,
+                envblock) != 0)
+    {
+        return IRXBC_ERR_STOR;
+    }
+    memset(nm, 0, (size_t)ncap * sizeof(struct bc_do_frame));
+    memcpy(nm, *mem, (size_t)*cap * sizeof(struct bc_do_frame));
+    irxstor(RXSMFRE, 0, mem, envblock);
+    *mem = nm;
+    *frames = (struct bc_do_frame *)nm;
+    *cap = ncap;
+    return IRXBC_OK;
+}
+
 /* Room for one more call frame: double the array through irxstor, up
  * to IRXBC_CALL_MAX.  The frames move, so a pointer into them (the
  * proxy parser's call_args) must be set again afterwards; the callers
@@ -1176,6 +1225,8 @@ int irx_bc_execute(struct envblock *envblock,
     void *const_cache_mem = NULL;
     int sp = 0; /* next free slot */
     int call_sp = 0;
+    int do_base = 0; /* this call's first DO-count counter (#320) */
+    int do_cap = 0;  /* counters allocated at frames */
     /* The exec's own arguments.  proxy_parser->call_args points into
      * call_frames while a routine is active, so these keep the block
      * that is restored at depth 0 and freed at done: (#262). */
@@ -1257,6 +1308,7 @@ int irx_bc_execute(struct envblock *envblock,
     }
     memset(frames_mem, 0, IRXBC_DO_DEPTH * sizeof(struct bc_do_frame));
     frames = (struct bc_do_frame *)frames_mem;
+    do_cap = IRXBC_DO_DEPTH;
 
     /* --- Variable pool ----------------------------------------------- */
     vpool = vpool_create(alloc, NULL);
@@ -2530,9 +2582,19 @@ int irx_bc_execute(struct envblock *envblock,
                         vm_rc = IRXBC_ERR_LOOP;
                         goto done;
                     }
+                    if (do_base + n >= do_cap)
+                    {
+                        vm_rc = vm_grow_counters(envblock, &frames,
+                                                 &frames_mem, &do_cap,
+                                                 do_base + n);
+                        if (vm_rc != IRXBC_OK)
+                        {
+                            goto done;
+                        }
+                    }
                     sp--;
                     count = slot_to_int32(&stack[sp]);
-                    frames[n].counter = count;
+                    frames[do_base + n].counter = count;
                     if (slot_set_bool(&stack[sp], alloc,
                                       count > 0) != LSTR_OK)
                     {
@@ -2548,13 +2610,13 @@ int irx_bc_execute(struct envblock *envblock,
                     unsigned char n = *pc++;
                     int off = read_i16(pc);
                     pc += 2;
-                    if (n >= IRXBC_DO_DEPTH)
+                    if (n >= IRXBC_DO_DEPTH || do_base + n >= do_cap)
                     {
                         vm_rc = IRXBC_ERR_LOOP;
                         goto done;
                     }
-                    frames[n].counter--;
-                    if (frames[n].counter <= 0)
+                    frames[do_base + n].counter--;
+                    if (frames[do_base + n].counter <= 0)
                     {
                         pc += off;
                     }
@@ -2645,6 +2707,10 @@ int irx_bc_execute(struct envblock *envblock,
                         proxy_parser->call_args = cf->args;
                         proxy_parser->call_arg_exists = cf->arg_exists;
                         proxy_parser->call_argc = nargs;
+                        /* The callee's counters start past those of the
+                         * loops around the call site (#320). */
+                        cf->do_base_save = do_base;
+                        do_base += vm_site_depth(bc, code_base, pc);
                         /* SIGL: the calling line, in the caller's
                          * variables -- a PROCEDURE has not run yet
                          * (p.33, #315). */
@@ -2804,6 +2870,10 @@ int irx_bc_execute(struct envblock *envblock,
                         proxy_parser->call_args = cf->args;
                         proxy_parser->call_arg_exists = cf->arg_exists;
                         proxy_parser->call_argc = nargs;
+                        /* The callee's counters start past those of the
+                         * loops around the call site (#320). */
+                        cf->do_base_save = do_base;
+                        do_base += vm_site_depth(bc, code_base, pc);
                         /* SIGL: the calling line, in the caller's
                          * variables -- a PROCEDURE has not run yet
                          * (p.33, #315). */
@@ -2899,6 +2969,7 @@ int irx_bc_execute(struct envblock *envblock,
 
                         call_sp--;
                         cf = &call_frames[call_sp];
+                        do_base = cf->do_base_save;
 
                         /* Restore trap state (callee changes revert per §7) */
                         cond_enabled = cf->cond_enabled_save;
@@ -2973,6 +3044,7 @@ int irx_bc_execute(struct envblock *envblock,
 
                         call_sp--;
                         cf = &call_frames[call_sp];
+                        do_base = cf->do_base_save;
                         push_r = cf->push_result;
 
                         /* Restore trap state (callee changes revert per §7) */
@@ -3093,6 +3165,7 @@ int irx_bc_execute(struct envblock *envblock,
                         }
                     }
                     call_sp = 0;
+                    do_base = 0;
                     proxy_parser->call_args = top_args;
                     proxy_parser->call_arg_exists = top_arg_exists;
                     proxy_parser->call_argc = top_argc;
@@ -3191,6 +3264,7 @@ int irx_bc_execute(struct envblock *envblock,
                         }
                     }
                     call_sp = 0;
+                    do_base = 0;
                     proxy_parser->call_args = top_args;
                     proxy_parser->call_arg_exists = top_arg_exists;
                     proxy_parser->call_argc = top_argc;
@@ -4122,6 +4196,7 @@ int irx_bc_execute(struct envblock *envblock,
                 }
             }
             call_sp = 0;
+            do_base = 0;
             proxy_parser->call_args = top_args;
             proxy_parser->call_arg_exists = top_arg_exists;
             proxy_parser->call_argc = top_argc;
