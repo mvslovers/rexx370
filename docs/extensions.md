@@ -49,3 +49,19 @@ Measured on MVSCE-LAB with `tso/lab/nest_depth.py` (JOB01626). The error
 comes when the clause runs, with its line, and SIGNAL ON SYNTAX traps it, as on
 z/OS. A C program that calls the interpreter on a larger stack gets further,
 up to the 250 entries.
+
+**How the entries are counted.** z/OS keeps one control stack at run time for
+active calls and active blocks together. rexx370 counts calls at run time in
+the VM (#295) and blocks while compiling (#296), separately. For plain
+recursion the limit is the same: `down(249)` runs and `down(250)` is error 11
+on both (z/OS run, MIKE-TODO round 6, 2026-10-02). Two things differ:
+
+- **The line in the message.** z/OS accepts the 251st call and fails on the
+  next block it opens, in that example the `if n = 0 then return 0` in the
+  innermost call (line 7). rexx370 fails on the call itself (line 8).
+- **Calls inside blocks.** On z/OS a recursion inside a `DO` or `IF` loses
+  depth to the blocks around each call; in rexx370 the 250 calls and the
+  blocks of each routine are independent limits, so such an exec gets deeper.
+
+Counting both at run time would need block entry and exit opcodes on the VM's
+hot path; it was decided against (2026-10-02).
