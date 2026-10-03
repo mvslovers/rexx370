@@ -19,6 +19,12 @@
 
 int irxuid(char *userid, struct envblock *envblock)
 {
+    /* The replaceable routine's interface hands over the environment
+     * (SC28-1883-0, Chapter 16); this one reads the user ID from system
+     * control blocks and does not need it.  ENVBLOCK_ECTPTR would reach
+     * the ECT without the PSA walk (architecture.md, anchor section). */
+    (void)envblock;
+
     if (userid == NULL)
     {
         return 20;
@@ -62,7 +68,6 @@ int irxuid(char *userid, struct envblock *envblock)
     /* Fallback: return blanks (non-TSO batch) */
     /* TODO: try ACEE/JCT extraction */
 #else
-    (void)envblock;
     /* Cross-compile: pull from environment, fall back to the literal
      * "USER" when nothing is set. The 8-byte blank-padded convention
      * is preserved so callers (bif_userid) can uniformly trim. */
