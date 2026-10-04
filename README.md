@@ -46,8 +46,11 @@ rexx370/
     irxparm.mac     PARMBLOCK DSECT
   test/           Test programs
     test_phase1.c   Phase 1 smoke test
-  doc/            Documentation
-    workpackages.md Work package descriptions for implementation
+  docs/           Documentation for users
+    extensions.md   Extensions beyond SC28-1883-0, limits that differ from z/OS
+  internals/      Documentation for maintainers
+    architecture.md Architecture design
+    ROADMAP.md      Current status and what's next
   jcl/            Sample JCL
   build/          Build artifacts
   project.toml    Build configuration
@@ -63,7 +66,7 @@ mbt build
 
 ## Architecture
 
-See: [REXX/370 Architecture Design v0.1.0](doc/) and the
+See: [REXX/370 Architecture Design](internals/architecture.md) and the
 [Notion Concept Page](https://www.notion.so/3283d9938787811ba3f4d3308b254cad)
 
 ## References

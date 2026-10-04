@@ -16,7 +16,7 @@ links the unpatched IBM IKJEFT01 against the installed module (the
 IKJEFTRX CSECT it carries along is dead code, nothing calls it), and
 that is copied over. tso/lmod_link.py testlib ikjeft01 puts ours back.
 
-The rules (measured on z/OS, docs/REXX_TSO_INTEGRATION.md):
+The rules (measured on z/OS, internals/REXX_TSO_INTEGRATION.md):
 
   implicit %name / name   SYSPROC member: REXX only with a comment
                           containing REXX in line 1; every other DD

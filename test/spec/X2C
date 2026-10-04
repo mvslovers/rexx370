@@ -1,7 +1,7 @@
 /* REXX -- X2C conformance, SC28-1883-0 p.108-109                   */
 /* Cases: examples of SC28-1883-0 and brexx370 test/x2c.rexx        */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/conversion.md.                  */
+/* 1988 manual. See internals/spec-tests/conversion.md.             */
 fails = 0
 call te 1, x2c('F7F2 A2'), '72s'
 call te 2, x2c('F7f2a2'), '72s'

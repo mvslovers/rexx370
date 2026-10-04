@@ -1,7 +1,7 @@
 /* REXX -- ABS conformance, SC28-1883-0 p.78                        */
 /* Cases: examples of SC28-1883-0 and brexx370 test/abs.rexx        */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+/* 1988 manual. See internals/spec-tests/numeric.md.                */
 fails = 0
 call t 1, abs('12.3'), '12.3'
 call t 2, abs(' -0.307'), '0.307'

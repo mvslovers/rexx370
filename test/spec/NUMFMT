@@ -1,7 +1,7 @@
 /* REXX -- NUMFMT conformance, SC28-1883-0 p.139-147                */
 /* Cases: examples of SC28-1883-0 and brexx370 test/numfmt.rexx     */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+/* 1988 manual. See internals/spec-tests/numeric.md.                */
 fails = 0
 call t 1, 2.40 + 1, '3.40'
 call t 2, 2.40 - 2, '0.40'

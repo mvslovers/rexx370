@@ -12,13 +12,13 @@
 /*  Symptom: 'a'v'b' produced "a X b" instead of "aXb"; the stem       */
 /*  default 1.0''loop became "1.0  1" (two blanks) instead of "1.01",  */
 /*  an invalid number that aborted REXXCPS with RC24 (IRXBC_ERR_ARITH).*/
-/*  Diagnosed in WP-BC-RT01 (docs/diag/wp-bc-rt01.md).                 */
+/*  Diagnosed in WP-BC-RT01 (internals/diag/wp-bc-rt01.md).            */
 /*                                                                    */
 /*  This test verifies:                                               */
 /*    1. abuttal compiles to OP_CONCAT, blank to OP_BCONCAT, mixed     */
 /*       expressions to the right mix (disassembler proof);            */
-/*    2. the b1 root-cause demo (docs/diag/wp-bc-rt01-b1.rexx) and the */
-/*       min2 RC24 repro (docs/diag/wp-bc-rt01-min2.rexx) now run on   */
+/*    2. the b1 root-cause demo (internals/diag/wp-bc-rt01-b1.rexx) and the */
+/*       min2 RC24 repro (internals/diag/wp-bc-rt01-min2.rexx) now run on   */
 /*       the bytecode path with RC=0 and token-walk-identical output;  */
 /*    3. equivalence vs. token-walk across abuttal / blank / mixed     */
 /*       concatenation variants (CON-18: byte-identical behaviour).    */
@@ -286,13 +286,13 @@ static void test_codegen(struct envblock *env)
 /*  The WP-BC-RT01 repros land here as regression tests.               */
 /* ------------------------------------------------------------------ */
 
-/* docs/diag/wp-bc-rt01-b1.rexx — clean abuttal root-cause demo. */
+/* internals/diag/wp-bc-rt01-b1.rexx — clean abuttal root-cause demo. */
 static const char B1_SRC[] =
     "v='X'\n"
     "say 'a'v'b'\n"
     "say '['v']'\n";
 
-/* docs/diag/wp-bc-rt01-min2.rexx — minimal RC24 repro.
+/* internals/diag/wp-bc-rt01-min2.rexx — minimal RC24 repro.
  * Pre-fix bytecode: avar. default becomes "1.0  1" -> RC24 on the *1.1. */
 static const char MIN2_SRC[] =
     "loop=1\n"

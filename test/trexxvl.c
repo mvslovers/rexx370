@@ -10,7 +10,7 @@
  * no exec in between; cases 1-8 escalate from a single SAY to the full
  * transpiled hello.rxp.  Each case runs under its own fresh LPE and tears
  * it down via IRXTERM -- the exact invocation shape that used to crash
- * against a stale LINKLIB build (see docs/irxterm-c-host-crash.md).
+ * against a stale LINKLIB build (see internals/irxterm-c-host-crash.md).
  *
  * Build: [[test]] TREXXVL (startup=crt1), deployed into the TESTLIB;
  * STEPLIB = TESTLIB + LINKLIB so the production IRX* modules resolve.

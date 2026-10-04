@@ -1,7 +1,7 @@
 /* REXX -- MAX conformance, SC28-1883-0 p.95                        */
 /* Cases: examples of SC28-1883-0 and brexx370 test/max.rexx        */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+/* 1988 manual. See internals/spec-tests/numeric.md.                */
 fails = 0
 call t 1, max(12,6,7,9), '12'
 call t 2, max(17.3,19,17.03), '19'

@@ -2,7 +2,7 @@
 
 Forward-looking development plan. This is the **single source of truth** for
 "where are we and what's next". The detailed per-WP definitions live in
-`docs/workpackages.md` (historical, Phase 1-3) and in the Notion Issues & Tasks
+`internals/workpackages.md` (historical, Phase 1-3) and in the Notion Issues & Tasks
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
@@ -107,7 +107,7 @@ meaningful.**
 The three large, clearly-measurable hotspots from the first profile are done
 (OC-12 numeric compare, OC-09 BIF dispatch, OC-ARITH integer op).
 
-**The re-profile is done** (`docs/diag/wp-perf-profile-2.md`, HEAD `210b90f`,
+**The re-profile is done** (`internals/diag/wp-perf-profile-2.md`, HEAD `210b90f`,
 2026-06-03). Verdict: OC-09 was decisive (BIF name-compare `ebcdic_eq`
 57.3 M → 269 calls — cluster C gone); OC-12/OC-ARITH cut numeric ~24 % (cluster A
 roughly halved, not gone); cluster B (variable pool) was untouched as designed
@@ -126,7 +126,7 @@ Next candidates, ranked by the new profile (share ≠ lever — see the doc):
 - **Variable-resolution (pointer) cache** (top recommendation) — cache the
   resolved vpool entry pointer at each bytecode reference *operand site*, for the
   ~88 % **simple-variable** bulk of cluster B. **Invalidation frequency now
-  measured** (`docs/diag/wp-perf-varcache-diag.md`, 2026-06-03): the cache is a
+  measured** (`internals/diag/wp-perf-varcache-diag.md`, 2026-06-03): the cache is a
   **real lever, not OC-06-redux** — writes do **not** invalidate it (`set`
   updates in place; resize re-links without moving entries), so only `DROP`/
   stem-drop/`PROCEDURE` invalidate → **44.8 reads/invalidation**. Hit rate splits
@@ -262,7 +262,7 @@ needed for a *complete* REXX.
 > restores registers from PSA low core. Fixed in `test/trxcall.asm`,
 > `test/trxldc.asm` and httprexx `asm/htrxterm.asm`; a second latent bug
 > (`asm/istso.asm` EXTRACT S328 on non-zeroed parameter list) was fixed on
-> the way. Full analysis: `docs/irxterm-c-host-crash.md`. IRXINIT/IRXEXEC/
+> the way. Full analysis: `internals/irxterm-c-host-crash.md`. IRXINIT/IRXEXEC/
 > IRXTERM themselves were exonerated. The related **#204** (`env_get_safe`
 > S0C4 when IRXINIT is reached via LOAD+BALR from a foreign C host) is now
 > fixed: `env_get_safe()` gates `getenv()` on a CLIBCRT being registered for
@@ -350,7 +350,7 @@ needed for a *complete* REXX.
 > **2026-09-27 — module cut (#254).** IRXINIT and IRXTERM link only the
 > environment core: 44 K each instead of 331 K. They used to carry the whole
 > interpreter because IRXINIT filled a per-environment BIF registry that nobody
-> had read since #200. The registry is gone; `docs/architecture.md` §12 is the
+> had read since #200. The registry is gone; `internals/architecture.md` §12 is the
 > authoritative module cut. Open in order: **#255** (default routines
 > `irxuid`/`irxmsgid`/`irxinout` as their own load modules, so IRXEXTE no longer
 > points into IRXINIT) and **#256** (IKJEFTRX deletes IRXINIT after INITENVB).
@@ -386,14 +386,14 @@ Candidates to verify (not a committed work list until inventoried):
 
 - **SC28-1883-0 conformance suite** (#261) — `test/spec/` + `TSTSPEC`, about
   1,500 checks whose expected values are checked against the 1988 manual
-  (`docs/spec-tests/`). 32 of 81 execs pass; the other 49 are listed as known
+  (`internals/spec-tests/`). 32 of 81 execs pass; the other 49 are listed as known
   failures with their defect issues (#262-#283), so a fix shows up as XPASS.
   The spec-completeness work of Axis 3 can be driven from that list.
 - **MBT issue #33** — first-class test support in the build tool. The practical
   driver: test programs are re-uploaded on every MVS build, and the upload time
   is the main friction in the build→measure loop. Phase 1 ("tests out of
   `make build`") would shrink uploads the most. See the test/build cleanup CON.
-- **Test & build cleanup** — `docs/workpackages.md` and the CLAUDE.md status
+- **Test & build cleanup** — `internals/workpackages.md` and the CLAUDE.md status
   block are stale; the test suite (~34 test modules vs 26 product modules) could
   be tiered. CI ratchet: `clang-format --dry-run --Werror` on every PR.
 
@@ -408,7 +408,7 @@ Candidates to verify (not a committed work list until inventoried):
 | CON-18 (Token-Walk Freeze) | current | Freeze decision; token-walk-has-own-bugs noted in CON-20 |
 | CON-16 (REXXCPS Roadmap) | **closed** | Goal achieved 2026-05-17; superseded by this file |
 | CON-1 (Architecture v0.1.6) | **review needed** | Predates bytecode phase; may carry stale assumptions |
-| `docs/workpackages.md` | **stale** | Frozen at Phase 3; historical reference only |
+| `internals/workpackages.md` | **stale** | Frozen at Phase 3; historical reference only |
 
 ---
 

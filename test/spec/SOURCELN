@@ -1,7 +1,7 @@
 /* REXX -- SOURCELINE conformance, SC28-1883-0 p.99                 */
 /* Cases: examples and rules of SC28-1883-0, expectations           */
 /* derived from the 1988 manual only.                               */
-/* See docs/spec-tests/language.md.                                 */
+/* See internals/spec-tests/language.md.                            */
 fails = 0
 /* SOURCELINE() is the number of the final line of this file, p.99 */
 call t 1, sourceline(), '40'

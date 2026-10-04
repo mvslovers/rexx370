@@ -1,7 +1,7 @@
 /* REXX -- SUBWORD conformance, SC28-1883-0 p.101                    */
 /* Cases: examples of SC28-1883-0 and brexx370 test/subword.rexx     */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the      */
-/* 1988 manual. See docs/spec-tests/words.md.                        */
+/* 1988 manual. See internals/spec-tests/words.md.                   */
 fails = 0
 call t 1, subword('Now is the  time',2,2), 'is the'
 call t 2, subword('Now is the  time',3), 'the  time'

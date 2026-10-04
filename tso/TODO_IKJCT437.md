@@ -279,7 +279,7 @@ Behoben: R1 trägt die Adresse.
   `EX`, dazu IKJCT431/432/435 und PARS), nicht der LPA: ein Ersatz dort
   braucht kein CLPA, nur dieselbe Extent-Vorsicht wie `SYS2.LINKLIB`
   (Link-List). Ob `EXEC` inzwischen komplett bindbar ist (IKJCT435, siehe
-  `docs/REXX_TSO_INTEGRATION.md` „Bindung"), ist zu prüfen.
+  `internals/REXX_TSO_INTEGRATION.md` „Bindung"), ist zu prüfen.
 - In `SYS2.LINKLIB` liegt IRXLDTSO aus `d36f7d5`, also **ohne** das
   Entfernen der Satznummern (#231). Einspielen erst nach einem Compress —
   26 Tracks frei, siehe `TODO.md`.

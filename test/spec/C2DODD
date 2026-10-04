@@ -1,7 +1,7 @@
 /* REXX -- C2DODD conformance, SC28-1883-0 p.83                     */
 /* Cases: examples of SC28-1883-0 and brexx370 test/c2d.rexx        */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/conversion.md.                  */
+/* 1988 manual. See internals/spec-tests/conversion.md.             */
 fails = 0
 call t 1, c2d('a'x), '10'
 call t 2, c2d('101'x), '257'

@@ -3,7 +3,7 @@
 This document describes the EXECBLK container layout, the complete opcode
 table, and the VM evaluation model as of WP-BC-06.
 
-See `docs/architecture.md §15` for the design rationale.
+See `internals/architecture.md §15` for the design rationale.
 Implementation files: `include/irxbops.h`, `include/irxexbl.h`,
 `include/irxbvm.h`, `src/irx#bcom.c`, `src/irx#bvm.c`.
 

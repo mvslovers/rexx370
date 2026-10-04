@@ -3,13 +3,13 @@
 **Type:** Measurement / diagnosis only — **NO cache implementation, NO product
 code**. Instrument a throwaway copy, count variable-pool events over a REXXCPS
 run, decide whether the per-operand variable-resolution cache (recommended in
-`docs/diag/wp-perf-profile-2.md`) is a real lever or is neutralised by
+`internals/diag/wp-perf-profile-2.md`) is a real lever or is neutralised by
 invalidation. The build decision is Mike's + the architecture review.
 **Branch:** `feature/wp-perf-varcache-diag`
 **HEAD commit:** `cbcfa30` — *docs(perf): fresh bytecode VM profile after
 OC-12/OC-09/OC-ARITH (#193)*
 **Date:** 2026-06-03
-**References:** `docs/diag/wp-perf-profile-2.md` (candidate 1 = the var cache);
+**References:** `internals/diag/wp-perf-profile-2.md` (candidate 1 = the var cache);
 CON-12 (the OC-06/OC-09 lesson — profile share ≠ hot-loop lever).
 
 ---

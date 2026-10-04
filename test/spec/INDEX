@@ -1,7 +1,7 @@
 /* REXX -- INDEX conformance, SC28-1883-0 p.92                        */
 /* Cases: examples of SC28-1883-0 and values derived                  */
 /* from its rules (no brexx370 test exists).                          */
-/* See docs/spec-tests/strings.md.                                    */
+/* See internals/spec-tests/strings.md.                               */
 fails = 0
 call t 1, index('abcdef','cd'), '3'
 call t 2, index('abcdef','xd'), '0'

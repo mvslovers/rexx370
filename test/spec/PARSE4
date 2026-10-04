@@ -1,7 +1,7 @@
 /* REXX -- PARSE sources conformance, SC28-1883-0 p.50-52, 133, 138 */
 /* Cases: examples of SC28-1883-0 and brexx370 test/parse.rexx      */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/language.md.                    */
+/* 1988 manual. See internals/spec-tests/language.md.               */
 fails = 0
 /* PARSE ARG with several strings, p.133 */
 call fred 'This is the first string', 2
