@@ -290,15 +290,12 @@ static void test_uid_msgid(void)
     CHECK(memcmp(prefix, "IRX", 3) == 0,
           "default prefix is IRX");
 
-    /* Message ID - SET */
-    rc = irxmsgid(1, "BRX", envblk);
-    CHECK(rc == 0, "irxmsgid SET returns 0");
+    /* No SET: the prefix is a constant (RENT module, #326). */
+    char other[3] = {'B', 'R', 'X'};
+    rc = irxmsgid(1, other, envblk);
+    CHECK(rc == 20, "irxmsgid SET is refused (20)");
     rc = irxmsgid(0, prefix, envblk);
-    CHECK(memcmp(prefix, "BRX", 3) == 0,
-          "prefix changed to BRX");
-
-    /* Restore */
-    irxmsgid(1, "IRX", envblk);
+    CHECK(memcmp(prefix, "IRX", 3) == 0, "prefix is still IRX");
 
     irxterm(envblk);
 }

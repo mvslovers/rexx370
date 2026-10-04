@@ -87,15 +87,16 @@ int irxuid(char *userid, struct envblock *envblock);
 
 /* --- Message ID Replaceable Routine --- */
 
-/* IRXMSGID - Get/Set message prefix
- * Default prefix: 'IRX' (e.g. IRX0001I)
+/* IRXMSGID - message prefix 'IRX' (e.g. IRX0001I)
  *
  * Parameters:
- *   function - 0=GET, 1=SET
- *   prefix   - For GET: output (3 bytes). For SET: input (3 bytes)
+ *   function - 0=GET; anything else returns 20 (SET is gone: the
+ *              prefix is a constant, so the module holds no writable
+ *              data and can be RENT)
+ *   prefix   - output, 3 bytes
  *   envblock - The owning ENVBLOCK
  *
- * Returns: 0=OK
+ * Returns: 0=OK, 20=not supported
  */
 int irxmsgid(int function, char *prefix, struct envblock *envblock);
 

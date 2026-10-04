@@ -16,30 +16,22 @@
 #include "irxfunc.h"
 
 #define MSGID_GET 0
-#define MSGID_SET 1
 
-static char default_prefix[4] = "IRX";
+/* The prefix is a constant: a load module that LINKs as RENT may hold no
+ * writable data (cc370#100), and a SET that changed it would have
+ * changed it for every environment at once.  SC28-1883-0 (p.390) gives
+ * this routine no parameters at all: its return code says whether the
+ * message ID is shown -- see #326. */
+static const char msgid_prefix[3] = {'I', 'R', 'X'};
 
 int irxmsgid(int function, char *prefix, struct envblock *envblock)
 {
-    (void)envblock; /* unused for now */
+    (void)envblock;
 
-    if (prefix == NULL)
+    if (prefix == NULL || function != MSGID_GET)
     {
         return 20;
     }
-
-    switch (function)
-    {
-        case MSGID_GET:
-            memcpy(prefix, default_prefix, 3);
-            return 0;
-
-        case MSGID_SET:
-            memcpy(default_prefix, prefix, 3);
-            return 0;
-
-        default:
-            return 20;
-    }
+    memcpy(prefix, msgid_prefix, sizeof(msgid_prefix));
+    return 0;
 }
