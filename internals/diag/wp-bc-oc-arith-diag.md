@@ -8,8 +8,8 @@ worth building. Builds nothing in product code. The fix is a separate ticket.
 **HEAD commit:** `5fc0239` — *docs(diag): WP-BC-OC06-DIAG — OC-06
 deprioritised (#182)* (WP-PERF-PROFILE baseline + OC-09 + OC-12 merged).
 **References:** CON-12 (cluster A ~32 %, OC-01 integer fast-path,
-Hercules multiplier); `docs/diag/wp-perf-profile.md` (PR #179, cluster A
-finding); `docs/diag/wp-bc-oc06-diag.md` (PR #182, methodology template:
+Hercules multiplier); `internals/diag/wp-perf-profile.md` (PR #179, cluster A
+finding); `internals/diag/wp-bc-oc06-diag.md` (PR #182, methodology template:
 local-copy instrumentation, three-way convergence, profile-share ≠
 hot-loop-effect lesson). OC-12 = the int-cache compare fast-path (#180).
 

@@ -113,10 +113,10 @@ usual.
 
 ## Baseline snapshots
 
-Committed snapshots live in `docs/profiling/`. Naming convention:
+Committed snapshots live in `internals/profiling/`. Naming convention:
 
 ```
-docs/profiling/host-baseline-YYYY-MM-DD-context.md
+internals/profiling/host-baseline-YYYY-MM-DD-context.md
 ```
 
 `context` is a short label that distinguishes the run (e.g. `initial`,
@@ -128,13 +128,13 @@ docs/profiling/host-baseline-YYYY-MM-DD-context.md
 - Total timing
 - Top-10 hotspots table
 
-See `docs/profiling/host-baseline-2026-05-18-initial.md` for the first snapshot.
+See `internals/profiling/host-baseline-2026-05-18-initial.md` for the first snapshot.
 
 To commit a new baseline after an optimisation:
 
 ```sh
 ./scripts/host-profile.sh
-# copy top-hotspots.txt into a new docs/profiling/host-baseline-YYYY-MM-DD-label.md
+# copy top-hotspots.txt into a new internals/profiling/host-baseline-YYYY-MM-DD-label.md
 # add brief observations
 ```
 

@@ -30,7 +30,7 @@
 #define TOK_BINSTRING 0x05 /* '1010'b                             */
 /* Operator characters are emitted one per token; the parser forms   */
 /* composite operators (||, **, //, ==, >=, <=, &&, \=, etc.) from   */
-/* adjacent operator tokens. See docs/tokenizer-notes.md section 3.  */
+/* adjacent operator tokens. See internals/tokenizer-notes.md section 3.  */
 #define TOK_OPERATOR   0x06 /* + - * / %                           */
 #define TOK_COMPARISON 0x07 /* = > <                               */
 #define TOK_LOGICAL    0x08 /* & |                                 */

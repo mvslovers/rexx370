@@ -1,7 +1,7 @@
 /* REXX -- PARSE words conformance, SC28-1883-0 p.50-52, 131-136    */
 /* Cases: examples of SC28-1883-0 and brexx370 test/parse.rexx      */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/language.md.                    */
+/* 1988 manual. See internals/spec-tests/language.md.               */
 fails = 0
 /* parsing into words, p.131 */
 parse value 'This is a sentence.' with v1 v2 v3

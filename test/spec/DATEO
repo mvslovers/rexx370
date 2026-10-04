@@ -1,7 +1,7 @@
 /* REXX -- DATE('O') conformance, SC28-1883-0 p.86                  */
 /* Cases: examples of SC28-1883-0 and brexx370 test/date.rexx       */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/language.md.                    */
+/* 1988 manual. See internals/spec-tests/language.md.               */
 fails = 0
 /* Ordered: yy/mm/dd, one expression uses one time stamp, p.86 */
 ok = date('O') == substr(date('S'),3,2)'/'substr(date('S'),5,2)'/'||,

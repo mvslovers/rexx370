@@ -28,7 +28,7 @@ Key points:
   a program starts, e.g. by the env a TMP registers at logon, so
   do not assume NULL under TSO. In batch (no ECT reachable) the slot is
   never written and IRXINIT still succeeds locally. See
-  `docs/architecture.md` §6.1 and `include/irxanchr.h`
+  `internals/architecture.md` §6.1 and `include/irxanchr.h`
 - **IRXEXTE** (Vector of External Entry Points) holds all replaceable
   routine pointers — SAY, PULL, I/O, Host Command, etc.
 - **irx_wkblk_int** (our internal Work Block) holds all per-environment
@@ -42,7 +42,7 @@ Key points:
 c2asm370 (GCC 3.2.3) accepts gnu99 features. C99 idioms are expected
 throughout `src/`, `include/`, and `test/`.
 
-The full style guide lives in [`docs/code-style.md`](docs/code-style.md).
+The full style guide lives in [`internals/code-style.md`](internals/code-style.md).
 `.clang-format` and `.clang-tidy` at the repo root encode the
 mechanically enforceable parts.
 
@@ -414,7 +414,7 @@ Full matrix: 15 binaries, **1200 tests green** as of WP-I1c.2 close-out.
 
 ## Work packages & roadmap
 
-**`docs/ROADMAP.md` is the single source of truth for current status and what's
+**`internals/ROADMAP.md` is the single source of truth for current status and what's
 next.** Read it first. It orders all open work into five axes (Performance,
 Decommission/Correctness, Spec-Completeness, Environment/Anchor, Infrastructure)
 and tracks which design docs (CONs) are current vs. stale.
@@ -428,7 +428,7 @@ leaves ROADMAP saying the work is still open has left the source of truth wrong.
 Same class of always-do as the test-registration rule (a `[[test]]` block in
 `project.toml`).
 
-`docs/workpackages.md` holds the historical Phase 1-3 per-WP definitions and is
+`internals/workpackages.md` holds the historical Phase 1-3 per-WP definitions and is
 **frozen/stale** — do not treat its status table as current.
 
 Current status (2026-08-15), summarized — see ROADMAP.md for detail:
@@ -436,7 +436,7 @@ Current status (2026-08-15), summarized — see ROADMAP.md for detail:
 - REXXCPS runs end-to-end on the **bytecode VM** (the primary path); the
   token-walk interpreter is frozen (CON-18) as fallback + equivalence reference
 - Active focus: performance toward BREXX and token-walk decommission (CON-20)
-- The re-profile is **done** (`docs/diag/wp-perf-profile-2.md`, 2026-06-03) —
+- The re-profile is **done** (`internals/diag/wp-perf-profile-2.md`, 2026-06-03) —
   do not run another one before acting on it. It ranked the variable-resolution
   cache first; that is #218, in progress.
 - **The old System A / System B measuring machines no longer exist.** Every cps

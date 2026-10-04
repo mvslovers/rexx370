@@ -1,7 +1,7 @@
 /* REXX -- DATE conformance, SC28-1883-0 p.85-86                    */
 /* Cases: examples of SC28-1883-0 and brexx370 test/date.rexx       */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/language.md.                    */
+/* 1988 manual. See internals/spec-tests/language.md.               */
 fails = 0
 /* formats and relationships only: every check is one expression, */
 /* so all DATE calls in it use one time stamp (p.86)              */

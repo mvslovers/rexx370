@@ -21,7 +21,7 @@
 /*       file in both directories is listed here, so a new exec       */
 /*       cannot be silently left out.                                 */
 /*                                                                    */
-/*  Expected values and their spec references: docs/spec-tests/.      */
+/*  Expected values and their spec references: internals/spec-tests/. */
 /*                                                                    */
 /*  (c) 2026 mvslovers - REXX/370 Project                             */
 /* ------------------------------------------------------------------ */

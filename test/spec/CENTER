@@ -2,7 +2,7 @@
 /* Cases: examples of SC28-1883-0 and brexx370                        */
 /* test/center.rexx (CMS-370-BREXX, Unlicense), expectations          */
 /* checked against the 1988 manual.                                   */
-/* See docs/spec-tests/strings.md.                                    */
+/* See internals/spec-tests/strings.md.                               */
 fails = 0
 call t 1, center(abc,7), '  ABC  '
 call t 2, center(abc,8,'-'), '--ABC---'

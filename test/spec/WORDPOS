@@ -1,7 +1,7 @@
 /* REXX -- WORDPOS conformance, SC28-1883-0 p.107                    */
 /* Cases: examples of SC28-1883-0 and brexx370 test/wordpos.rexx     */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the      */
-/* 1988 manual. See docs/spec-tests/words.md.                        */
+/* 1988 manual. See internals/spec-tests/words.md.                   */
 fails = 0
 call t 1, wordpos('the','now is the time'), '3'
 call t 2, wordpos('The','now is the time'), '0'

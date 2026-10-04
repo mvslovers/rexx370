@@ -1,7 +1,7 @@
 /* REXX -- strict NOT comparison conformance, SC28-1883-0 p.15      */
 /* Cases: examples and rules of SC28-1883-0, expectations           */
 /* derived from the 1988 manual only.                               */
-/* See docs/spec-tests/language.md.                                 */
+/* See internals/spec-tests/language.md.                            */
 fails = 0
 /* strictly NOT less than / NOT greater than, p.15 */
 call t 1, 'b' \<< 'a', '1'

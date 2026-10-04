@@ -1,7 +1,7 @@
 /* REXX -- comparison conformance, SC28-1883-0 p.14-17, 145         */
 /* Cases: examples of SC28-1883-0 and brexx370 test/equal.rexx      */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/language.md.                    */
+/* 1988 manual. See internals/spec-tests/language.md.               */
 fails = 0
 /* examples of p.17 */
 a = '3'

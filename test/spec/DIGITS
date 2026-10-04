@@ -1,7 +1,7 @@
 /* REXX -- DIGITS conformance, SC28-1883-0 p.87                     */
 /* Cases: examples and rules of SC28-1883-0, expectations           */
 /* derived from the 1988 manual only.                               */
-/* See docs/spec-tests/numeric.md.                                  */
+/* See internals/spec-tests/numeric.md.                             */
 fails = 0
 call t 1, digits(), '9'
 numeric digits 5

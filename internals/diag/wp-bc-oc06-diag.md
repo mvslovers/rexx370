@@ -7,7 +7,7 @@ cache strategy. Builds no cache. The fix is a separate ticket.
 **HEAD commit:** `acfeaa0` — *feat(bytecode): WP-BC-OC09 — BIF direct
 dispatch (#181)* (the WP-PERF-PROFILE baseline + OC-09 merged)
 **References:** CON-12 (OC-06 hypothesis, cluster B ~22 %, Hercules
-multiplier); `docs/diag/wp-perf-profile.md` (PR #179, cluster B finding);
+multiplier); `internals/diag/wp-perf-profile.md` (PR #179, cluster B finding);
 lesson from OC-09/#181 (profile share ≠ hot-loop effect).
 
 ---

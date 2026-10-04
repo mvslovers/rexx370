@@ -10,7 +10,7 @@
 *  LINK SVC cannot set R0, hence this shim.
 *
 *  WARNING (root cause of mvslovers/rexx370 "IRXTERM C-host crash",
-*  see docs/irxterm-c-host-crash.md): RS-format instructions (LM,
+*  see internals/irxterm-c-host-crash.md): RS-format instructions (LM,
 *  STM, ...) must write the operand as D(B) -- as370 silently
 *  assembles the RX-style D(,B) form with BASE=0, turning the
 *  register restore into a load from PSA low core.  The epilog below

@@ -8,7 +8,7 @@ Mike's + the architecture review.
 **HEAD commit:** `210b90f` — *fix(bytecode): WP-BC-RT03 — de-double quotes in
 string-literal expressions (#192)*
 **Date:** 2026-06-03
-**Supersedes (for hotspot localisation):** `docs/diag/wp-perf-profile.md`
+**Supersedes (for hotspot localisation):** `internals/diag/wp-perf-profile.md`
 (HEAD `9f02d4b`, #177, 2026-05-29) — that profile predates three optimisation
 rounds and no longer reflects where time goes.
 **References:** ROADMAP Axis 1 ("Next action: a fresh bytecode-VM profile");
@@ -70,7 +70,7 @@ token-walk path. That fix is in place and verified again here:
 - `scripts/host-profile.sh` `ENGINE_SRC` includes `irx#bcom.c`, `irx#bvm.c`,
   `irx#bctl.c` (verified at HEAD `210b90f`).
 - `REXX370_BCDEBUG=1` run reports **`[bc] exec=1 fallback=0`**
-  (`docs/diag/wp-perf-profile-2-run.log`) — REXXCPS compiles fully to bytecode
+  (`internals/diag/wp-perf-profile-2-run.log`) — REXXCPS compiles fully to bytecode
   and runs once, zero token-walk fallbacks. `fallback=0` is the hard gate; any
   value > 0 would mean a token-walk/bytecode mixture.
 - The flat profile is rooted at `IRXBEXEC` (the VM executor, asm alias of
@@ -126,7 +126,7 @@ profile shows WHERE time goes, not HOW FAST).
 
 ## 3. Flat profile — top 20 (self-time)
 
-From `docs/diag/wp-perf-profile-2-gprof.txt` (self-total = 2.87 s):
+From `internals/diag/wp-perf-profile-2-gprof.txt` (self-total = 2.87 s):
 
 | # | %self | self s | calls | function | subsystem |
 |---|------:|-------:|------:|----------|-----------|

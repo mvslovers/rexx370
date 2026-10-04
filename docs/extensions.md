@@ -22,7 +22,7 @@ accepts is in the 1988 manual. It was checked against the function index and
 the option lists on 2026-09-30.
 
 The extension execs run under `TSTSPEC` together with the conformance suite
-(`test/spec/`, see `docs/spec-tests/README.md`), with the same helper rules.
+(`test/spec/`, see `internals/spec-tests/README.md`), with the same helper rules.
 Their expected values follow z/OS and were confirmed there by a maintainer
 run on 2026-09-30; every value matched.
 

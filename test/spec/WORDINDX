@@ -1,7 +1,7 @@
 /* REXX -- WORDINDEX conformance, SC28-1883-0 p.107                  */
 /* Cases: examples of SC28-1883-0 and brexx370 test/wordind.rexx     */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the      */
-/* 1988 manual. See docs/spec-tests/words.md.                        */
+/* 1988 manual. See internals/spec-tests/words.md.                   */
 fails = 0
 call t 1, wordindex('Now is the time',3), '8'
 call t 2, wordindex('Now is the time',6), '0'

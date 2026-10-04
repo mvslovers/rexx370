@@ -1,7 +1,7 @@
 /* REXX -- TRUNC conformance, SC28-1883-0 p.104                     */
 /* Cases: examples of SC28-1883-0 and brexx370 test/trunc.rexx      */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/numeric.md.                     */
+/* 1988 manual. See internals/spec-tests/numeric.md.                */
 fails = 0
 call t 1, trunc(12.3), '12'
 call t 2, trunc(127.09782,3), '127.097'

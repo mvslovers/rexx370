@@ -1,7 +1,7 @@
 /* REXX -- evaluation order conformance, SC28-1883-0 p.13-17, 33, 71*/
 /* Cases: examples of SC28-1883-0 and brexx370 test/evalord.rexx    */
 /* (CMS-370-BREXX, Unlicense), expectations checked against the     */
-/* 1988 manual. See docs/spec-tests/language.md.                    */
+/* 1988 manual. See internals/spec-tests/language.md.               */
 fails = 0
 /* examples of p.16 */
 call t 1, 3+2*5, '13'

@@ -2767,7 +2767,7 @@ sources = [
 # ---------------------------------------------------------------
 # TSTSPEC - SC28-1883-0 conformance suite (#261). Runs every exec in
 # test/spec/ through the IRXJCL core; expected values and their spec
-# references are in docs/spec-tests/. Known failures are listed in
+# references are in internals/spec-tests/. Known failures are listed in
 # test/tstspec.c with their issue numbers.
 # ---------------------------------------------------------------
 [[test]]

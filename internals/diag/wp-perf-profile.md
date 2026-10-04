@@ -88,10 +88,10 @@ It is 0 → the profile is **100 % bytecode**. Corroborated by the flat profile:
 1.92 s / 96 % cumulative; the token-walk interpreter is entirely absent.
 
 Raw proof artefacts committed alongside this doc:
-- `docs/diag/wp-perf-profile-run.log` — contains the `[bc] exec=1 fallback=0` line
-- `docs/diag/wp-perf-profile-gprof.txt` — full gprof flat profile + call graph
-- `docs/diag/wp-perf-profile-top10.txt` — extracted top-10
-- `docs/diag/wp-perf-profile-timing.txt` — driver wall/cpu timing
+- `internals/diag/wp-perf-profile-run.log` — contains the `[bc] exec=1 fallback=0` line
+- `internals/diag/wp-perf-profile-gprof.txt` — full gprof flat profile + call graph
+- `internals/diag/wp-perf-profile-top10.txt` — extracted top-10
+- `internals/diag/wp-perf-profile-timing.txt` — driver wall/cpu timing
 
 ---
 
@@ -126,7 +126,7 @@ Raw proof artefacts committed alongside this doc:
 
 ## 4. Top-10 hotspots (flat profile, self-time)
 
-From `docs/diag/wp-perf-profile-top10.txt`:
+From `internals/diag/wp-perf-profile-top10.txt`:
 
 | # | %self | self s | calls | function | subsystem |
 |---|------:|-------:|------:|----------|-----------|
@@ -216,8 +216,8 @@ counter + TRACE-equivalence mitigation. **High-value.**
 *Module: `irx#tokn.c`, `irx#pars.c`. Originally: cache parsed form of literals.*
 The literal-caching OC-07 proposed is **already implemented** by WP-BC-06: the VM
 pre-computes `const_type_cache[]` / `const_int_cache[]` per constant and reads
-them on `OP_PUSH_LIT` (`src/irx#bvm.c:955`, `docs/bytecode-format.md:304-324`,
-`docs/architecture.md:874`). The profile confirms literals are **not** the cost:
+them on `OP_PUSH_LIT` (`src/irx#bvm.c:955`, `internals/bytecode-format.md:304-324`,
+`internals/architecture.md:874`). The profile confirms literals are **not** the cost:
 `num_from_str` is reached only via `lstr_to_num` ← `IRXARICM`/`IRXARIOP`, never
 from the `OP_PUSH_LIT` handler — direct evidence the constant cache works at push
 time. The 12.1 M `num_from_str` calls come from `IRXARICM`/`IRXARIOP` operating

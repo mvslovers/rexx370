@@ -1,6 +1,6 @@
 /* REXX -- FIND conformance, SC28-1883-0 p.90                        */
 /* Cases: examples of SC28-1883-0 and rules of its p.90 text         */
-/* (no brexx370 test exists). See docs/spec-tests/words.md.          */
+/* (no brexx370 test exists). See internals/spec-tests/words.md.     */
 fails = 0
 call t 1, find('now is the time','is the time'), '2'
 call t 2, find('now is  the time','is    the'), '2'
