@@ -738,7 +738,14 @@ LOADed once and may be deleted, IRXEXEC is loaded per call (#200, #239).
 
 - **#256** — IKJEFTRX can DELETE IRXINIT right after INITENVB, so a TSO
   session keeps no IRXINIT code resident (IRXJCL already does, #299).
-- **#300** — the modules in the LPA: reentrancy has not been verified.
+- **#300** — the modules in the LPA. The link attributes are declared per
+  module since mbt v2.1 (cc370#100): every installed module is `rent = true`
+  and `reus = true` except IRXANCHR (`reus` only, its slot table is written by
+  design). mbt's module-data check confirms the C side holds no writable data
+  (only IRXMSGID's `default_prefix` did; it is a constant now, and #326
+  tracks the routine's contract in SC28-1883-0); the
+  assembler sources keep their storage in GETMAINed work areas or copy model
+  DCBs there. Not yet done: running from the LPA itself.
 - Done: the default routines are load modules of their own (#255), and
   IRXJCL no longer carries a copy of the interpreter (#299), so IRXEXEC is
   the only installed module that does (IRXJCLD and IRX#HELO are lab
@@ -802,9 +809,15 @@ LOADed once and may be deleted, IRXEXEC is loaded per call (#200, #239).
 1. **Storage subpool:** Subpool 0 vs. dedicated (78). STORAGE() function requires APF.
 2. **Exec caching:** LRU cache per environment recommended.
 3. **REXX identifier:** First record `/*...REXX...*/` → REXX exec.
-4. **Reentrancy:** All modules RENT. Working storage only via GETMAIN.
 
 ## 14.2 Resolved
+
+- **Reentrancy (4 October 2026):** every installed module is linked RENT and
+  REUS, declared per module in `project.toml` (mbt v2.1, cc370#100); IRXANCHR
+  is REUS only, because its slot table is written by design. Working storage
+  only via GETMAIN or the environment. mbt's module-data check keeps writable
+  C data out of the RENT modules; diagnostic programs and tests are neither
+  (C runtime start, one run per step). See §12, #300.
 
 - **C as implementation language (Phase 2+):** Confirmed by completed Phase 2 (16 April 2026). The entire interpreter chain is implemented in C. Decision confirmed as part of the WP-20 discussion (point B1). The original option "Phase 1–2 HLASM only, evaluate from Phase 3" was already not taken in Phase 1.
 - **24-bit memory handling for arithmetic:** Through the `NUMERIC DIGITS` cap of 1,000 (see section 7.3), the arithmetic engine's memory footprint stays in the kilobyte range even with multiple concurrent intermediate results. Overlay not required. Decided as part of the WP-20 discussion (point B2).

@@ -49,9 +49,10 @@ version_files = ["VERSION"]
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXANCHR"
+rent = false             # self-modified slot array: REUS, not RENT
+reus = true
 entry = "IRXANCHR"
 startup = false
-norent = true              # self-modified slot array -> REUS, not RENT
 sources = ["asm/irxanchr.asm"]
 
 # ---------------------------------------------------------------
@@ -63,18 +64,24 @@ sources = ["asm/irxanchr.asm"]
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXPARMS"
+rent = true
+reus = true
 entry = "IRXPARMS"
 startup = false
 sources = ["asm/irxparms.asm"]
 
 [[module]]
 name = "IRXTSPRM"
+rent = true
+reus = true
 entry = "IRXTSPRM"
 startup = false
 sources = ["asm/irxtsprm.asm"]
 
 [[module]]
 name = "IRXISPRM"
+rent = true
+reus = true
 entry = "IRXISPRM"
 startup = false
 sources = ["asm/irxisprm.asm"]
@@ -100,6 +107,8 @@ sources = ["asm/irxisprm.asm"]
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXINIT"
+rent = true
+reus = true
 entry = "IRXINIT"
 startup = false
 sources = [
@@ -123,6 +132,8 @@ sources = [
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXTERM"
+rent = true
+reus = true
 entry = "IRXTERM"
 startup = false
 sources = [
@@ -149,6 +160,8 @@ sources = [
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXLOAD"
+rent = true
+reus = true
 entry = "IRXLOAD"
 startup = false
 sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#ldqs.c", "src/irx#stor.c"]
@@ -164,6 +177,8 @@ sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#ldqs.c", "src/irx#stor.
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXLDTSO"
+rent = true
+reus = true
 entry = "IRXLOAD"
 startup = false
 sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#ldbp.c", "asm/irxbpam.asm", "src/irx#stor.c"]
@@ -182,6 +197,8 @@ sources = ["asm/irxload.asm", "src/irx#load.c", "src/irx#ldbp.c", "asm/irxbpam.a
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXEXEC"
+rent = true
+reus = true
 entry = "IRXEXEC"
 startup = false
 sources = [
@@ -228,6 +245,8 @@ sources = [
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXIOTSO"
+rent = true
+reus = true
 entry = "IRXIOTSO"
 startup = false
 sources = ["src/irx#tsio.c", "asm/putlin.asm"]
@@ -247,18 +266,24 @@ sources = ["src/irx#tsio.c", "asm/putlin.asm"]
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXINOUT"
+rent = true
+reus = true
 entry = "IRXINOUT"
 startup = false
 sources = ["src/irx#io.c", "asm/irxqsam.asm", "src/irx#stor.c"]
 
 [[module]]
 name = "IRXUID"
+rent = true
+reus = true
 entry = "IRXUID"
 startup = false
 sources = ["src/irx#uid.c"]
 
 [[module]]
 name = "IRXMSGID"
+rent = true
+reus = true
 entry = "IRXMSGID"
 startup = false
 sources = ["src/irx#msid.c"]
@@ -277,11 +302,15 @@ sources = ["src/irx#msid.c"]
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXDBG"
+rent = false             # C program with @@CRT0: not reusable
+reus = false
 startup = "crt1"
 sources = ["src/irxdbg.c", "src/irx#anch.c", "src/irx#svc.c"]
 
 [[module]]
 name = "IRX#HELO"
+rent = false             # C program with @@CRT0: not reusable
+reus = false
 startup = "crt1"
 sources = [
   "src/irx#helo.c",
@@ -320,6 +349,8 @@ sources = [
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXJCL"
+rent = true
+reus = true
 entry = "IRXJCL"
 startup = false
 sources = ["asm/irxjcl.asm"]
@@ -339,6 +370,8 @@ sources = ["asm/irxjcl.asm"]
 # ---------------------------------------------------------------
 [[module]]
 name = "IRXJCLD"
+rent = false             # C program with @@CRT0: not reusable
+reus = false
 startup = "crt1"
 sources = [
   "src/irx#jclm.c",
@@ -369,6 +402,12 @@ sources = [
   "asm/istso.asm",
 ]
 
+# ---------------------------------------------------------------
+# Tests: rent = false, reus = false throughout.  A test program runs
+# once per job step (EXEC PGM= or TSO CALL) and is never LINKed by
+# several tasks at once; most start through @@CRT0, which is not
+# reusable.  Their statics (capture buffers, counters) stay legal.
+# ---------------------------------------------------------------
 # ===================================================================
 # Test load modules ([[test]] -- built by 'make test', not deployed)
 # ===================================================================
@@ -386,6 +425,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTANCH"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstanch.c",
@@ -428,6 +469,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTTOKN"
+rent = false
+reus = false
 startup = "crt1"
 sources = ["test/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 
@@ -448,6 +491,8 @@ sources = ["test/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTPHAS1"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstphas1.c",
@@ -479,6 +524,8 @@ sources = [
 
 [[test]]
 name = "TSTANRM"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstanrm.c",
@@ -522,6 +569,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTANSL"
+rent = false
+reus = false
 startup = "crt1"
 sources = ["test/tstansl.c", "src/irx#anch.c", "src/irx#svc.c"]
 
@@ -538,6 +587,8 @@ sources = ["test/tstansl.c", "src/irx#anch.c", "src/irx#svc.c"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTINIT"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstinit.c",
@@ -581,6 +632,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTFIND"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstfind.c",
@@ -624,6 +677,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTTERM"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstterm.c",
@@ -655,6 +710,8 @@ sources = [
 
 [[test]]
 name = "TSTLSTR"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstlstr.c",
@@ -686,6 +743,8 @@ sources = [
 
 [[test]]
 name = "TSTVPOL"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstvpol.c",
@@ -717,6 +776,8 @@ sources = [
 
 [[test]]
 name = "TSTPRSR"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstprsr.c",
@@ -756,6 +817,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTIOTSO"
+rent = false
+reus = false
 startup = "crt1"
 parm_batch = "0"
 parm_tso = "1"
@@ -800,6 +863,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTLDTSO"
+rent = false
+reus = false
 startup = "crt1"
 parm_batch = "0"
 parm_tso = "1"
@@ -850,6 +915,8 @@ members = ["test/fixtures/tldtso/TLDTSOX", "test/fixtures/tldtso/TLDNUM", "test/
 # ---------------------------------------------------------------
 [[test]]
 name = "TLDTSO"
+rent = false
+reus = false
 entry = "TLDTSO"
 startup = false
 parm_batch = "0"
@@ -869,6 +936,8 @@ members = ["test/fixtures/tldtso/TLDTSOX"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TNOMEM"
+rent = false
+reus = false
 entry = "TNOMEM"
 startup = false
 sources = ["test/asm/tnomem.asm"]
@@ -876,6 +945,8 @@ host = false
 
 [[test]]
 name = "TSTSAY"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "src/irx#tsio.c",
@@ -909,6 +980,8 @@ sources = [
 
 [[test]]
 name = "TSTCTRL"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstctrl.c",
@@ -940,6 +1013,8 @@ sources = [
 
 [[test]]
 name = "TSTHELO"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tsthelo.c",
@@ -977,6 +1052,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTEXEC"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstexec.c",
@@ -1008,6 +1085,8 @@ sources = [
 
 [[test]]
 name = "TSTPARSE"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstparse.c",
@@ -1039,6 +1118,8 @@ sources = [
 
 [[test]]
 name = "TSTPROC"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstproc.c",
@@ -1070,6 +1151,8 @@ sources = [
 
 [[test]]
 name = "TSTARIT"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstarit.c",
@@ -1101,6 +1184,8 @@ sources = [
 
 [[test]]
 name = "TSTAREXT"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstarext.c",
@@ -1132,6 +1217,8 @@ sources = [
 
 [[test]]
 name = "TSTBIF"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbif.c",
@@ -1163,6 +1250,8 @@ sources = [
 
 [[test]]
 name = "TSTBIFS"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbifs.c",
@@ -1194,6 +1283,8 @@ sources = [
 
 [[test]]
 name = "TSTTIM"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tsttim.c",
@@ -1237,6 +1328,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCTL"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbctl.c",
@@ -1281,6 +1374,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCAL"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcal.c",
@@ -1318,6 +1413,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCLM"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbclm.c",
@@ -1355,6 +1452,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBERR"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstberr.c",
@@ -1398,6 +1497,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBPSE"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbpse.c",
@@ -1441,6 +1542,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBPRO"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbpro.c",
@@ -1484,6 +1587,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCOM"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcom.c",
@@ -1529,6 +1634,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCRXC"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcrxc.c",
@@ -1572,6 +1679,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBSIG"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbsig.c",
@@ -1607,6 +1716,8 @@ sources = [
 # bc_only tests only (token-walk has no trap semantics per CON-18).
 [[test]]
 name = "TSTBTRP"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbtrp.c",
@@ -1652,6 +1763,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBTRA"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbtra.c",
@@ -1697,6 +1810,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBSEM"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbsem.c",
@@ -1745,6 +1860,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBARG"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbarg.c",
@@ -1792,6 +1909,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCONT"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcont.c",
@@ -1840,6 +1959,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCAT"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcat.c",
@@ -1888,6 +2009,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBDQ"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbdq.c",
@@ -1936,6 +2059,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCMP"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcmp.c",
@@ -1982,6 +2107,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCAP"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcap.c",
@@ -2031,6 +2158,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCNUM"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcnum.c",
@@ -2076,6 +2205,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTLOAD"
+rent = false
+reus = false
 startup = "crt1"
 sources = ["test/tstload.c", "src/irx#load.c", "src/irx#ldqs.c", "src/irx#stor.c"]
 # On MVS the LOAD path reads members from real DDs (the host build self-
@@ -2110,6 +2241,8 @@ members = ["test/fixtures/tstload/PROCONLY"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTJCL"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstjcl.c",
@@ -2155,6 +2288,8 @@ members = [
 
 [[test]]
 name = "TSTTRACE"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tsttrace.c",
@@ -2186,6 +2321,8 @@ sources = [
 
 [[test]]
 name = "TSTADDR"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstaddr.c",
@@ -2230,6 +2367,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TINITVL"
+rent = false
+reus = false
 entry = "TINITVL"
 startup = false
 sources = ["test/asm/tinitvl.asm"]
@@ -2246,6 +2385,8 @@ sources = ["test/asm/tinitvl.asm"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TTERMVL"
+rent = false
+reus = false
 entry = "TTERMVL"
 startup = false
 sources = ["test/asm/ttermvl.asm"]
@@ -2257,6 +2398,8 @@ sources = ["test/asm/ttermvl.asm"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TLNKTERM"
+rent = false
+reus = false
 entry = "TLNKTERM"
 startup = false
 sources = ["test/asm/tlnkterm.asm"]
@@ -2280,6 +2423,8 @@ sources = ["test/asm/tlnkterm.asm"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TEXECVL"
+rent = false
+reus = false
 entry = "TEXECVL"
 startup = false
 sources = ["test/asm/texecvl.asm"]
@@ -2300,6 +2445,8 @@ sources = ["test/asm/texecvl.asm"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TREXXVL"
+rent = false
+reus = false
 startup = "crt1"
 host = false                # MVS-only (uses __linkds/LINK); skipped by test-host
 sources = ["test/trexxvl.c", "test/trxcall.asm", "test/trxldc.asm"]
@@ -2313,6 +2460,8 @@ sources = ["test/trexxvl.c", "test/trxcall.asm", "test/trxldc.asm"]
 # ---------------------------------------------------------------
 [[test]]
 name = "TISTSO"
+rent = false
+reus = false
 startup = "crt1"
 sources = ["test/tistso.c", "asm/istso.asm"]
 parm_batch = "0"
@@ -2324,6 +2473,8 @@ parm_tso = "1"
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCLN"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcln.c",
@@ -2359,6 +2510,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCCMP"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbccmp.c",
@@ -2394,6 +2547,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCEXE"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcexe.c",
@@ -2429,6 +2584,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTBCXPR"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstbcxpr.c",
@@ -2464,6 +2621,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTPOOL"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstpool.c",
@@ -2499,6 +2658,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTFLIP"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstflip.c",
@@ -2535,6 +2696,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTRXCPS"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstrxcps.c",
@@ -2570,6 +2733,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTSTK"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tststk.c",
@@ -2607,6 +2772,8 @@ sources = [
 # ---------------------------------------------------------------
 [[test]]
 name = "TSTSPEC"
+rent = false
+reus = false
 startup = "crt1"
 sources = [
   "test/tstspec.c",
