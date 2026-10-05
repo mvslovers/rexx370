@@ -377,7 +377,7 @@ keins. Das ist Bauweise:
 
 | Modul | `startup` | hat Runtime |
 |---|---|---|
-| `IRXJCL`, `IRXDBG`, alle `TST*` | `"crt1"` | ja — es sind C-Hosts |
+| `IRXJCL`, `IRXDBG`, alle `TST*` | — (C-Programm: `@@CRT0` aus `libc.a`; bis mbt 2.2.0 `"crt1"`) | ja — es sind C-Hosts |
 | `IRXINIT`, `IRXTERM`, `IRXLOAD`, `IRXEXEC` | `false` | nein — sie erben das des Aufrufers |
 
 Die `IRX*`-Dienste setzen einen C-Host voraus. httprexx ist einer,
