@@ -737,8 +737,10 @@ struct bc_parse_frame
  *            (used by TR_LIT/ABS/REL/END; for TR_SPACE the caller
  *            passes seg_end=source_len but the function advances scan
  *            to the end of the matched word, not to seg_end).
- * last_real — 0 for TR_SPACE (one-word semantics),
- *             1 for all other triggers (leading-blank-then-rest).
+ * last_real — 0 for TR_SPACE: one word with its leading blanks
+ *               skipped, then the single blank that delimits it;
+ *             1 for all other triggers: the raw rest of the segment,
+ *               blanks kept (SC28-1883-0 p.131-135, #332).
  */
 static int pframe_assign(struct bc_parse_frame *pframe,
                          struct irx_vpool *vpool,
@@ -762,30 +764,28 @@ static int pframe_assign(struct bc_parse_frame *pframe,
         seg_end = scan;
     }
 
-    /* Skip leading whitespace */
     content_start = scan;
-    while (content_start < seg_end &&
-           isspace((unsigned char)src[content_start]))
-    {
-        content_start++;
-    }
-
     if (last_real)
     {
-        /* TR_LIT/ABS/REL/END: take from content_start to seg_end */
+        /* TR_LIT/ABS/REL/END: the segment as it stands */
         value_end = seg_end;
         pframe->scan = new_scan;
     }
     else
     {
-        /* TR_SPACE: take one word (non-space characters) */
+        /* TR_SPACE: one word, then the blank that delimits it */
+        while (content_start < seg_end &&
+               isspace((unsigned char)src[content_start]))
+        {
+            content_start++;
+        }
         value_end = content_start;
         while (value_end < seg_end &&
                !isspace((unsigned char)src[value_end]))
         {
             value_end++;
         }
-        pframe->scan = value_end;
+        pframe->scan = value_end < seg_end ? value_end + 1 : value_end;
     }
 
     /* Dot placeholder — consume the segment but assign nothing */

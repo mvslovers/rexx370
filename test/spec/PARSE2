@@ -96,7 +96,7 @@ sl = '/'
 v = x2c('15')sl||x2c('09')sl||x2c('00')sl
 v = v||x2c('01')sl||x2c('FE')sl||x2c('FF')
 parse var v nl '/' tab '/' x00 '/' x01 '/' xfe '/' xff
-call t 56, c2x(nl||tab||x00||x01||xfe||xff), '1509000001FEFF'
+call t 56, c2x(nl||tab||x00||x01||xfe||xff), '15090001FEFF'
 x00 = x2c('00')
 v = 'before' || x00 || 'between' || x00 || 'after'
 parse var v tagnest1 (x00) tntag (x00) tagnest2

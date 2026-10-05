@@ -335,6 +335,84 @@ static void run_equiv(struct envblock *env, const char *src,
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Word parsing against the spec (#332)                               */
+/*                                                                     */
+/*  SC28-1883-0 "Parsing Words", p.131-135: a template that is a      */
+/*  single variable gets the entire string; a word that is not the     */
+/*  last consumes exactly the one blank that delimits it, and the last */
+/*  variable keeps everything after that blank. Both paths must print  */
+/*  the spec's answer, not merely agree with each other.               */
+/* ------------------------------------------------------------------ */
+static void run_expect(struct envblock *env, const char *src,
+                       const char *args, const char *want,
+                       const char *label)
+{
+    struct irx_wkblk_int *wk =
+        (struct irx_wkblk_int *)env->envblock_workblok_ext;
+    int args_len = args != NULL ? (int)strlen(args) : 0;
+
+    if (wk == NULL)
+    {
+        CHECK(0, label);
+        return;
+    }
+    for (int bc = 0; bc <= 1; bc++)
+    {
+        int exit_rc = 0;
+        int rc;
+
+        cap_reset();
+        wk->wkbi_use_bytecode = bc;
+        wk->wkbi_bc_fallback_count = 0;
+        rc = irx_exec_run(src, (int)strlen(src), args, args_len, &exit_rc,
+                          env);
+        wk->wkbi_use_bytecode = 0;
+        CHECK(rc == 0 && strcmp(g_cap, want) == 0 &&
+                  (bc == 0 || wk->wkbi_bc_fallback_count == 0),
+              label);
+        if (strcmp(g_cap, want) != 0)
+        {
+            printf("    [%s] %s: got [%s] want [%s]\n", label,
+                   bc ? "bytecode" : "token-walk", g_cap, want);
+        }
+    }
+}
+
+static void test_parse_words(struct envblock *env)
+{
+    run_expect(env, "parse value '  x  ' with v1\nsay '<'v1'>'\n", NULL,
+               "<  x  >\n", "#332 single variable: entire string");
+    run_expect(env,
+               "parse value 'This is   a sentence.' with v1 v2 v3\n"
+               "say '<'v1'><'v2'><'v3'>'\n",
+               NULL, "<This><is><  a sentence.>\n",
+               "#332 last variable keeps leading blanks (p.131)");
+    run_expect(env,
+               "parse value '  a  b' with v1 v2\nsay '<'v1'><'v2'>'\n",
+               NULL, "<a>< b>\n",
+               "#332 only the delimiting blank is removed");
+    run_expect(env,
+               "s = 'This is  the data which, I think,  is scanned.'\n"
+               "parse var s w1 w2 w3 rest\n"
+               "say '<'w1'><'w2'><'w3'><'rest'>'\n",
+               NULL, "<This><is><the><data which, I think,  is scanned.>\n",
+               "#332 p.134 example");
+    run_expect(env,
+               "s = 'This is  the data which, I think,  is scanned.'\n"
+               "parse var s . . . word4 .\nsay '<'word4'>'\n",
+               NULL, "<data>\n", "#332 p.136 placeholders");
+    run_expect(env,
+               "parse value 'a b  ' with v1 v2\nsay '<'v2'>'\n", NULL,
+               "<b  >\n", "#332 last variable keeps trailing blanks");
+    run_expect(env, "parse arg a\nsay '<'a'>' length(a)\n", "  a   b  ",
+               "<  a   b  > 9\n", "#332 PARSE ARG single variable");
+    run_expect(env, "arg a\nsay '<'a'>' length(a)\n", "  a   b  ",
+               "<  A   B  > 9\n", "#332 ARG single variable");
+    run_expect(env, "arg v1 v2\nsay '<'v1'><'v2'>'\n", "  a   b  ",
+               "<A><  B  >\n", "#332 ARG last variable");
+}
+
 static void test_arith_equiv(struct envblock *env)
 {
     /* clang-format off */
@@ -432,6 +510,7 @@ int main(void)
 
     test_equiv(env);
     test_arith_equiv(env);
+    test_parse_words(env);
     test_bc_path(env);
     test_unsup_diag(env);
 

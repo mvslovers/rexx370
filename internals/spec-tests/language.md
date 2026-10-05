@@ -52,17 +52,17 @@ SOURCELN: `SOURCELINE(' 1 ')`). Cases after the stop are not reached.
 
 ### PARSE1 (31 cases: 11 manual examples, 20 derived)
 
-Host run, bytecode VM: ran to the end; FAIL: 6, 9, 10.  
-Token-walk (`REXX370_BYTECODE=0`): ran to the end; FAIL: 6, 9, 10.
+Host run, bytecode VM: ran to the end; no FAIL since #332 (before: 6, 9, 10).  
+Token-walk (`REXX370_BYTECODE=0`): ran to the end; no FAIL since #332 (before: 6, 9, 10).
 
 | # | expression | expected | spec | source | BREXX said | note |
 |---|---|---|---|---|---|---|
 | 1 | `parse value 'This is a sentence.' with v1 v2 v3` → `v1` | `'This'` | p.131 example | spec |  |  |
 | 2 | `v2` | `'is'` | p.131 example | spec |  |  |
 | 3 | `v3` | `'a sentence.'` | p.131 example | spec |  |  |
-| 4 | `parse value 'This is   a sentence.' with v1 v2 v3` → `v1` | `'This'` | p.131 example | spec |  | 6: last variable keeps its leading blanks (known rexx370 defect) |
-| 5 | `v2` | `'is'` | p.131 example | spec |  | 6: last variable keeps its leading blanks (known rexx370 defect) |
-| 6 | `v3` | `'  a sentence.'` | p.131 example | spec |  | 6: last variable keeps its leading blanks (known rexx370 defect) |
+| 4 | `parse value 'This is   a sentence.' with v1 v2 v3` → `v1` | `'This'` | p.131 example | spec |  | 6: last variable keeps its leading blanks (fixed by #332) |
+| 5 | `v2` | `'is'` | p.131 example | spec |  | 6: last variable keeps its leading blanks (fixed by #332) |
+| 6 | `v3` | `'  a sentence.'` | p.131 example | spec |  | 6: last variable keeps its leading blanks (fixed by #332) |
 | 7 | `parse value 'a b  ' with v1 v2` → `v2` | `'b  '` | p.131 derived: "the last variable could have both leading and trailing blanks" | spec |  |  |
 | 8 | `parse value '  a  b' with v1 v2` → `v1` | `'a'` | p.131, 134-135 derived: leading blanks skipped; only the blank delimiting the previous word is removed, the last variable keeps the rest | spec |  |  |
 | 9 | `v2` | `' b'` | p.131, 134-135 derived: leading blanks skipped; only the blank delimiting the previous word is removed, the last variable keeps the rest | spec |  |  |
@@ -91,8 +91,8 @@ Token-walk (`REXX370_BYTECODE=0`): ran to the end; FAIL: 6, 9, 10.
 
 ### PARSE2 (60 cases: 29 manual examples, 31 derived)
 
-Host run, bytecode VM: ran to the end; FAIL: 2, 14, 15, 17, 18, 32, 33, 36, 37, 41, 42, 43, 44, 47, 53, 54, 55, 56, 60.  
-Token-walk (`REXX370_BYTECODE=0`): ran to the end; FAIL: 2, 14, 15, 17, 18, 36, 53, 54, 55, 56, 60.
+Host run, bytecode VM: ran to the end; FAIL: 32, 33, 37, 41, 42, 43, 44, 47, 53, 54, 55, 60 (2, 14, 15, 17, 18, 36 fixed by #332; 56 was a wrong expectation).  
+Token-walk (`REXX370_BYTECODE=0`): ran to the end; FAIL: 53, 54, 55, 60.
 
 | # | expression | expected | spec | source | BREXX said | note |
 |---|---|---|---|---|---|---|
@@ -151,7 +151,7 @@ Token-walk (`REXX370_BYTECODE=0`): ran to the end; FAIL: 2, 14, 15, 17, 18, 36, 
 | 53 | `list.!dl.0.4` | `''` | p.133, 134 derived: compound targets are ordinary variables | brexx:parse.rexx:15 |  |  |
 | 54 | `list.!dl.0.5` | `'<DD>'` | p.133, 134 derived: compound targets are ordinary variables | brexx:parse.rexx:15 |  |  |
 | 55 | `list.!dl.0.6` | `''` | p.133, 134 derived: compound targets are ordinary variables | brexx:parse.rexx:15 |  |  |
-| 56 | `sl = '/'; v = x2c('15')sl\|\|x2c('09')sl\|\|x2c('00')sl; v = v\|\|x2c('01')sl\|\|x2c('FE')sl\|\|x2c('FF'); parse var v nl '/' tab '/' x00 '/' x01 '/' xfe '/' xff` → `c2x(nl\|\|tab\|\|x00\|\|x01\|\|xfe\|\|xff)` | `'1509000001FEFF'` | p.134 derived: literal patterns; data is any characters | brexx:parse.rexx:17 |  | hex literals of BREXX replaced by X2C (hex strings fall back to token-walk today) |
+| 56 | `sl = '/'; v = x2c('15')sl\|\|x2c('09')sl\|\|x2c('00')sl; v = v\|\|x2c('01')sl\|\|x2c('FE')sl\|\|x2c('FF'); parse var v nl '/' tab '/' x00 '/' x01 '/' xfe '/' xff` → `c2x(nl\|\|tab\|\|x00\|\|x01\|\|xfe\|\|xff)` | `'15090001FEFF'` | p.134 derived: literal patterns; data is any characters | brexx:parse.rexx:17 |  | six one-byte values, 12 hex digits (the expectation had 14 until #332); hex literals of BREXX replaced by X2C (hex strings fall back to token-walk today) |
 | 57 | `x00 = x2c('00'); v = 'before' \|\| x00 \|\| 'between' \|\| x00 \|\| 'after'; parse var v tagnest1 (x00) tntag (x00) tagnest2` → `tagnest1` | `'before'` | p.135 derived: variable pattern | brexx:parse.rexx:18 |  | X2C instead of hex literal |
 | 58 | `tntag` | `'between'` | p.135 derived: variable pattern | brexx:parse.rexx:18 |  | X2C instead of hex literal |
 | 59 | `tagnest2` | `'after'` | p.135 derived: variable pattern | brexx:parse.rexx:18 |  | X2C instead of hex literal |

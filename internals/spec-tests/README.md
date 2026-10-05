@@ -39,9 +39,9 @@ and the cases whose specified outcome is an error.
 - **EBCDIC cases use `te`.** A result that depends on the character set
   (C2D of a letter, XRANGE, TRANSLATE tables, strict comparison of letters
   with digits) carries the EBCDIC value and is skipped on the host.
-- **Helpers read `arg(n)`, never `parse arg`.** rexx370 currently strips the
-  leading blank of the last PARSE variable (#273); `parse arg` would make
-  leading-blank cases pass falsely.
+- **Helpers read `arg(n)`, never `parse arg`.** Until #332 rexx370 stripped
+  the leading blanks of the last PARSE variable, so `parse arg` made
+  leading-blank cases pass falsely; `arg(n)` stays, it cannot.
 - **No line ends in `,,`**: that passes an extra empty argument (#274). The
   one exception is ARG case 32, which tests exactly that.
 - **Lines of at most 72 columns, ASCII only**: the execs are FB 80 members on

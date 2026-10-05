@@ -202,7 +202,8 @@ static void test_parse_arg(struct envblock *env)
           "RETURN\n",
           "PARSE ARG two vars");
 
-    /* Trailing spaces: c gets empty string (trailing blanks stripped) */
+    /* Only the blank delimiting "world" is consumed: c gets the one
+     * blank that is left (SC28-1883-0 p.131-135, #332). */
     bc_only(env,
             "CALL sub \"  hello  world  \"\nEXIT\n"
             "sub:\n"
@@ -211,7 +212,7 @@ static void test_parse_arg(struct envblock *env)
             "  SAY b\n"
             "  SAY c\n"
             "RETURN\n",
-            "hello\nworld\n\n",
+            "hello\nworld\n \n",
             "PARSE ARG three vars leading/trailing spaces");
 
     /* Last var gets rest of string */

@@ -105,7 +105,7 @@ static const struct spec_member spec_members[] = {
     {"MIN", 0, 0},
     {"NUMFMT", 267, 0},
     {"OVERLAY", 0, 0},
-    {"PARSE1", 273, 0},
+    {"PARSE1", 0, 0},
     {"PARSE2", 273, 0},
     {"PARSE3", 273, 0},
     {"PARSE4", 273, 0},
