@@ -4,12 +4,19 @@
 *             Called from IKJCT430 before anything is stacked.
 *
 *  Entry IKJCT437  implicit (%name / name): the load routine searches
-*          R1  -> CL8 member name, blank padded
 *  Entry IKJCT43C  explicit EXEC 'ds(mem)': REXX only if line 1 is a
 *                  comment containing REXX, whatever the library
 *  Entry IKJCT43F  explicit EXEC 'ds(mem)' EXEC: REXX, forced
-*          R1  -> CL8 member, then CL8 DD name (the DD DAIR
-*                 allocated), 16 contiguous bytes
+*          R1  -> +0  CL8 member, blank padded
+*                 +8  CL8 DD: the DD DAIR allocated (explicit),
+*                     blank (implicit)
+*                 +16 A   the exec's argument
+*                 +20 F   its length; 0 means no argument (#331)
+*                 IKJCT430 hands the argument over as z/OS gives
+*                 it: implicit, the command operands without
+*                 leading and trailing blanks; explicit, the
+*                 parameter string as PARS returns it (quotes off,
+*                 '' halved).
 *  All     R0  -> CPPL          (for the ECT, hence ECTENVBK)
 *          R13 -> caller savearea,  R14 -> return
 *  Exit    R15 = 0   not REXX -- IKJCT430 carries on with CLIST
@@ -229,9 +236,22 @@ RUNIT    DS    0H
          LOAD  EP=IRXEXEC,ERRET=FREEINST
          LR    R2,R0
          MVI   WEXFL,X'01'        DELETE it on the way out
+*  P2: one argument string, or none -- an ARGTABLE holding only its
+*  end marker, so ARG() is 0 (z/OS, MIKE-TODO round 7).
+         MVC   WARGT,FFS16        end marker in both entries
+         L     R15,20(,R6)        argument length
+         LTR   R15,R15
+         BNP   ARGNONE
+         L     R14,16(,R6)
+         ST    R14,WARGT          entry 1: address, length
+         ST    R15,WARGT+4
+ARGNONE  LA    R1,WARGT
+         ST    R1,WARGP
          LA    R1,ZEROW
          ST    R1,WXVL+0          P1 EXECBLK  (none; P4 carries it)
+         LA    R1,WARGP
          ST    R1,WXVL+4          P2 ARGTABLE
+         LA    R1,ZEROW
          ST    R1,WXVL+8          P3 flags
          LA    R1,WINST
          ST    R1,WXVL+12         P4 INSTBLK
@@ -458,6 +478,7 @@ FCFREE   DC    CL8'FREE'
 SLASHST  DC    C'/*'
 REXXLIT  DC    C'REXX'
 ZEROW    DC    F'0'
+FFS16    DC    16X'FF'            two ARGTABLE end markers
 MODEC    EQU   1
 MODEF    EQU   2
 *
@@ -484,6 +505,9 @@ WLOADEP  DS    A                  load_routine entry (IRXEXTE)
 WENV     DS    A                  ENVBLOCK (IRXANCHR-checked)
 WHANDLED DS    X                  X'01' = the exec was run
 WEXFL    DS    X                  X'01' = IRXEXEC is loaded
+         DS    0F
+WARGP    DS    A                  -> WARGT (IRXEXEC P2)
+WARGT    DS    XL16               ARGTABLE: entry + end marker
          DS    0F
 WALEN    EQU   *-WAREA
 *
