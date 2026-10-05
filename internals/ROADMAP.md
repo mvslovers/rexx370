@@ -287,7 +287,7 @@ needed for a *complete* REXX.
 > explicit, the quoted string with `''` halved and case kept. IKJCT430 copies
 > the operands before PARS, because PARS uppercases them in the command
 > buffer. 15 of 16 cases as on z/OS installed (JOB01666; the 16th is PARSE,
-> #332), 27/27 installed (JOB01667), reinstalled on the LAB with VERIFY OK
+> #332, fixed in the interpreter since), 27/27 installed (JOB01667), reinstalled on the LAB with VERIFY OK
 > (JOB01657–01665). Details in `tso/TODO_IKJCT437.md`.
 
 > **2026-09-26 — Coexistence with BREXX/370 (#244).** BREXX writes its own
@@ -396,8 +396,9 @@ Candidates to verify (not a committed work list until inventoried):
 
 - **SC28-1883-0 conformance suite** (#261) — `test/spec/` + `TSTSPEC`, about
   1,500 checks whose expected values are checked against the 1988 manual
-  (`internals/spec-tests/`). 32 of 81 execs pass; the other 49 are listed as known
-  failures with their defect issues (#262-#283), so a fix shows up as XPASS.
+  (`internals/spec-tests/`). 36 of 84 execs pass (host, 2026-10-05; PARSE1
+  since #332); the other 48 are listed as known failures with their defect
+  issues (#262-#283), so a fix shows up as XPASS.
   The spec-completeness work of Axis 3 can be driven from that list.
 - **MBT issue #33** — first-class test support in the build tool. The practical
   driver: test programs are re-uploaded on every MVS build, and the upload time

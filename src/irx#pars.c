@@ -2257,12 +2257,14 @@ static int kw_procedure(struct irx_parser *p)
 /*                                                                    */
 /*  Simplified PARSE UPPER ARG: splits call_args[0] by words and     */
 /*  assigns (uppercased) to the listed variables. The last variable   */
-/*  receives the remaining words joined with single spaces.           */
+/*  receives the rest of the argument as it stands (#332).            */
 /* ------------------------------------------------------------------ */
 
 /* Assign words from src[0..srclen-1] (starting at *pos_inout) to
- * vars[0..nvar-1], uppercased. The last variable gets the remaining text
- * trailing-stripped. Updates *pos_inout to reflect consumed input. */
+ * vars[0..nvar-1], uppercased, by the rules of parse_assign_segment():
+ * each non-last variable takes one word and the blank after it, the
+ * last gets the rest with its blanks. Updates *pos_inout to reflect
+ * consumed input. */
 /* Get pointer to the i-th variable name slot in the flat heap buffer. */
 #define ARG_VAR(vars, i) ((vars) + (i) * CTRL_NAME_MAX)
 
@@ -2286,30 +2288,30 @@ static int arg_assign_words(struct irx_parser *p,
         Lzeroinit(&val);
         Lzeroinit(&key);
 
-        /* Skip leading whitespace. */
-        while (pos < srclen && isspace((unsigned char)src[pos]))
-        {
-            pos++;
-        }
-        wstart = pos;
-
         if (i == nvar - 1)
         {
-            /* Last var: rest of string, trailing-stripped. */
+            /* Last var: rest of the argument, blanks kept. */
+            wstart = pos;
             wend = srclen;
-            while (wend > wstart && isspace((unsigned char)src[wend - 1]))
-            {
-                wend--;
-            }
+            pos = srclen;
         }
         else
         {
-            /* Non-last var: next non-space run. */
+            /* One word, then the single blank that delimits it. */
+            while (pos < srclen && isspace((unsigned char)src[pos]))
+            {
+                pos++;
+            }
+            wstart = pos;
             while (pos < srclen && !isspace((unsigned char)src[pos]))
             {
                 pos++;
             }
             wend = pos;
+            if (pos < srclen)
+            {
+                pos++;
+            }
         }
 
         if (wend > wstart)
@@ -2631,10 +2633,12 @@ static long parse_tok_num(const struct irx_token *t)
  * Assign a word-split segment src[spos..epos) to the pending variable
  * list vars[0..nvar).
  *
- * The last non-dot item ("last_real") gets the raw remainder from the
- * final whitespace-skip to epos (trailing blanks preserved).  All
- * other non-dot items receive one whitespace-delimited word.  Dot
- * placeholders consume one word silently.
+ * The last non-dot item ("last_real") gets the raw remainder to epos,
+ * leading and trailing blanks preserved, so a lone variable gets the
+ * whole segment.  All other items take one blank-delimited word with
+ * leading blanks skipped and then consume exactly the one blank that
+ * ends it; dot placeholders do so without assigning (SC28-1883-0
+ * p.131-135, #332).
  *
  * If epos <= spos, or src is NULL, every variable receives "".
  * ------------------------------------------------------------------ */
@@ -2675,38 +2679,34 @@ static int parse_assign_segment(struct irx_parser *p,
         Lzeroinit(&val);
         Lzeroinit(&key);
 
-        /* Skip leading whitespace. */
-        while (pos < epos && isspace((unsigned char)src[pos]))
-        {
-            pos++;
-        }
-
-        if (var_dots[i])
-        {
-            /* Dot placeholder: skip one word, no assignment. */
-            while (pos < epos && !isspace((unsigned char)src[pos]))
-            {
-                pos++;
-            }
-            continue;
-        }
-
         if (i == last_real)
         {
-            /* Last real variable: raw rest to epos, trailing blanks kept. */
+            /* Last real variable: raw rest to epos, blanks kept. */
             wstart = pos;
             wend = epos;
             pos = epos;
         }
         else
         {
-            /* Non-last: one whitespace-delimited word. */
+            /* One word, then the single blank that delimits it. */
+            while (pos < epos && isspace((unsigned char)src[pos]))
+            {
+                pos++;
+            }
             wstart = pos;
             while (pos < epos && !isspace((unsigned char)src[pos]))
             {
                 pos++;
             }
             wend = pos;
+            if (pos < epos)
+            {
+                pos++;
+            }
+            if (var_dots[i])
+            {
+                continue;
+            }
         }
 
         if (wend > wstart)
