@@ -1,5 +1,35 @@
 # IKJCT437 — Sprachentscheidung beim impliziten Aufruf
 
+## Stand 2026-10-05: Operanden ans Exec (#331)
+
+Bis hierhin kam bei **keinem** EXEC-Aufruf ein Argument beim Exec an:
+IKJCT437 gab IRXEXEC keine ARGTABLE (JOB01645). Jetzt reicht IKJCT430 für
+alle Einstiege dieselbe Liste `RXPLIST` (in `@DATD`) an IKJCT437: Member,
+DD, Adresse und Länge des Arguments. Die Schnittstelle gilt auch für
+ZMG0001/ZMG0003 (brexx370#353, #330).
+
+- **Regeln** wie auf z/OS (MIKE-TODO Runde 7): implizit der Puffertext hinter
+  dem Namen ohne führende und folgende Blanks, sonst unverändert; explizit
+  der Quote-String wie getippt, `''` halbiert; leer oder fehlend: kein
+  Argument.
+- **Falle:** PARS schreibt die Werteliste **im Kommandopuffer** in
+  Großbuchstaben und lässt ihre führenden Blanks weg; die PDE zeigt in den
+  Puffer (Diagnose JOB01650). IKJCT430 kopiert deshalb die Operanden *vor*
+  PARS nach `RXRAW` und liest den String dort. Die PDE entscheidet nur, ob es
+  einen gibt; ist `RXRAW` zu kurz oder widerspricht der eigene Scan, gilt die
+  PDE.
+- **Falle:** IBMs `VLSTPTR`/`VLSTLNG` stehen im Block hinter `AGO .@UNREFD`
+  und werden nie assembliert; der Patch hat eigene `EQU`s.
+- **Gemessen:** `tso/lab/exec_args.py` 15 von 16 Fällen wie auf z/OS,
+  installiert JOB01666; der 16. (`'  a   b  '`) kommt vollständig an
+  (`ARG(1)` Länge 9, JOB01653) und verliert seine Blanks erst in PARSE (#332).
+  `exec_test.py installed` 27/27 (JOB01667), CLIST-Parameter unverändert
+  (JOB01655/01656).
+- **Eingespielt** auf MVSCE-LAB: restore (JOB01659), receive (JOB01662),
+  apply (JOB01664), verify OK; Extents unverändert (CMDLIB 2, LPALIB 1).
+  `reject` meldete `ZMG0002 NOT FOUND ON SMPPTS` und war nicht nötig;
+  `rejectcheck` ist SMP4-Syntaxfehler (HMA2033).
+
 ## Stand 2026-09-27: IKJ56479I wie TSO/E (#246)
 
 **Die Meldung kommt nicht vom TMP, sondern von EXEC.** Findet der TMP einen

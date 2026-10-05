@@ -13,6 +13,7 @@ sources assembled against the MVS/CE macro libraries of the `mvs38src` project.
 | `RXDRV.ASM` | Test driver: calls `IKJCT437` exactly as `IKJCT430` does, from a small load module |
 | `lmod_link.py` | Links decks on MVS against the INSTALLED load module, the way SMP does: `reference` proves the IBM source reproduces it, `testlib` puts the patched modules into `REXX370.TSO.LINKLIB` |
 | `lab/exec_test.py` | The EXEC language rules as a 27-case table: patched modules via STEPLIB, the IBM TMP, or what SMP installed |
+| `lab/exec_args.py` | What an exec receives as its argument, implicit and explicit, against the z/OS results of MIKE-TODO round 7 (#331) |
 | `usermod/ZMG0002.mcs`, `usermod.py` | The SMP4 usermod: MCS with cover letter, JCLIN and four `++MOD` decks, built into `build/tso/ZMG0002.smp` |
 | `lab/zmg_install.py` | Install step by step (backup, receive, applycheck, apply, verify; restore for a rebuilt test level) |
 | `lab/testlib_put.py` | Put rexx370 modules into the APF test library |
