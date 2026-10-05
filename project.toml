@@ -8,7 +8,11 @@ type = "application"
 # deliberately keeps floating on main so a cc370/libc370 regression surfaces
 # in a PR build (mbt#68). cc370 is omitted -- it defaults to main and has no
 # releases to pin to yet.
-libc370 = "2.0.0"
+# 2.3.1: the C runtime startup is a member of libc.a from 2.3.0 on,
+# so no module names a startup object (mvslovers/mbt#158). An older libc.a
+# would quietly link crt0 where these modules used to have crt1. 2.3.1
+# rather than 2.3.0 for the subtask cleanup fix (mvslovers/libc370#431).
+libc370 = "2.3.1"
 
 [build]
 # -Os after mbt's -O1 (the last -O wins): about 8 % smaller code, which
@@ -304,14 +308,12 @@ sources = ["src/irx#msid.c"]
 name = "IRXDBG"
 rent = false             # C program with @@CRT0: not reusable
 reus = false
-startup = "crt1"
 sources = ["src/irxdbg.c", "src/irx#anch.c", "src/irx#svc.c"]
 
 [[module]]
 name = "IRX#HELO"
 rent = false             # C program with @@CRT0: not reusable
 reus = false
-startup = "crt1"
 sources = [
   "src/irx#helo.c",
   "src/irx#init.c",
@@ -372,7 +374,6 @@ sources = ["asm/irxjcl.asm"]
 name = "IRXJCLD"
 rent = false             # C program with @@CRT0: not reusable
 reus = false
-startup = "crt1"
 sources = [
   "src/irx#jclm.c",
   "src/irx#jcl.c",
@@ -427,7 +428,6 @@ sources = [
 name = "TSTANCH"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstanch.c",
   "src/irx#init.c",
@@ -471,7 +471,6 @@ sources = [
 name = "TSTTOKN"
 rent = false
 reus = false
-startup = "crt1"
 sources = ["test/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 
 # ---------------------------------------------------------------
@@ -493,7 +492,6 @@ sources = ["test/tsttokn.c", "src/irx#tokn.c", "src/irx#stor.c"]
 name = "TSTPHAS1"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstphas1.c",
   "src/irx#init.c",
@@ -526,7 +524,6 @@ sources = [
 name = "TSTANRM"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstanrm.c",
   "src/irx#init.c",
@@ -571,7 +568,6 @@ sources = [
 name = "TSTANSL"
 rent = false
 reus = false
-startup = "crt1"
 sources = ["test/tstansl.c", "src/irx#anch.c", "src/irx#svc.c"]
 
 # ---------------------------------------------------------------
@@ -589,7 +585,6 @@ sources = ["test/tstansl.c", "src/irx#anch.c", "src/irx#svc.c"]
 name = "TSTINIT"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstinit.c",
   "src/irx#init.c",
@@ -634,7 +629,6 @@ sources = [
 name = "TSTFIND"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstfind.c",
   "src/irx#init.c",
@@ -679,7 +673,6 @@ sources = [
 name = "TSTTERM"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstterm.c",
   "src/irx#init.c",
@@ -712,7 +705,6 @@ sources = [
 name = "TSTLSTR"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstlstr.c",
   "src/irx#init.c",
@@ -745,7 +737,6 @@ sources = [
 name = "TSTVPOL"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstvpol.c",
   "src/irx#init.c",
@@ -778,7 +769,6 @@ sources = [
 name = "TSTPRSR"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstprsr.c",
   "src/irx#init.c",
@@ -819,7 +809,6 @@ sources = [
 name = "TSTIOTSO"
 rent = false
 reus = false
-startup = "crt1"
 parm_batch = "0"
 parm_tso = "1"
 sources = [
@@ -865,7 +854,6 @@ sources = [
 name = "TSTLDTSO"
 rent = false
 reus = false
-startup = "crt1"
 parm_batch = "0"
 parm_tso = "1"
 sources = [
@@ -947,7 +935,6 @@ host = false
 name = "TSTSAY"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "src/irx#tsio.c",
   "asm/putlin.asm",
@@ -982,7 +969,6 @@ sources = [
 name = "TSTCTRL"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstctrl.c",
   "src/irx#init.c",
@@ -1015,7 +1001,6 @@ sources = [
 name = "TSTHELO"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tsthelo.c",
   "src/irx#init.c",
@@ -1054,7 +1039,6 @@ sources = [
 name = "TSTEXEC"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstexec.c",
   "src/irx#init.c",
@@ -1087,7 +1071,6 @@ sources = [
 name = "TSTPARSE"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstparse.c",
   "src/irx#init.c",
@@ -1120,7 +1103,6 @@ sources = [
 name = "TSTPROC"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstproc.c",
   "src/irx#init.c",
@@ -1153,7 +1135,6 @@ sources = [
 name = "TSTARIT"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstarit.c",
   "src/irx#init.c",
@@ -1186,7 +1167,6 @@ sources = [
 name = "TSTAREXT"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstarext.c",
   "src/irx#init.c",
@@ -1219,7 +1199,6 @@ sources = [
 name = "TSTBIF"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbif.c",
   "src/irx#init.c",
@@ -1252,7 +1231,6 @@ sources = [
 name = "TSTBIFS"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbifs.c",
   "src/irx#init.c",
@@ -1285,7 +1263,6 @@ sources = [
 name = "TSTTIM"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tsttim.c",
   "src/irx#init.c",
@@ -1330,7 +1307,6 @@ sources = [
 name = "TSTBCTL"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbctl.c",
   "src/irx#init.c",
@@ -1376,7 +1352,6 @@ sources = [
 name = "TSTBCAL"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcal.c",
   "src/irx#init.c",
@@ -1415,7 +1390,6 @@ sources = [
 name = "TSTBCLM"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbclm.c",
   "src/irx#init.c",
@@ -1454,7 +1428,6 @@ sources = [
 name = "TSTBERR"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstberr.c",
   "src/irx#init.c",
@@ -1499,7 +1472,6 @@ sources = [
 name = "TSTBPSE"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbpse.c",
   "src/irx#init.c",
@@ -1544,7 +1516,6 @@ sources = [
 name = "TSTBPRO"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbpro.c",
   "src/irx#init.c",
@@ -1589,7 +1560,6 @@ sources = [
 name = "TSTBCOM"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcom.c",
   "src/irx#init.c",
@@ -1636,7 +1606,6 @@ sources = [
 name = "TSTBCRXC"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcrxc.c",
   "src/irx#init.c",
@@ -1681,7 +1650,6 @@ sources = [
 name = "TSTBSIG"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbsig.c",
   "src/irx#init.c",
@@ -1718,7 +1686,6 @@ sources = [
 name = "TSTBTRP"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbtrp.c",
   "src/irx#init.c",
@@ -1765,7 +1732,6 @@ sources = [
 name = "TSTBTRA"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbtra.c",
   "src/irx#init.c",
@@ -1812,7 +1778,6 @@ sources = [
 name = "TSTBSEM"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbsem.c",
   "src/irx#init.c",
@@ -1862,7 +1827,6 @@ sources = [
 name = "TSTBARG"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbarg.c",
   "src/irx#init.c",
@@ -1911,7 +1875,6 @@ sources = [
 name = "TSTBCONT"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcont.c",
   "src/irx#init.c",
@@ -1961,7 +1924,6 @@ sources = [
 name = "TSTBCAT"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcat.c",
   "src/irx#init.c",
@@ -2011,7 +1973,6 @@ sources = [
 name = "TSTBDQ"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbdq.c",
   "src/irx#init.c",
@@ -2061,7 +2022,6 @@ sources = [
 name = "TSTBCMP"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcmp.c",
   "src/irx#init.c",
@@ -2109,7 +2069,6 @@ sources = [
 name = "TSTBCAP"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcap.c",
   "src/irx#init.c",
@@ -2160,7 +2119,6 @@ sources = [
 name = "TSTBCNUM"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcnum.c",
   "src/irx#init.c",
@@ -2207,7 +2165,6 @@ sources = [
 name = "TSTLOAD"
 rent = false
 reus = false
-startup = "crt1"
 sources = ["test/tstload.c", "src/irx#load.c", "src/irx#ldqs.c", "src/irx#stor.c"]
 # On MVS the LOAD path reads members from real DDs (the host build self-
 # provisions /tmp dirs under #ifndef __MVS__). Pre-load the members and add the
@@ -2243,7 +2200,6 @@ members = ["test/fixtures/tstload/PROCONLY"]
 name = "TSTJCL"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstjcl.c",
   "src/irx#jcl.c",
@@ -2290,7 +2246,6 @@ members = [
 name = "TSTTRACE"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tsttrace.c",
   "src/irx#init.c",
@@ -2323,7 +2278,6 @@ sources = [
 name = "TSTADDR"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstaddr.c",
   "src/irx#init.c",
@@ -2447,7 +2401,6 @@ sources = ["test/asm/texecvl.asm"]
 name = "TREXXVL"
 rent = false
 reus = false
-startup = "crt1"
 host = false                # MVS-only (uses __linkds/LINK); skipped by test-host
 sources = ["test/trexxvl.c", "test/trxcall.asm", "test/trxldc.asm"]
 
@@ -2462,7 +2415,6 @@ sources = ["test/trexxvl.c", "test/trxcall.asm", "test/trxldc.asm"]
 name = "TISTSO"
 rent = false
 reus = false
-startup = "crt1"
 sources = ["test/tistso.c", "asm/istso.asm"]
 parm_batch = "0"
 parm_tso = "1"
@@ -2475,7 +2427,6 @@ parm_tso = "1"
 name = "TSTBCLN"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcln.c",
   "src/irx#init.c",
@@ -2512,7 +2463,6 @@ sources = [
 name = "TSTBCCMP"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbccmp.c",
   "src/irx#init.c",
@@ -2549,7 +2499,6 @@ sources = [
 name = "TSTBCEXE"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcexe.c",
   "src/irx#init.c",
@@ -2586,7 +2535,6 @@ sources = [
 name = "TSTBCXPR"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstbcxpr.c",
   "src/irx#init.c",
@@ -2623,7 +2571,6 @@ sources = [
 name = "TSTPOOL"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstpool.c",
   "src/irx#init.c",
@@ -2660,7 +2607,6 @@ sources = [
 name = "TSTFLIP"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstflip.c",
   "src/irx#init.c",
@@ -2698,7 +2644,6 @@ sources = [
 name = "TSTRXCPS"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstrxcps.c",
   "src/irx#init.c",
@@ -2735,7 +2680,6 @@ sources = [
 name = "TSTSTK"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tststk.c",
   "src/irx#init.c",
@@ -2774,7 +2718,6 @@ sources = [
 name = "TSTSPEC"
 rent = false
 reus = false
-startup = "crt1"
 sources = [
   "test/tstspec.c",
   "src/irx#jcl.c",
