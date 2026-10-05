@@ -6,7 +6,7 @@ Forward-looking development plan. This is the **single source of truth** for
 database; this file orders the open work into strategic axes and is kept current
 as phases complete.
 
-Last updated: 2026-10-02
+Last updated: 2026-10-05
 
 ---
 
@@ -279,6 +279,16 @@ needed for a *complete* REXX.
 > expect the predecessor instead; `architecture.md` §6.1, `irxanchr.h` and
 > `CLAUDE.md` describe the current rule (#224). Measured on mvsdev: JOB01181
 > (failing), JOB01183 (green, batch + TSO).
+
+> **2026-10-05 — EXEC passes its operands (#331).** Until now no EXEC form
+> delivered an argument: IKJCT437 called IRXEXEC without an ARGTABLE. IKJCT430
+> now hands IKJCT437 member, DD and argument in one list, under the z/OS rules
+> of round 7: implicit, the buffer text after the name without outer blanks;
+> explicit, the quoted string with `''` halved and case kept. IKJCT430 copies
+> the operands before PARS, because PARS uppercases them in the command
+> buffer. 15 of 16 cases as on z/OS installed (JOB01666; the 16th is PARSE,
+> #332), 27/27 installed (JOB01667), reinstalled on the LAB with VERIFY OK
+> (JOB01657–01665). Details in `tso/TODO_IKJCT437.md`.
 
 > **2026-09-26 — Coexistence with BREXX/370 (#244).** BREXX writes its own
 > context into ECTENVBK and leaves it pointing at freed storage. A later REXX

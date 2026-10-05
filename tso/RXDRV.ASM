@@ -107,6 +107,11 @@ WMSG     EQU   WMSGL+4
 *
          DS    0F
 SAVE     DS    18F
+*  IKJCT437's parameter list (#331): member, DD, A and length of the
+*  argument.  RXDRV passes no argument.
 MEMB     DS    CL8
+         DC    CL8' '             DD: blank, the load routine searches
+         DC    A(0)               argument address
+         DC    F'0'               argument length: none
 *
          END

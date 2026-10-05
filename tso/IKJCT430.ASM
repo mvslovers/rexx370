@@ -218,8 +218,34 @@ A00019C  L     R4,CSPLPTR                                       DSKC190 00190010
 *        reload R1 and R4 before reading (verified 2026-09-24). RXPTF           
 *        IKJCT430 issues no SPKA/IPK/MODESET, so no key bracket;RXPTF           
 *        and EXEC is AC=0, so IKJCT437 must stay unauthorized.  RXPTF           
+*        R1 -> RXPLIST: member, DD (blank: the load             RXPTF           
+*        routine searches), address and length of the           RXPTF           
+*        operands (#331): the command buffer after the name     RXPTF           
+*        (IKJSCAN set the offset to the first operand),         RXPTF           
+*        without its trailing blanks, as on z/OS (round 7).     RXPTF           
+         MVC   RXPMEM,PROCNAME                                  RXPTF           
+         MVI   RXPDD,C' '                                       RXPTF           
+         MVC   RXPDD+1(7),RXPDD                                 RXPTF           
+         L     1,CPPLPTR                                        RXPTF           
+         L     1,CPPLCBUF(,1)     command buffer                RXPTF           
+         LH    15,CBUFLNG(,1)     length incl. header           RXPTF           
+         LH    14,CBUFOFF(,1)     first operand                 RXPTF           
+         SR    15,14                                            RXPTF           
+         SH    15,=H'4'           R15 = operand length          RXPTF           
+         LA    1,4(14,1)          R1 -> first operand           RXPTF           
+         ST    1,RXPARGA                                        RXPTF           
+RXTRIM   LTR   15,15                                            RXPTF           
+         BNP   RXTRIMZ                                          RXPTF           
+         LA    14,0(15,1)                                       RXPTF           
+         BCTR  14,0               last operand byte             RXPTF           
+         CLI   0(14),C' '                                       RXPTF           
+         BNE   RXTRIMX                                          RXPTF           
+         BCTR  15,0                                             RXPTF           
+         B     RXTRIM                                           RXPTF           
+RXTRIMZ  SR    15,15                                            RXPTF           
+RXTRIMX  ST    15,RXPARGL                                       RXPTF           
          L     0,CPPLPTR          R0 = CPPL, for the ECT        RXPTF           
-         LA    1,PROCNAME                                       RXPTF           
+         LA    1,RXPLIST                                        RXPTF           
          L     15,=V(IKJCT437)                                  RXPTF           
          BALR  14,15                                            RXPTF           
          LTR   15,15                                            RXPTF           
@@ -245,6 +271,28 @@ RXCLIST  DS    0H                                               RXPTF
 *         DO;                                                      0159 00222000
          B     @RC00140                                            0159 00223000
 @RF00140 DS    0H                                                  0160 00224000
+*REXX/370 -- keep the operands as typed: PARS uppercases        RXPTF           
+*        the value list in the buffer and drops its leading     RXPTF           
+*        blanks, and the REXX hook needs it as typed (#331).    RXPTF           
+*        Too long for RXRAW: RXRAWL = -1, the PDE is used.      RXPTF           
+         L     R1,CPPLPTR                                       RXPTF           
+         L     R1,CPPLCBUF(,R1)   command buffer                RXPTF           
+         LH    R15,CBUFLNG(,R1)   length incl. header           RXPTF           
+         LH    R14,CBUFOFF(,R1)   first operand                 RXPTF           
+         SR    R15,R14                                          RXPTF           
+         SH    R15,=H'4'          operand length                RXPTF           
+         BP    RXRAWC                                           RXPTF           
+         SR    R15,R15                                          RXPTF           
+RXRAWC   ST    R15,RXRAWL                                       RXPTF           
+         C     R15,=A(L'RXRAW)                                  RXPTF           
+         BNH   RXRAWM                                           RXPTF           
+         MVC   RXRAWL,=F'-1'                                    RXPTF           
+         B     RXRAWX                                           RXPTF           
+RXRAWM   LA    R0,4(R14,R1)       source                        RXPTF           
+         LR    R1,R15             source length                 RXPTF           
+         LA    R14,RXRAW          target                        RXPTF           
+         MVCL  R14,R0             (R15 = target length)         RXPTF           
+RXRAWX   DS    0H                                               RXPTF           
 *           PPLANS=ADDR(ECDAEANS);  /* PARSE ANSWER AREA             */ 00225000
          L     R7,PPLPTR                                        DSKC190 00226000
          LA    R4,ECDAEANS                                      DSKC190 00227000
@@ -707,12 +755,98 @@ RXSUFCL  DS    0H                                               RXPTF
 *        IKJCT43C runs it only if line 1 is a REXX comment.     RXPTF           
 *        The join at @RC00295 reloads R4 and R7.                RXPTF           
          L     R7,ECDAEANS        PDL                           RXPTF           
+*        RXPLIST: member and DD, then address and length        RXPTF           
+*        of the argument (#331).  PARS uppercased the value     RXPTF           
+*        list in the buffer and dropped its leading blanks,     RXPTF           
+*        but z/OS hands it over as typed, so it is read from    RXPTF           
+*        RXRAW, the operands copied before PARS ran: skip the   RXPTF           
+*        dsname, take the quoted string, halve ''; an           RXPTF           
+*        unclosed string ends with the line, as in PARS.        RXPTF           
+*        The PDE says whether there is one at all (null:        RXPTF           
+*        length 0, no argument, as z/OS).  RXRAW too short,     RXPTF           
+*        or a scan that disagrees with PARS: the PDE text.      RXPTF           
+         MVC   RXPMEM(16),PROCNAME   member, INDDNAME           RXPTF           
+         XC    RXPARGA(8),RXPARGA                               RXPTF           
+         TM    VLSTFLG(R7),X'80'  value list present?           RXPTF           
+         BZ    RXEXPA                                           RXPTF           
+         L     R1,RXRAWL                                        RXPTF           
+         LTR   R1,R1                                            RXPTF           
+         BM    RXEXPDE            longer than RXRAW             RXPTF           
+         STM   R2,R5,RXSAVE                                     RXPTF           
+         LA    R2,RXRAW           read                          RXPTF           
+         LA    R3,0(R1,R2)        end                           RXPTF           
+RXS1     CR    R2,R3              separators before dsname      RXPTF           
+         BNL   RXSBAD                                           RXPTF           
+         CLI   0(R2),C' '                                       RXPTF           
+         BE    RXS1N                                            RXPTF           
+         CLI   0(R2),C','                                       RXPTF           
+         BNE   RXS2                                             RXPTF           
+RXS1N    LA    R2,1(,R2)                                        RXPTF           
+         B     RXS1                                             RXPTF           
+RXS2     CLI   0(R2),C''''        quoted dsname?                RXPTF           
+         BNE   RXS3                                             RXPTF           
+RXS2Q    LA    R2,1(,R2)                                        RXPTF           
+         CR    R2,R3                                            RXPTF           
+         BNL   RXSBAD                                           RXPTF           
+         CLI   0(R2),C''''                                      RXPTF           
+         BNE   RXS2Q                                            RXPTF           
+         LA    R2,1(,R2)          past its closing quote        RXPTF           
+         B     RXS4                                             RXPTF           
+RXS3     CR    R2,R3              unquoted: to blank/comma      RXPTF           
+         BNL   RXSBAD                                           RXPTF           
+         CLI   0(R2),C' '                                       RXPTF           
+         BE    RXS4                                             RXPTF           
+         CLI   0(R2),C','                                       RXPTF           
+         BE    RXS4                                             RXPTF           
+         LA    R2,1(,R2)                                        RXPTF           
+         B     RXS3                                             RXPTF           
+RXS4     CR    R2,R3              separators before value       RXPTF           
+         BNL   RXSBAD                                           RXPTF           
+         CLI   0(R2),C' '                                       RXPTF           
+         BE    RXS4N                                            RXPTF           
+         CLI   0(R2),C','                                       RXPTF           
+         BNE   RXS5                                             RXPTF           
+RXS4N    LA    R2,1(,R2)                                        RXPTF           
+         B     RXS4                                             RXPTF           
+RXS5     CLI   0(R2),C''''        the value list's quote        RXPTF           
+         BNE   RXSBAD                                           RXPTF           
+         LA    R2,1(,R2)                                        RXPTF           
+         LR    R4,R2              write: halved in place        RXPTF           
+         ST    R2,RXPARGA                                       RXPTF           
+RXS6     CR    R2,R3                                            RXPTF           
+         BNL   RXSEND             unclosed: ends the line       RXPTF           
+         CLI   0(R2),C''''                                      RXPTF           
+         BNE   RXS6C                                            RXPTF           
+         LA    R5,1(,R2)                                        RXPTF           
+         CR    R5,R3                                            RXPTF           
+         BNL   RXSEND             closing quote                 RXPTF           
+         CLI   0(R5),C''''                                      RXPTF           
+         BNE   RXSEND             closing quote                 RXPTF           
+         LA    R2,1(,R2)          '' : keep one                 RXPTF           
+RXS6C    MVC   0(1,R4),0(R2)                                    RXPTF           
+         LA    R4,1(,R4)                                        RXPTF           
+         LA    R2,1(,R2)                                        RXPTF           
+         B     RXS6                                             RXPTF           
+RXSEND   S     R4,RXPARGA                                       RXPTF           
+         ST    R4,RXPARGL                                       RXPTF           
+         LM    R2,R5,RXSAVE                                     RXPTF           
+         B     RXEXPA                                           RXPTF           
+RXSBAD   LM    R2,R5,RXSAVE                                     RXPTF           
+RXEXPDE  L     R1,RXVLPTR(,R7)    the PDE text                  RXPTF           
+         ST    R1,RXPARGA                                       RXPTF           
+         LH    R1,RXVLLNG(,R7)                                  RXPTF           
+         ST    R1,RXPARGL                                       RXPTF           
+RXEXPA   DS    0H                                               RXPTF           
+*        IBM's VLSTPTR/VLSTLNG sit in the unreferenced block    RXPTF           
+*        that AGO .@UNREFD skips; same offsets, our names.      RXPTF           
+RXVLPTR  EQU   EXPAROUT+32        value list: address           RXPTF           
+RXVLLNG  EQU   EXPAROUT+36        value list: length            RXPTF           
          L     R15,=V(IKJCT43C)                                 RXPTF           
          CLC   OPER3-PAR1PDL(2,R7),=H'1'                        RXPTF           
          BNE   RXEXPC                                           RXPTF           
          L     R15,=V(IKJCT43F)                                 RXPTF           
 RXEXPC   L     R0,CPPLPTR                                       RXPTF           
-         LA    R1,PROCNAME                                      RXPTF           
+         LA    R1,RXPLIST                                       RXPTF           
          BALR  R14,R15                                          RXPTF           
          LTR   R15,R15                                          RXPTF           
          BZ    RXEXPCL            not REXX: go on as CLIST      RXPTF           
@@ -2297,6 +2431,14 @@ IKJCT430 CSECT                                                          02180000
          DS   0H                                                        02181000
 FEPATCH DC ((@DATA-@PSTART)/20)X'00'                                    02182000
 @DATD    DSECT                                                          02183000
+RXPLIST  DS    0F                 IKJCT437 parms (#331)         RXPTF           
+RXPMEM   DS    CL8                member                        RXPTF           
+RXPDD    DS    CL8                DD, blank if implicit         RXPTF           
+RXPARGA  DS    A                  operands                      RXPTF           
+RXPARGL  DS    F                  their length, 0: none         RXPTF           
+RXRAWL   DS    F                  operands kept, -1: too long   RXPTF           
+RXSAVE   DS    4F                 R2-R5 around the scan         RXPTF           
+RXRAW    DS    CL256              operands as typed             RXPTF           
          DS    0D                                               DSKC190 02183010
          ORG   *+1-(*-@DATD)/(*-@DATD) INSURE DSECT DATA                02184000
 @ENDDATD EQU   *                                                        02185000
