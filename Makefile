@@ -5,7 +5,7 @@ include $(MBT_ROOT)/mk/mbt.mk
 
 DOCKER_NETWORK ?= mvs-net
 MVS_CONTAINER  ?= mvs
-MVS_IMAGE      ?= ghcr.io/mvslovers/mvsce-builder
+MVS_IMAGE      ?= ghcr.io/mvslovers/mvsce
 
 run-mvs:
 	@if ! command -v docker >/dev/null 2>&1; then \
