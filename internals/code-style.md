@@ -27,6 +27,8 @@ not in a feature commit.
 ### Braces: Allman / BSD style
 
 Opening brace on its own line. Always. Even for single-line bodies.
+`clang-format`'s `InsertBraces` enforces the braces on single-line
+bodies automatically.
 
 ```c
 int irxstor(int function, int length, void **addr_ptr, struct envblock *envblock)
@@ -203,7 +205,8 @@ No leading double underscores (reserved by C standard).
 ### Include order
 
 System headers first (angle brackets), then project headers (quotes).
-Blank line between groups:
+Blank line between groups. Inside each group, keep entries
+alphabetized where practical:
 
 ```c
 #include <stdlib.h>

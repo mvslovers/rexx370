@@ -1,21 +1,36 @@
-# CLAUDE.md — REXX/370 Project Instructions
+# CLAUDE.md — rexx370 Project Instructions
+
+Extends the ecosystem root `CLAUDE.md` (platform constraints, mbt, SMP,
+git rules); this file holds only what is specific to rexx370.
 
 ## What is this project?
 
-REXX/370 is a from-scratch REXX language interpreter for MVS 3.8j,
+rexx370 is a from-scratch REXX language interpreter for MVS 3.8j,
 interface-compatible with IBM TSO/E Version 2 REXX (SC28-1883-0).
 It is **not** a port of BREXX/370 — it is a clean reimplementation
-with reentrancy as a core design constraint.
+with reentrancy as a core design constraint. (Its product name is still
+open; it is not "REXX/370", which is IBM's.)
 
 The primary specification is the IBM manual SC28-1883-0 (TSO Extensions
 Version 2 REXX Reference, December 1988). When in doubt about REXX
 language behaviour, semantics, or control block layouts, consult this
 manual. It is available at https://vtda.org (search for SC28-1883).
 
-## Architecture
+## Read when relevant
 
-The architecture design document is at:
-https://www.notion.so/3283d9938787811ba3f4d3308b254cad
+| Before you … | read |
+|---|---|
+| pick up any work, or close/change a work package | `internals/ROADMAP.md` (single source of truth, see below) |
+| change interpreter structure, ENVBLOCK/anchor, control blocks | `internals/architecture.md` (also the Notion design page: https://www.notion.so/3283d9938787811ba3f4d3308b254cad) |
+| touch the bytecode compiler or VM | `internals/bytecode-format.md` |
+| write or reformat C code | `internals/code-style.md` |
+| look for which source file holds what | `internals/source-files.md` (partial; `git ls-files src` is current) |
+| compile a test by hand, or need the old per-test counts | `internals/testing.md` |
+| implement a BIF or an MVS integration | `internals/brexx-reference.md` |
+| measure or quote performance | `internals/profiling.md`, `internals/ROADMAP.md` performance history |
+| work on the TSO integration (IKJEFT01, EXEC, `ZMG0002`) | `tso/README.md`, `tso/TODO_IKJCT437.md`, `tso/TODO_IKJEFT01.md` |
+
+## Architecture
 
 Key points:
 - **ENVBLOCK** is the anchor for each Language Processor Environment
@@ -34,188 +49,6 @@ Key points:
 - **irx_wkblk_int** (our internal Work Block) holds all per-environment
   interpreter runtime state (variables, stack, trace, numeric settings)
 - All state is per-environment. Zero globals. This is non-negotiable.
-
-## Code Style
-
-**We target C99 / gnu99.** `project.toml` sets
-`cflags = ["-std=gnu99"]` and the cross-compile tests use `-std=gnu99`.
-c2asm370 (GCC 3.2.3) accepts gnu99 features. C99 idioms are expected
-throughout `src/`, `include/`, and `test/`.
-
-The full style guide lives in [`internals/code-style.md`](internals/code-style.md).
-`.clang-format` and `.clang-tidy` at the repo root encode the
-mechanically enforceable parts.
-
-### Tooling workflow
-
-**clang-tidy during development.** Run while iterating to catch
-issues early. Warnings are advisory — they surface magic numbers,
-const-correctness, multi-level pointer conversions, and similar
-concerns. Fix what's in your diff; pre-existing warnings are out
-of scope for the current commit unless the task explicitly includes
-them.
-
-```sh
-clang-tidy --config-file=.clang-tidy src/irx#*.c -- \
-    -Iinclude -I../lstring370/include -std=gnu99
-```
-
-**clang-format at the end of each commit, only on files you changed.**
-Run it ONCE as the very last step, immediately before `git add`.
-Pass the specific files you touched — do not sweep the whole tree
-from a feature branch (that belongs in a dedicated `chore: clang-format
-sweep` commit).
-
-```sh
-clang-format --style=file:.clang-format -i <files you changed>
-```
-
-The codebase is convergent with `.clang-format` as of the sweep that
-landed just before this workflow was documented — running
-`clang-format --style=file --dry-run --Werror` across `src/`,
-`include/`, `test/` passes cleanly. CI is expected to ratchet on
-this invariant (follow-up task). Any diff produced by `clang-format`
-on a file you didn't semantically change is a red flag: re-check
-that you're using `--style=file:.clang-format` and that your local
-clang-format isn't picking up a different config.
-
-### Language rules
-
-- Declare variables where they are first used, not at block top.
-  Shortens live ranges and improves readability.
-- `for (int i = 0; i < n; i++)` loop-initializer declarations are fine.
-- `//` single-line comments are fine.
-- **Do NOT** wrap code in bare `{}` blocks just to declare variables
-  mid-function. Bare blocks are legitimate only to narrow a resource
-  lifetime (e.g. a temporary `Lstr` that must be freed before the
-  surrounding control flow continues).
-
-```c
-/* BAD — bare block exists only to declare idx and existing */
-if (some_condition) {
-    {
-        int idx = bucket_index(pool, name);
-        struct vpool_entry *existing =
-            find_in_bucket(pool->buckets[idx], name);
-        /* ... */
-    }
-}
-
-/* GOOD — declare where first used */
-if (some_condition) {
-    int idx = bucket_index(pool, name);
-    struct vpool_entry *existing =
-        find_in_bucket(pool->buckets[idx], name);
-    /* ... */
-}
-```
-
-### Formatting
-
-- **Allman / BSD braces**: opening brace on its own line for functions,
-  control flow, and compound statements.
-- 4-space indent, no tabs.
-- **Braces are required** even on single-line `if`/`for`/`while`
-  bodies. `clang-format`'s `InsertBraces` enforces this automatically.
-- `switch`/`case`: indent `case` one level from `switch`; wrap each
-  non-trivial case body in its own `{ ... }`. clang-format cannot
-  enforce case-body braces — apply them by hand.
-- Pointer style: `char *ptr` (star attached to the name).
-
-### Naming
-
-- `snake_case` for variables, functions, types, and struct members.
-- `ALL_CAPS` for macros and enum values.
-- Typedefs end with `_t` (e.g. `irx_parser_t`).
-- Header guards use the `FILENAME_H` form — **no** leading double
-  underscores (those are reserved by the C standard). Example:
-  `#ifndef IRXVPOOL_H` / `#define IRXVPOOL_H` / `#endif /* IRXVPOOL_H */`.
-
-### Constants
-
-- Prefer enums over `#define` chains for related constants.
-- No magic numbers in code — hoist them to a `#define` or an enum with
-  a meaningful name.
-
-### Includes
-
-- System headers first, then project headers, with a blank line
-  between the two groups.
-- Inside each group, keep entries alphabetized where practical.
-
-```c
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "irxpars.h"
-#include "irxvpool.h"
-```
-
-## Build system
-
-- **Compiler:** c2asm370 (C → HLASM cross-compiler for MVS 3.8j)
-- **C Library:** crent370 (reentrant C runtime, provides malloc/free,
-  stdio, string.h, plus MVS-specific APIs)
-- **Build tool:** mbt — reads `project.toml`
-- **Target:** MVS 3.8j, AMODE 24, RMODE 24
-
-```bash
-make                               # full build (all modules)
-make irxjcl                        # specific module (lowercase alias)
-```
-
-Cross-compile for local testing (Linux/gcc) — see the full recipe in
-the Testing section further down. Quick form:
-
-```bash
-gcc -I include -I ../lstring370/include \
-    -Wall -Wextra -std=gnu99 -o /tmp/tstfoo test/tstfoo.c \
-    'src/irx#'*.c ../lstring370/src/'lstr#'*.c
-```
-
-Note: `#` in filenames must be quoted in shell commands.
-
-## File naming convention
-
-Source files: `src/irx#module.c` — the `#` separates prefix from
-submodule name and maps to a valid PDS member name on MVS.
-
-Headers: `include/name.h` — plain names, no prefix convention.
-
-Tests: `test/tstname.c` — lowercase, no `#`, stem ≤ 8 chars
-(PDS member `TSTNAME`). Each test is both a Linux/gcc unit test and
-an MVS standalone load module (entry via `@@CRT0`, `main()` returns
-RC=0/1).
-
-| File | Member | Purpose |
-|------|--------|---------|
-| `src/irx#init.c` | IRX#INIT | IRXINIT — environment initialization |
-| `src/irx#term.c` | IRX#TERM | IRXTERM — environment termination |
-| `src/irx#stor.c` | IRX#STOR | Storage management replaceable routine; GETMAIN/FREEMAIN by inline assembler (#298) |
-| `src/irx#svc.c`  | IRX#SVC  | LOAD/DELETE by inline assembler, no libc370 (#298) |
-| `src/irx#envt.c` | IRX#ENVT | REXX370_BYTECODE / REXX370_BCDEBUG for C hosts (IRXJCL, tests); IRXINIT reads no env vars (#298) |
-| `src/irx#anch.c` | IRX#ANCH | ECTENVBK anchor (push/pop discipline) |
-| `src/irx#uid.c` | IRX#UID | User ID replaceable routine, load module IRXUID (#255) |
-| `src/irx#msid.c` | IRX#MSID | Message ID replaceable routine, load module IRXMSGID (#255) |
-| `src/irx#tokn.c` | IRX#TOKN | Tokenizer (WP-10) |
-| `src/irx#lstr.c` | IRX#LSTR | lstring370 adapter (WP-11b) |
-| `src/irx#vpol.c` | IRX#VPOL | Variable pool (WP-12) |
-| `src/irx#pars.c` | IRX#PARS | Parser + expression evaluator (WP-13) |
-| `src/irx#io.c`   | IRX#IO   | Default I/O routine, load module IRXINOUT; writes OUTDD through `asm/irxqsam.asm` (WP-14, #255, #302) |
-| `src/irx#qsmh.c` | IRX#QSMH | Host stand-in for `asm/irxqsam.asm` (`[host] replace`) |
-| `src/irx#tsio.c` | IRX#TSIO | TSO I/O routine IRXIOTSO, writes via PUTLINE (WP-33-TSO) |
-| `src/irx#putl.c` | IRX#PUTL | Host stand-in for `asm/putlin.asm` (captures PUTLINE calls) |
-| `src/irx#ldqs.c` | IRX#LDQS | IRXLOAD's member reader: stdio, needs a C runtime (batch) |
-| `src/irx#ldbp.c` | IRX#LDBP | IRXLDTSO's member reader: BPAM via `asm/irxbpam.asm`, no C runtime (#230) |
-| `src/irx#ctrl.c` | IRX#CTRL | Control flow: DO/IF/SELECT/CALL/SIGNAL (WP-15) |
-| `src/irx#exec.c` | IRX#EXEC | End-to-end execution pipeline irx_exec_run() (WP-18) |
-| `src/irx#cond.c` | IRX#COND | Condition raise helper (irx_cond_raise, WP-21a) |
-| `src/irx#bif.c`  | IRX#BIF  | BIF argument-validation helpers (WP-21a); lookup is `irx_bif_find_local()` in IRX#BIFS |
-| `src/irx#bifs.c` | IRX#BIFS | All §4 BIFs — string (WP-21a) + numeric, conversion, reflection, environment (WP-21b) |
-
-New source files follow the same pattern: `src/irx#xxxx.c` where
-`xxxx` is a 4-character identifier. Member names must be ≤ 8 chars.
 
 ## The cardinal rule: NO GLOBAL STATE
 
@@ -241,6 +74,54 @@ because of global variables. We do not repeat that mistake.
 may define `void *_simulated_ectenvbk` as a global to simulate the
 MVS TCB. This is test-only, never in production code.
 
+## Build system
+
+- **Toolchain:** cc370 (C → S/370 object, `-std=gnu99`), libc370 from
+  the cc370 sysroot (version pinned in `project.toml` `[toolchain]`)
+- **Build tool:** mbt 2 — reads `project.toml`, driven by `make`
+- **Dependency:** lstring370 (staged in `.mbt/deps`; the host build
+  compiles it from `../lstring370/src`)
+- **Target:** MVS 3.8j, AMODE 24, RMODE 24
+
+```bash
+make                               # full build (all modules)
+make irxjcl                        # specific module (lowercase alias)
+```
+
+Note: `#` in filenames must be quoted in shell commands.
+
+## File naming convention
+
+Source files: `src/irx#module.c` — the `#` separates prefix from
+submodule name and maps to a valid PDS member name on MVS.
+New source files follow the same pattern: `src/irx#xxxx.c` where
+`xxxx` is a 4-character identifier. Member names must be ≤ 8 chars.
+
+Headers: `include/name.h` — plain names, no prefix convention.
+
+Tests: `test/tstname.c` — lowercase, no `#`, stem ≤ 8 chars
+(PDS member `TSTNAME`). Each test is both a Linux/gcc unit test and
+an MVS standalone load module (entry via `@@CRT0`, `main()` returns
+RC=0/1).
+
+## Testing
+
+Every work package produces a `test/tst*.c` that runs both on the host
+and as an MVS load module. Each test is declared as a `[[test]]` block
+in `project.toml`; mbt v2 generates the run JCL from that block. Only a
+few pure-assembler VLIST-wrapper edge cases also need a hand-written
+`test/jcl/<name>.jcl`.
+
+```bash
+make test-host   # build + run the host-runnable tests natively (fast inner loop)
+make tsttokn     # build one test module (or `make test` for all)
+make test-mvs    # build + deploy the test modules to a TESTLIB + run on MVS
+```
+
+Registering a new test as a `[[test]]` block is part of the change, not
+a follow-up. Details, the hand-compile recipe and the historical counts:
+`internals/testing.md`.
+
 ## Memory management
 
 All memory allocation goes through `irxstor()` (defined in
@@ -254,9 +135,10 @@ int rc = irxstor(RXSMGET, size, &ptr, envblock);  /* allocate */
 irxstor(RXSMFRE, size, &ptr, envblock);            /* free     */
 ```
 
-On MVS with a specific subpool configured in PARMBLOCK, `irxstor`
-uses `getmain()`/`freemain()` from `<clibos.h>`. Otherwise it uses
-the crent370 heap (`calloc`/`free`).
+On MVS `irxstor` issues GETMAIN/FREEMAIN itself, by inline assembler,
+for every subpool including 0 (#298), with libc370's 8-byte block prefix;
+that layout must not change (see the header of `src/irx#stor.c`). On the
+host it uses `calloc`/`free`.
 
 ## Error handling pattern
 
@@ -299,118 +181,61 @@ cleanup:
 - Use `memcpy()` for eye-catcher initialization, not string assignment
   (eye-catchers are `unsigned char[]`, not `char*`)
 
-## crent370 API cheat sheet
+## Platform and EBCDIC
 
-| Header | Provides | When needed |
-|--------|----------|-------------|
-| `<stdlib.h>` | malloc, calloc, free, atoi | Always (via irxstor) |
-| `<stdio.h>` | printf, fprintf, sprintf | Testing, debug |
-| `<string.h>` | memcpy, memset, memcmp, strlen | Always |
-| `<clibos.h>` | getmain, freemain, BLDL, LOAD, LINK | Subpool alloc, module loading |
-| `<clibwto.h>` | wtof() | Operator messages (IRXnnnnI) |
-| `<clibstae.h>` | ESTAE wrappers | Phase 6+ recovery |
-| `<clibcrt.h>` | C runtime area access | Runtime introspection |
-| `<clibthrd.h>` | Thread primitives | Future multi-thread |
-| `<osio.h>` | OPEN/CLOSE/GET/PUT DCB | Phase 4 EXECIO |
-| `<osdcb.h>` | DCB structure definitions | Phase 4 EXECIO |
-| `<clibcib.h>` | Console interface blocks | If STC console needed |
-
-**Platform detection:** c2asm370 defines `__MVS__`. Use `#ifdef __MVS__`
+**Platform detection:** cc370 defines `__MVS__`. Use `#ifdef __MVS__`
 for MVS-specific code paths. The `#else` path is for cross-compile
 testing on Linux/gcc.
 
-## EBCDIC
-
-MVS 3.8j uses EBCDIC (Code Page 037/1047). When processing REXX
-source code or comparing characters:
-
-- Do NOT hardcode ASCII values (e.g., `c >= 0x41 && c <= 0x5A`)
-- Use `ctype.h` functions (`isalpha`, `isdigit`, `isalnum`) which
-  crent370 provides in EBCDIC-correct form
-- Character literals like `'A'` or `'0'` are compiled correctly by
-  c2asm370 (they produce EBCDIC values)
+- Use `ctype.h` functions (`isalpha`, `isdigit`, `isalnum`), which
+  libc370 provides in EBCDIC-correct form
 - For cross-compile testing, ASCII is fine — the logic should be
   character-set-neutral using ctype.h
 
-## Testing
+## Code style
 
-Every work package produces a `test/tst*.c` source file that
-doubles as (a) a Linux/gcc cross-compile unit test and (b) an MVS
-standalone load module (`TST*` member via `make test`). Tests use a
-simple CHECK macro:
+C99 / gnu99 throughout `src/`, `include/` and `test/`. The full style
+guide is [`internals/code-style.md`](internals/code-style.md);
+`.clang-format` and `.clang-tidy` at the repo root encode the
+mechanically enforceable parts. In short: Allman braces, braces even on
+one-line bodies (and by hand around non-trivial `case` bodies), 4-space
+indent, `snake_case`, `ALL_CAPS` macros and enum values, `_t` typedefs,
+`FILENAME_H` guards without leading underscores, no magic numbers,
+declarations where first used, no bare `{}` blocks just to declare.
 
-```c
-#define CHECK(cond, msg) ...  /* see test/tsttokn.c */
+### Tooling workflow
+
+**clang-tidy during development.** Run while iterating to catch
+issues early. Warnings are advisory — they surface magic numbers,
+const-correctness, multi-level pointer conversions, and similar
+concerns. Fix what's in your diff; pre-existing warnings are out
+of scope for the current commit unless the task explicitly includes
+them.
+
+```sh
+clang-tidy --config-file=.clang-tidy src/irx#*.c -- \
+    -Iinclude -I../lstring370/include -std=gnu99
 ```
 
-### MVS build
+**clang-format at the end of each commit, only on files you changed.**
+Run it once as the very last step, immediately before `git add`.
+Pass the specific files you touched — do not sweep the whole tree
+from a feature branch (that belongs in a dedicated `chore: clang-format
+sweep` commit).
 
-```bash
-make tsttokn     # build one test module (or `make test` for all)
-make test-mvs    # build + deploy the test modules to a TESTLIB + run on MVS
-# Or invoke a single module by hand after building/deploying:
-#   TSO:   CALL 'hlq.LOAD(TSTTOKN)'
-#   Batch: // EXEC PGM=TSTTOKN
+```sh
+clang-format --style=file:.clang-format -i <files you changed>
 ```
 
-Each test is declared as a `[[test]]` block in `project.toml` (name /
-startup / sources — the full Phase 1 + Phase 2 + EXEC + ARIT chain;
-TSTTOKN is the one exception, minimal dependencies). mbt v2 generates
-the run JCL from that block. Only a few pure-HLASM VLIST-wrapper edge
-cases (tinitvl, ttermvl, tistso) also need a hand-written
-`test/jcl/<name>.jcl`.
+The codebase is convergent with `.clang-format`. Any diff produced by
+`clang-format` on a file you didn't semantically change is a red flag:
+re-check that you're using `--style=file:.clang-format` and that your
+local clang-format isn't picking up a different config.
 
-### Linux cross-compile
+### Comments and documentation
 
-`make test-host` builds and runs the host-runnable dual tests natively
-— the fast inner loop, no MVS round-trip (MVS-only tests such as the
-VLIST wrappers are skipped). To compile a single test by hand, the
-superset below links every test correctly. The minimum dep set
-for a given test is narrower in principle, but `irx#bifs.c` pulls in
-`irx#arith.c` and `irx#pars.c`, and `irx#init.c` pulls in `irx#io.c`,
-so for practical purposes the superset is the right default.
-
-```bash
-LSTRING_INC="-I ../lstring370/include"
-LSTRING_SRC="../lstring370/src/lstr#cor.c  ../lstring370/src/lstr#cvt.c \
-             ../lstring370/src/lstr#fmt.c  ../lstring370/src/lstr#srch.c \
-             ../lstring370/src/lstr#sub.c  ../lstring370/src/lstr#wrd.c \
-             ../lstring370/src/lstr#xlt.c"
-PHASE1_SRC="src/irx#init.c src/irx#term.c src/irx#stor.c \
-            src/irx#anch.c src/irx#env.c  src/irx#uid.c  src/irx#msid.c \
-            src/irx#cond.c src/irx#bif.c  src/irx#bifs.c"
-PHASE2_SRC="src/irx#io.c   src/irx#lstr.c src/irx#tokn.c \
-            src/irx#vpol.c src/irx#pars.c src/irx#ctrl.c"
-ALL_SRC="$PHASE1_SRC $PHASE2_SRC src/irx#exec.c src/irx#arith.c $LSTRING_SRC"
-
-run() {
-    gcc -I include $LSTRING_INC -Wall -Wextra -std=gnu99 \
-        -o /tmp/$1 "test/$1.c" $ALL_SRC && /tmp/$1
-}
-
-run tstphas1    # Phase 1 smoke tests                (38/38)
-run tsttokn     # Tokenizer (WP-10)                  (70/70)
-run tstlstr     # lstring adapter (WP-11b)           (50/50)
-run tstvpol     # Variable pool (WP-12)              (47/47)
-run tstprsr     # Parser (WP-13)                     (39/39)
-run tstsay      # SAY / I/O (WP-14)                  (27/27)
-run tstctrl     # Control flow (WP-15)               (62/62)
-run tstparse    # PARSE instruction (WP-16)          (74/74)
-run tstproc     # PROCEDURE EXPOSE (WP-17)           (53/53)
-run tsthelo     # Hello-world end-to-end (WP-18)     (16/16)
-run tstanrm     # ECTENVBK anchor TSOFL-conditional  (29/29)
-run tstfind     # FINDENVB + CHEKENVB (WP-I1c.2)     (44/44)
-run tstarit     # Arithmetic engine (WP-20)          (128/128)
-run tstarext    # Direct IRXARITH API (WP-20 + B)    (113/113)
-run tstbif      # BIF lookup (WP-21a, #254)          (17/17)
-run tstbifs     # All §4 BIFs (WP-21a + WP-21b)      (410/410)
-```
-
-Note: `TSTANCH` (the ENVBLOCK anchor smoketest) is linked on MVS as
-a standalone load module but is invoked from TSO/Batch — it does not
-have a runnable Linux cross-compile entry of its own.
-
-Full matrix: 15 binaries, **1200 tests green** as of WP-I1c.2 close-out.
+- All code comments in **English**
+- German only for user-facing documentation (manual, if any)
 
 ## Work packages & roadmap
 
@@ -431,65 +256,17 @@ Same class of always-do as the test-registration rule (a `[[test]]` block in
 `internals/workpackages.md` holds the historical Phase 1-3 per-WP definitions and is
 **frozen/stale** — do not treat its status table as current.
 
-Current status (2026-08-15), summarized — see ROADMAP.md for detail:
-- Phases 1-3 (skeleton, core interpreter, arithmetic + BIFs): complete
-- REXXCPS runs end-to-end on the **bytecode VM** (the primary path); the
-  token-walk interpreter is frozen (CON-18) as fallback + equivalence reference
-- Active focus: performance toward BREXX and token-walk decommission (CON-20)
-- The re-profile is **done** (`internals/diag/wp-perf-profile-2.md`, 2026-06-03) —
-  do not run another one before acting on it. It ranked the variable-resolution
-  cache first; that is #218, in progress.
-- **The old System A / System B measuring machines no longer exist.** Every cps
-  figure predating 2026-08-15 (the 20.9k System A baseline, the 4.3× factor)
-  was taken on hardware that is gone and is *not* comparable to a new
-  measurement. Re-baseline on the current system before quoting a factor.
+**The old System A / System B measuring machines no longer exist.** Every cps
+figure predating 2026-08-15 (the 20.9k System A baseline, the 4.3× factor)
+was taken on hardware that is gone and is *not* comparable to a new
+measurement. Re-baseline on the current system before quoting a factor.
 
-## Knowledge sources
+## SMP and the TSO integration
 
-BREXX/370 (https://github.com/mvslovers/brexx370) is a knowledge
-source for REXX BIF implementations and MVS integration patterns.
-Do **not** copy code verbatim — reimplemented clean with reentrant
-design. Useful files to reference:
-
-| BREXX file | What to learn from it |
-|---|---|
-| `inc/irx.h` | IBM control block layouts (already extracted) |
-| `lstring/*.c` | REXX string operation algorithms |
-| `src/nextsymb.c` | Token classification logic |
-| `src/interpre.c` | Opcode dispatch patterns (but avoid its globals) |
-| `src/variable.c` | Hash table and compound variable resolution |
-| `src/rxmvs.c` | MVS BIF implementations (LISTDSI, SYSDSN, etc.) |
-| `src/builtin.c` | Built-in function dispatch table |
-
-## Comments and documentation
-
-- All code comments in **English**
-- German only for user-facing documentation (manual, if any)
-
-## SMP4 FMID — one per release
-
-The id is the release: `T` + three product letters + the three version digits.
-One id per release, **spent exactly once**, and each release's SYSMOD deletes
-its predecessor:
-
-```toml
-[distribution.smp]
-fmid   = "TRXX100"
-```
-
-**No version component may ever exceed 9** — a 7-character id has no room for
-a second digit. At patch 9 cut the next minor, at minor 9 the next major;
-rexx370 1.0.10 cannot be expressed and must not be released.
-
-Proposed: **`TRXX100`** for 1.0.0. Nothing has ever been installed, so the first
-level carries no `delete`; every level after it deletes the one before.
+The SMP rules are the root's (`~/repos/mvs/.workspace/context/smp.md`).
+Proposed first level: **`TRXX100`** for 1.0.0, no `delete`.
 
 **The TSO integration is not part of the FMID.** The patches to IBM's TMP
 (IKJEFT01 + IKJEFTRX) and EXEC (IKJCT430 + IKJCT437) live in `tso/` and ship as
 the usermod `ZMG0002` (`tso/usermod/`, FMID EBB1102). State and tests:
 `tso/TODO_IKJCT437.md`, `tso/lab/exec_test.py`.
-
-Never re-spend an id, and never install a test package under the real one: a
-test needs a throwaway id **and** throwaway module names, because SMP keys
-element ownership on `MOD(name)`, not on the target library. See the root
-`CLAUDE.md` for the full rule and the measurements behind it.
