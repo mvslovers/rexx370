@@ -25,7 +25,7 @@ manual. It is available at https://vtda.org (search for SC28-1883).
 | touch the bytecode compiler or VM | `internals/bytecode-format.md` |
 | write or reformat C code | `internals/code-style.md` |
 | look for which source file holds what | `internals/source-files.md` (partial; `git ls-files src` is current) |
-| compile a test by hand, or need the old per-test counts | `internals/testing.md` |
+| run one test on the host, or need the old per-test counts | `internals/testing.md` |
 | implement a BIF or an MVS integration | `internals/brexx-reference.md` |
 | measure or quote performance | `internals/profiling.md`, `internals/ROADMAP.md` performance history |
 | work on the TSO integration (IKJEFT01, EXEC, `ZMG0002`) | `tso/README.md`, `tso/TODO_IKJCT437.md`, `tso/TODO_IKJEFT01.md` |
@@ -119,7 +119,7 @@ make test-mvs    # build + deploy the test modules to a TESTLIB + run on MVS
 ```
 
 Registering a new test as a `[[test]]` block is part of the change, not
-a follow-up. Details, the hand-compile recipe and the historical counts:
+a follow-up. Details, single-test host runs and the historical counts:
 `internals/testing.md`.
 
 ## Memory management
